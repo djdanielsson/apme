@@ -25,7 +25,7 @@ _sym_db = _symbol_database.Default()
 from apme.v1 import common_pb2 as apme_dot_v1_dot_common__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x15\x61pme/v1/primary.proto\x12\x07\x61pme.v1\x1a\x14\x61pme/v1/common.proto\"_\n\x0bScanOptions\x12\x18\n\x10include_scandata\x18\x01 \x01(\x08\x12\x1c\n\x14\x61nsible_core_version\x18\x02 \x01(\t\x12\x18\n\x10\x63ollection_specs\x18\x03 \x03(\t\"y\n\x0bScanRequest\x12\x0f\n\x07scan_id\x18\x01 \x01(\t\x12\x14\n\x0cproject_root\x18\x02 \x01(\t\x12\x1c\n\x05\x66iles\x18\x03 \x03(\x0b\x32\r.apme.v1.File\x12%\n\x07options\x18\x04 \x01(\x0b\x32\x14.apme.v1.ScanOptions\"b\n\x0cScanResponse\x12&\n\nviolations\x18\x01 \x03(\x0b\x32\x12.apme.v1.Violation\x12\x0f\n\x07scan_id\x18\x02 \x01(\t\x12\x19\n\x11hierarchy_payload\x18\x03 \x01(\x0c\x32y\n\x07Primary\x12\x33\n\x04Scan\x12\x14.apme.v1.ScanRequest\x1a\x15.apme.v1.ScanResponse\x12\x39\n\x06Health\x12\x16.apme.v1.HealthRequest\x1a\x17.apme.v1.HealthResponseb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x15\x61pme/v1/primary.proto\x12\x07\x61pme.v1\x1a\x14\x61pme/v1/common.proto\"_\n\x0bScanOptions\x12\x18\n\x10include_scandata\x18\x01 \x01(\x08\x12\x1c\n\x14\x61nsible_core_version\x18\x02 \x01(\t\x12\x18\n\x10\x63ollection_specs\x18\x03 \x03(\t\"y\n\x0bScanRequest\x12\x0f\n\x07scan_id\x18\x01 \x01(\t\x12\x14\n\x0cproject_root\x18\x02 \x01(\t\x12\x1c\n\x05\x66iles\x18\x03 \x03(\x0b\x32\r.apme.v1.File\x12%\n\x07options\x18\x04 \x01(\x0b\x32\x14.apme.v1.ScanOptions\"b\n\x0cScanResponse\x12&\n\nviolations\x18\x01 \x03(\x0b\x32\x12.apme.v1.Violation\x12\x0f\n\x07scan_id\x18\x02 \x01(\t\x12\x19\n\x11hierarchy_payload\x18\x03 \x01(\x0c\"-\n\rFormatRequest\x12\x1c\n\x05\x66iles\x18\x01 \x03(\x0b\x32\r.apme.v1.File\"2\n\x0e\x46ormatResponse\x12 \n\x05\x64iffs\x18\x01 \x03(\x0b\x32\x11.apme.v1.FileDiff\"K\n\x08\x46ileDiff\x12\x0c\n\x04path\x18\x01 \x01(\t\x12\x10\n\x08original\x18\x02 \x01(\x0c\x12\x11\n\tformatted\x18\x03 \x01(\x0c\x12\x0c\n\x04\x64iff\x18\x04 \x01(\t2\xb4\x01\n\x07Primary\x12\x33\n\x04Scan\x12\x14.apme.v1.ScanRequest\x1a\x15.apme.v1.ScanResponse\x12\x39\n\x06\x46ormat\x12\x16.apme.v1.FormatRequest\x1a\x17.apme.v1.FormatResponse\x12\x39\n\x06Health\x12\x16.apme.v1.HealthRequest\x1a\x17.apme.v1.HealthResponseb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -38,6 +38,12 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_SCANREQUEST']._serialized_end=274
   _globals['_SCANRESPONSE']._serialized_start=276
   _globals['_SCANRESPONSE']._serialized_end=374
-  _globals['_PRIMARY']._serialized_start=376
-  _globals['_PRIMARY']._serialized_end=497
+  _globals['_FORMATREQUEST']._serialized_start=376
+  _globals['_FORMATREQUEST']._serialized_end=421
+  _globals['_FORMATRESPONSE']._serialized_start=423
+  _globals['_FORMATRESPONSE']._serialized_end=473
+  _globals['_FILEDIFF']._serialized_start=475
+  _globals['_FILEDIFF']._serialized_end=550
+  _globals['_PRIMARY']._serialized_start=553
+  _globals['_PRIMARY']._serialized_end=733
 # @@protoc_insertion_point(module_scope)

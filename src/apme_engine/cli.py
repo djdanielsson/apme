@@ -1,4 +1,4 @@
-"""CLI: run engine + validators and print violations; collection cache commands."""
+"""CLI: run engine + validators and print violations; collection cache commands; YAML formatting."""
 
 import argparse
 import json
@@ -21,6 +21,7 @@ from apme_engine.collection_cache import (
     pull_github_repos,
 )
 from apme_engine.daemon.health_check import run_health_checks
+from apme_engine.formatter import format_file, format_directory, check_idempotent
 
 
 def _sort_violations(violations: list[dict]) -> list[dict]:
@@ -182,6 +183,109 @@ def _run_cache(args):
         sys.exit(1)
 
 
+def _run_format(args):
+    """Format YAML files: normalize indentation, key order, jinja spacing, tabs."""
+    target = Path(args.target).resolve()
+    exclude = getattr(args, "exclude", None) or []
+    apply_changes = getattr(args, "apply", False)
+    check_only = getattr(args, "check", False)
+
+    if target.is_file():
+        results = [format_file(target)]
+    elif target.is_dir():
+        results = format_directory(target, exclude_patterns=exclude)
+    else:
+        sys.stderr.write(f"Path not found: {target}\n")
+        sys.exit(1)
+
+    changed = [r for r in results if r.changed]
+
+    if check_only:
+        if changed:
+            sys.stderr.write(f"{len(changed)} file(s) would be reformatted\n")
+            for r in changed:
+                sys.stderr.write(f"  {r.path}\n")
+            sys.exit(1)
+        else:
+            sys.stderr.write("All files already formatted\n")
+            sys.exit(0)
+
+    if not changed:
+        print("All files already formatted.")
+        return
+
+    if apply_changes:
+        for r in changed:
+            r.path.write_text(r.formatted, encoding="utf-8")
+            print(f"  formatted: {r.path}")
+        print(f"\n{len(changed)} file(s) reformatted.")
+    else:
+        for r in changed:
+            sys.stdout.write(r.diff)
+        sys.stderr.write(f"\n{len(changed)} file(s) would be reformatted (use --apply to write)\n")
+
+
+def _run_fix(args):
+    """Format then modernize: format → idempotency check → re-scan → modernize."""
+    target = Path(args.target).resolve()
+    exclude = getattr(args, "exclude", None) or []
+    apply_changes = getattr(args, "apply", False)
+    check_only = getattr(args, "check", False)
+
+    if not target.exists():
+        sys.stderr.write(f"Path not found: {target}\n")
+        sys.exit(1)
+
+    # Phase 1: Format
+    sys.stderr.write("Phase 1: Formatting...\n")
+    if target.is_file():
+        results = [format_file(target)]
+    else:
+        results = format_directory(target, exclude_patterns=exclude)
+
+    changed = [r for r in results if r.changed]
+
+    if check_only:
+        if changed:
+            sys.stderr.write(f"  {len(changed)} file(s) would be reformatted\n")
+            sys.exit(1)
+        sys.stderr.write("  All files already formatted\n")
+        sys.exit(0)
+
+    if changed and apply_changes:
+        for r in changed:
+            r.path.write_text(r.formatted, encoding="utf-8")
+        sys.stderr.write(f"  {len(changed)} file(s) reformatted\n")
+    elif changed:
+        for r in changed:
+            sys.stdout.write(r.diff)
+        sys.stderr.write(f"  {len(changed)} file(s) would be reformatted (use --apply to write)\n")
+        return
+    else:
+        sys.stderr.write("  All files already formatted\n")
+
+    # Phase 2: Idempotency gate
+    sys.stderr.write("Phase 2: Idempotency check...\n")
+    if target.is_file():
+        recheck = [format_file(target)]
+    else:
+        recheck = format_directory(target, exclude_patterns=exclude)
+
+    still_changed = [r for r in recheck if r.changed]
+    if still_changed:
+        sys.stderr.write(f"  FAILED: {len(still_changed)} file(s) still have changes after formatting.\n")
+        sys.stderr.write("  This indicates a formatter bug. Aborting before modernization.\n")
+        for r in still_changed:
+            sys.stderr.write(f"    {r.path}\n")
+        sys.exit(1)
+    sys.stderr.write("  Passed (zero diffs on second run)\n")
+
+    # Phase 3+4: Re-scan and modernize (stub — modernize not yet implemented)
+    sys.stderr.write("Phase 3: Re-scan (modernize not yet implemented)...\n")
+    sys.stderr.write("  Modernization will be available in a future release.\n")
+    sys.stderr.write("  Formatting complete.\n")
+
+
 def _run_health_check(args):
     """Check health of all services (Primary, Native, OPA, Ansible, Cache maintainer) via gRPC."""
     primary_addr = getattr(args, "primary_addr", None) or os.environ.get("APME_PRIMARY_ADDRESS")
@@ -273,6 +377,27 @@ def main():
     clone_org.add_argument("--depth", type=int, default=1, help="Git clone depth (default: 1)")
     clone_org.add_argument("--token", default=None, help="GitHub token for API (for listing org repos)")
 
+    # ── format ──
+    format_parser = subparsers.add_parser(
+        "format",
+        help="Normalize YAML formatting (indentation, key order, jinja spacing, tabs)",
+    )
+    format_parser.add_argument("target", nargs="?", default=".", help="Path to file or directory")
+    format_parser.add_argument("--apply", action="store_true", help="Write formatted files in place")
+    format_parser.add_argument("--check", action="store_true", help="Exit 1 if files would change (CI mode)")
+    format_parser.add_argument("--exclude", nargs="*", default=None, help="Glob patterns to skip")
+
+    # ── fix ──
+    fix_parser = subparsers.add_parser(
+        "fix",
+        help="Format then modernize: format → idempotency check → re-scan → modernize",
+    )
+    fix_parser.add_argument("target", nargs="?", default=".", help="Path to file or directory")
+    fix_parser.add_argument("--apply", action="store_true", help="Write changes in place")
+    fix_parser.add_argument("--check", action="store_true", help="Exit 1 if changes would be made (CI mode)")
+    fix_parser.add_argument("--exclude", nargs="*", default=None, help="Glob patterns to skip")
+
+    # ── health-check ──
     health_parser = subparsers.add_parser("health-check", help="Check health of all services (Primary, Native, OPA, Ansible, Cache maintainer) via gRPC")
     health_parser.add_argument(
         "--primary-addr",
@@ -290,6 +415,10 @@ def main():
 
     if args.command == "scan":
         _run_scan(args)
+    elif args.command == "format":
+        _run_format(args)
+    elif args.command == "fix":
+        _run_fix(args)
     elif args.command == "health-check":
         _run_health_check(args)
     else:

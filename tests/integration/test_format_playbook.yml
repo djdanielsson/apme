@@ -1,0 +1,51 @@
+# Deliberately messy playbook for formatter integration tests.
+# This file triggers all three transforms: tabs, key reorder, jinja spacing.
+# Comments should be preserved after formatting.
+---
+# Play-level comment
+- hosts: all
+  become: true
+  tasks:
+    # Tab-indented task (tabs → 2-space)
+    - ansible.builtin.shell: echo "tabbed"
+	    name: Tabbed task
+
+    # Misordered keys: module before name
+    - ansible.builtin.debug:
+        msg: "hello world"
+      name: Say hello
+      when: ansible_os_family == "Debian"
+      tags:
+        - greet
+
+    # Jinja spacing: no spaces
+    - name: No jinja spaces
+      ansible.builtin.debug:
+        msg: "{{inventory_hostname}}"
+
+    # Jinja spacing: extra spaces
+    - name: Extra jinja spaces
+      ansible.builtin.debug:
+        msg: "{{  some_var  }}"
+
+    # Jinja with filter (complex expression)
+    - name: Jinja with filter
+      ansible.builtin.debug:
+        msg: "{{item.name | default('none')}}"
+
+    # Already correct — should not change
+    - name: Already clean
+      ansible.builtin.debug:
+        msg: "{{ foo }}"
+
+    # Octal mode — must be preserved
+    - name: Set permissions
+      ansible.builtin.file:
+        path: /tmp/testfile
+        mode: "0644"
+        state: touch
+
+    # Inline comment preservation
+    - name: With inline comment  # keep this
+      ansible.builtin.command: whoami
+      changed_when: false

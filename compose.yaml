@@ -1,4 +1,4 @@
-# Six-container gRPC architecture: Primary, Native, OPA, Ansible, Cache maintainer.
+# Seven-container gRPC architecture: Primary, Native, OPA, Ansible, Gitleaks, Cache maintainer.
 # All validators implement the unified Validator gRPC service (validate.proto).
 # CLI is run on-the-fly with CWD mounted (see containers/podman/run-cli.sh for Podman).
 # Docker: docker compose build && docker compose up -d
@@ -15,10 +15,12 @@ services:
       NATIVE_GRPC_ADDRESS: native:50055
       OPA_GRPC_ADDRESS: opa:50054
       ANSIBLE_GRPC_ADDRESS: ansible:50053
+      GITLEAKS_GRPC_ADDRESS: gitleaks:50056
     depends_on:
       - native
       - opa
       - ansible
+      - gitleaks
 
   native:
     build:
@@ -42,6 +44,13 @@ services:
       - cache:/cache:ro
     ports:
       - "50053:50053"
+
+  gitleaks:
+    build:
+      context: .
+      dockerfile: containers/gitleaks/Dockerfile
+    ports:
+      - "50056:50056"
 
   cache-maintainer:
     build:

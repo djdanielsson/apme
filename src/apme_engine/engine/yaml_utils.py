@@ -129,6 +129,16 @@ class FormattedEmitter(Emitter):
 
     _in_empty_flow_map = False
 
+    @staticmethod
+    def drop_octothorpe_protection(line: str) -> str:
+        """Remove octothorpe protection added during processing.
+
+        ruamel.yaml uses a special prefix to protect '#' characters in
+        strings from being treated as comments during post-processing.
+        This strips that protection in the final output.
+        """
+        return line.replace("\u0000#", "#")
+
 
 # pylint: disable=too-many-instance-attributes
 class FormattedYAML(YAML):
@@ -316,6 +326,13 @@ class FormattedYAML(YAML):
         # really annotate the return type here, so we need to remember to
         # never save None or scalar data types when reformatting.
         return data
+
+    @staticmethod
+    def _prevent_wrapping_flow_style(data: Any) -> None:
+        """Walk data and set flow style width hints so short mappings stay on one line."""
+        if isinstance(data, (CommentedMap, CommentedSeq)):
+            for item in (data.values() if isinstance(data, CommentedMap) else data):
+                FormattedYAML._prevent_wrapping_flow_style(item)
 
     def dumps(self, data: Any) -> str:
         """Dump YAML document to string (including its preamble_comment)."""

@@ -218,3 +218,97 @@ class TestContainerLogs:
     def test_ansible_argspec(self, scan_result):
         logs = _container_logs("ansible")
         assert "argspec" in logs, f"Ansible did not run argspec:\n{logs[-500:]}"
+
+
+# ---------------------------------------------------------------------------
+# Phase 10: Gitleaks validator (container-level)
+# ---------------------------------------------------------------------------
+
+SECRETS_FIXTURE = REPO_ROOT / "tests" / "integration" / "test_secrets_playbook.yml"
+
+
+@pytest.mark.integration
+class TestGitleaks:
+    def test_gitleaks_container_healthy(self, pod):
+        r = _run([
+            "podman", "run", "--rm", "--pod", POD_NAME,
+            "-e", f"APME_PRIMARY_ADDRESS={PRIMARY_ADDR}",
+            "--entrypoint", "apme-scan",
+            CLI_IMAGE,
+            "health-check", "--primary-addr", PRIMARY_ADDR,
+        ])
+        combined = r.stdout + r.stderr
+        assert "gitleaks" in combined.lower() or "overall: ok" in combined, \
+            f"Gitleaks not reported in health check:\n{combined}"
+
+    def test_gitleaks_logged(self, scan_result):
+        logs = _container_logs("gitleaks")
+        assert "Gitleaks validator" in logs, f"Gitleaks did not log:\n{logs[-500:]}"
+
+    def test_primary_logged_gitleaks_count(self, scan_result):
+        logs = _container_logs("primary")
+        assert "Gitleaks=" in logs, f"Primary did not log Gitleaks count:\n{logs[-500:]}"
+
+
+# ---------------------------------------------------------------------------
+# Phase 11: Format subcommand (container-level)
+# ---------------------------------------------------------------------------
+
+FORMAT_FIXTURE = REPO_ROOT / "tests" / "integration" / "test_format_playbook.yml"
+
+
+@pytest.mark.integration
+class TestFormat:
+    def test_format_check_detects_issues(self, pod):
+        """format --check on messy fixture exits 1."""
+        test_dir = str(FORMAT_FIXTURE.parent)
+        r = _run([
+            "podman", "run", "--rm", "--pod", POD_NAME,
+            "-v", f"{test_dir}:/workspace:ro,Z",
+            "-w", "/workspace",
+            "--entrypoint", "apme-scan",
+            CLI_IMAGE,
+            "format", "--check", "test_format_playbook.yml",
+        ])
+        assert r.returncode == 1, f"Expected exit 1 for messy file:\n{r.stdout}\n{r.stderr}"
+
+    def test_format_diff_shows_transforms(self, pod):
+        """format (no --apply) shows unified diff with expected transforms."""
+        test_dir = str(FORMAT_FIXTURE.parent)
+        r = _run([
+            "podman", "run", "--rm", "--pod", POD_NAME,
+            "-v", f"{test_dir}:/workspace:ro,Z",
+            "-w", "/workspace",
+            "--entrypoint", "apme-scan",
+            CLI_IMAGE,
+            "format", "test_format_playbook.yml",
+        ])
+        assert r.returncode == 0
+        assert "@@" in r.stdout or "---" in r.stdout, \
+            f"Expected unified diff output:\n{r.stdout[:500]}"
+
+    def test_format_apply_then_check_passes(self, pod, tmp_path):
+        """format --apply writes file; subsequent --check exits 0."""
+        import shutil
+        work = tmp_path / "fmt_test"
+        work.mkdir()
+        shutil.copy2(FORMAT_FIXTURE, work / "play.yml")
+        r = _run([
+            "podman", "run", "--rm", "--pod", POD_NAME,
+            "-v", f"{work}:/workspace:Z",
+            "-w", "/workspace",
+            "--entrypoint", "apme-scan",
+            CLI_IMAGE,
+            "format", "--apply", "play.yml",
+        ])
+        assert r.returncode == 0, f"format --apply failed:\n{r.stderr}"
+
+        r2 = _run([
+            "podman", "run", "--rm", "--pod", POD_NAME,
+            "-v", f"{work}:/workspace:ro,Z",
+            "-w", "/workspace",
+            "--entrypoint", "apme-scan",
+            CLI_IMAGE,
+            "format", "--check", "play.yml",
+        ])
+        assert r2.returncode == 0, f"format --check failed after --apply:\n{r2.stderr}"

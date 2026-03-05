@@ -7,6 +7,7 @@ import "apme/v1/common.proto";
 // Primary is the orchestrator daemon: receives chunked fs, runs engine + validators, returns violations.
 service Primary {
   rpc Scan(ScanRequest) returns (ScanResponse);
+  rpc Format(FormatRequest) returns (FormatResponse);
   rpc Health(HealthRequest) returns (HealthResponse);
 }
 
@@ -27,4 +28,19 @@ message ScanResponse {
   repeated Violation violations = 1;
   string scan_id = 2;
   bytes hierarchy_payload = 3;  // optional, for debugging
+}
+
+message FormatRequest {
+  repeated File files = 1;
+}
+
+message FormatResponse {
+  repeated FileDiff diffs = 1;
+}
+
+message FileDiff {
+  string path = 1;
+  bytes original = 2;
+  bytes formatted = 3;
+  string diff = 4;
 }

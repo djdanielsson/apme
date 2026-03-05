@@ -1,6 +1,6 @@
 # Ansible Forward (APME Engine)
 
-Ansible Policy & Modernization Engine — a multi-validator static analysis platform for Ansible content. It parses playbooks, roles, collections, and task files into a structured hierarchy, then fans validation out in parallel across three independent backends (OPA/Rego, native Python, and Ansible-runtime) to produce a single, unified list of violations.
+Ansible Policy & Modernization Engine — a multi-validator static analysis platform for Ansible content. It parses playbooks, roles, collections, and task files into a structured hierarchy, then fans validation out in parallel across four independent backends (OPA/Rego, native Python, Ansible-runtime, and Gitleaks) to produce a single, unified list of violations.
 
 ## Architecture at a glance
 
@@ -12,27 +12,29 @@ Ansible Policy & Modernization Engine — a multi-validator static analysis plat
 └─────────┘                 │   Engine   │ │                         │    OPA     │ :50054
      ▲                      │  ┌──────┐  │ │  ┌──────────────────►   │  (Rego)   │
      │   ScanResponse       │  │parse │  │ │  │                      ├────────────┤
-     │   violations         │  │annot.│  │ │  │                      │  Ansible   │ :50053
-     └──────────────────────│  │hier. │  ├─┘  │                      │ (runtime)  │
-                            │  └──────┘  ├────┘                      └────────────┘
-                            └───────────┘
-                                 │
-                            ┌────┴────┐
+     │   violations         │  │annot.│  │ │  │  ┌───────────────►   │  Ansible   │ :50053
+     └──────────────────────│  │hier. │  ├─┘  │  │                   │ (runtime)  │
+                            │  └──────┘  ├────┘  │                   ├────────────┤
+                            └───────────┘ ├──────┘                   │  Gitleaks  │ :50056
+                                 │                                   │ (secrets)  │
+                            ┌────┴────┐                              └────────────┘
                             │  Cache  │ :50052
                             │Maintainr│
                             └─────────┘
 ```
 
-Six containers, one pod. All inter-service communication is gRPC. The CLI is run on-the-fly with the project directory mounted. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full design.
+Seven containers, one pod. All inter-service communication is gRPC. The CLI is run on-the-fly with the project directory mounted. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full design.
 
 ## Key features
 
 - **Single parse, multiple validators** — the engine parses Ansible content once and produces a hierarchy payload + scandata; validators consume it independently.
 - **Parallel fan-out** — Primary calls Native, OPA, and Ansible validators concurrently via `ThreadPoolExecutor`; total latency = max(validators), not sum.
 - **Unified gRPC contract** — every validator implements the same `Validator` service (`validate.proto`); adding a new validator means implementing one RPC.
-- **100+ rules** across three backends: OPA Rego (L001–L025, R118), native Python (L026–L056, R101–R501), Ansible runtime (L057–L059, M001–M004).
+- **100+ rules** across four backends: OPA Rego (L001–L025, R118), native Python (L026–L056, R101–R501), Ansible runtime (L057–L059, M001–M004), Gitleaks (SEC:* — 800+ secret patterns).
+- **Secret scanning** — Gitleaks binary wrapped in gRPC; scans all project files for hardcoded credentials, API keys, private keys. Vault-encrypted files and Jinja2 expressions are automatically filtered.
 - **Multi ansible-core version support** — the Ansible validator pre-builds venvs for ansible-core 2.18, 2.19, 2.20; argspec and deprecation checks run against the requested version.
 - **Collection cache** — pull from Galaxy or clone GitHub orgs; mount read-only into the Ansible validator. Managed by a dedicated Cache Maintainer service.
+- **YAML formatter** — normalize indentation, key ordering, Jinja spacing, and tab removal with comment preservation. Idempotent by design; runs as a pre-pass before semantic fixes.
 - **Colocated tests** — every rule has a `*_test.py` (native), `*_test.rego` (OPA), or `.md` doc with violation/pass examples usable as integration tests.
 
 ## Quick start
@@ -53,6 +55,18 @@ apme-scan --json .
 # Skip specific validators
 apme-scan --no-opa .
 apme-scan --no-native .
+
+# Format YAML files (show diff)
+apme-scan format /path/to/project
+
+# Format and apply changes in place
+apme-scan format --apply /path/to/project
+
+# CI check mode (exit 1 if changes needed)
+apme-scan format --check /path/to/project
+
+# Full fix pipeline: format → idempotency check → re-scan → modernize
+apme-scan fix --apply /path/to/project
 ```
 
 ### Container deployment (Podman)
@@ -109,10 +123,12 @@ src/apme_engine/
   │   ├── base.py       Validator protocol + ScanContext
   │   ├── native/       Python rules (L026–L056, R101–R501)
   │   ├── opa/          Rego bundle (L001–L025, R118)
-  │   └── ansible/      Ansible-runtime rules (L057–L059, M001–M004)
+  │   ├── ansible/      Ansible-runtime rules (L057–L059, M001–M004)
+  │   └── gitleaks/     Gitleaks wrapper (SEC:* — secret detection)
   ├── daemon/           gRPC server implementations
   ├── collection_cache/ Galaxy/GitHub cache management
-  ├── cli.py            CLI entry point
+  ├── formatter.py      YAML formatter (phase 1 remediation)
+  ├── cli.py            CLI entry point (scan, format, fix, health-check)
   └── runner.py         scan orchestration
 containers/             Dockerfiles + Podman pod config
 docs/                   architecture, design, rule mapping
@@ -133,12 +149,37 @@ tests/                  unit, integration, rule doc coverage
 | [RULE_DOC_FORMAT.md](docs/RULE_DOC_FORMAT.md) | Rule `.md` format for docs + integration tests |
 | [ANSIBLE_CORE_MIGRATION.md](docs/ANSIBLE_CORE_MIGRATION.md) | ansible-core 2.19/2.20 breaking changes and rule mapping |
 | [PODMAN_OPA_ISSUES.md](docs/PODMAN_OPA_ISSUES.md) | Podman rootless troubleshooting |
+| [DESIGN_REMEDIATION.md](docs/DESIGN_REMEDIATION.md) | Remediation engine: transform registry, AI escalation, convergence loop |
+| [RESEARCH_REVIEW.md](docs/RESEARCH_REVIEW.md) | Analysis of early research concepts and roadmap pull-ins |
 
 ## Roadmap
 
-- **Phase 2** — Remediation engine: suggest and apply fixes, opt-in, re-scan.
-- **Phase 3** — AI integration: OpenLLM daemon via gRPC for explanations, YAML generation, Q&A, review summaries.
-- **Phase 4** — Web UI: dashboards, findings management, remediation queue, enterprise tracking.
+### Phase 1 — YAML Formatter (done)
+
+`format` subcommand with `--diff`/`--apply`/`--check` modes, idempotency guarantees, gRPC `Format` RPC.
+
+### Phase 2 — Modernization Engine
+
+- `fix` subcommand: format → idempotency gate → re-scan → semantic transforms.
+- **`is_finding_resolvable()` partition**: each rule declares a `fixable` attribute; the fix pipeline splits findings into auto-fixable vs manual/AI.
+- **Multi-pass convergence loop**: scan → fix → rescan → repeat until stable or oscillation detected (max N passes).
+- **`module_metadata.json`**: machine-readable module lifecycle data (introduced, deprecated, removed, parameter renames) generated from `ansible-doc` across core versions. M-series rules become data-driven lookups instead of per-rule hardcoded logic.
+
+### Phase 2a — New Rules
+
+- **Secret scanning** (done) — Gitleaks validator: 800+ patterns for credentials, API keys, private keys via dedicated container + gRPC wrapper. Vault and Jinja filtering built in.
+- **EE compatibility rules** (R505–R507): undeclared collections, system path assumptions, undeclared Python deps. Requires static `ee_baseline.json` from `ee-supported-rhel9` inspection.
+- **Version auto-detection**: infer source Ansible version from playbook signals (short-form module names → ≤2.9, `include:` → ≤2.7, `tower_*` → ≤2.13). Auto-scope M-rules without an explicit `--ansible-core-version` flag.
+
+### Phase 3 — AI Integration
+
+- OpenLLM daemon via gRPC for explanations, YAML generation, Q&A, review summaries.
+- **AI prompt template**: structured prompts with finding metadata + 10-line code window + constrained response schema (explanation, suggested_code, confidence, reasoning).
+- Handles findings where `fixable = false`; LLM proposes patches, human reviews.
+
+### Phase 4 — Web UI
+
+Dashboards, findings management, remediation queue, enterprise tracking.
 
 ## License
 

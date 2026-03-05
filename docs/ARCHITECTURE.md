@@ -2,7 +2,7 @@
 
 ## Overview
 
-APME is a six-container gRPC microservice deployed as a single Podman pod. The Primary service runs the engine (parse + annotate), then fans validation out **in parallel** to three independent validator backends over a unified gRPC contract. The CLI is ephemeral — run on-the-fly with the project directory mounted.
+APME is a seven-container gRPC microservice deployed as a single Podman pod. The Primary service runs the engine (parse + annotate), then fans validation out **in parallel** to four independent validator backends over a unified gRPC contract. The CLI is ephemeral — run on-the-fly with the project directory mounted.
 
 All inter-service communication is gRPC. There is no REST, no message queue, no service discovery. Containers in the same pod share `localhost`; addresses are fixed by convention.
 
@@ -11,14 +11,14 @@ All inter-service communication is gRPC. There is no REST, no message queue, no 
 ```
 ┌──────────────────────────── apme-pod ─────────────────────────────┐
 │                                                                    │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐          │
-│  │ Primary  │  │  Native  │  │   OPA    │  │ Ansible  │          │
-│  │  :50051  │  │  :50055  │  │  :50054  │  │  :50053  │          │
-│  │          │  │          │  │          │  │          │          │
-│  │ engine + │  │ Python   │  │ OPA bin  │  │ ansible- │          │
-│  │ orchestr │  │ rules on │  │ + gRPC   │  │ core     │          │
-│  │          │  │ scandata │  │ wrapper  │  │ venvs    │          │
-│  └────┬─────┘  └──────────┘  └──────────┘  └────┬─────┘          │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  │
+│  │ Primary  │  │  Native  │  │   OPA    │  │ Ansible  │  │ Gitleaks │  │
+│  │  :50051  │  │  :50055  │  │  :50054  │  │  :50053  │  │  :50056  │  │
+│  │          │  │          │  │          │  │          │  │          │  │
+│  │ engine + │  │ Python   │  │ OPA bin  │  │ ansible- │  │ gitleaks │  │
+│  │ orchestr │  │ rules on │  │ + gRPC   │  │ core     │  │ + gRPC   │  │
+│  │          │  │ scandata │  │ wrapper  │  │ venvs    │  │ wrapper  │  │
+│  └────┬─────┘  └──────────┘  └──────────┘  └────┬─────┘  └──────────┘  │
 │       │                                          │ ro             │
 │  ┌────┴─────────────────────────────────────┐    │                │
 │  │         Cache Maintainer :50052          │    │                │
@@ -42,6 +42,7 @@ All inter-service communication is gRPC. There is no REST, no message queue, no 
 | **Native** | `apme-native` | 50055 | Python rules operating on deserialized `scandata` (the full in-memory model). Rules L026–L056, R101–R501 |
 | **OPA** | `apme-opa` | 50054 | OPA binary (REST on 8181 internally) + Python gRPC wrapper. Rego rules L001–L025, R118 on the hierarchy JSON |
 | **Ansible** | `apme-ansible` | 50053 | Ansible-runtime checks using pre-built venvs (ansible-core 2.18/2.19/2.20). Syntax check, argspec validation, FQCN resolution, deprecation. Rules L057–L059, M001–M004 |
+| **Gitleaks** | `apme-gitleaks` | 50056 | Gitleaks binary + Python gRPC wrapper. Scans raw files for hardcoded secrets, API keys, private keys. Filters vault-encrypted content and Jinja2 expressions. Rules SEC:* (800+ patterns) |
 | **Cache Maintainer** | `apme-cache-maintainer` | 50052 | Populates the collection cache from Galaxy and GitHub orgs. Writes to `/cache`; Ansible reads it `ro` |
 | **CLI** | `apme-cli` | — | Ephemeral. Reads project files, builds chunked `ScanRequest`, calls `Primary.Scan`, prints violations. Run with `--pod apme-pod` and CWD mounted |
 
@@ -74,7 +75,7 @@ Every validator container implements this service. The `ValidateRequest` carries
 | Field | Type | Used by |
 |-------|------|---------|
 | `project_root` | `string` | All |
-| `files` | `repeated File` | Ansible (writes to temp dir) |
+| `files` | `repeated File` | Ansible (writes to temp dir), Gitleaks (writes to temp dir) |
 | `hierarchy_payload` | `bytes` (JSON) | OPA, Ansible |
 | `scandata` | `bytes` (jsonpickle) | Native |
 | `ansible_core_version` | `string` | Ansible |
@@ -104,14 +105,16 @@ service CacheMaintainer {
 Primary calls all configured validators concurrently using `concurrent.futures.ThreadPoolExecutor`:
 
 ```
-              ┌─► Native  ─── violations ──┐
-              │                             │
-Primary ──────┼─► OPA     ─── violations ──┼──► merge + dedup + sort
-              │                             │
-              └─► Ansible ─── violations ──┘
+              ┌─► Native   ─── violations ──┐
+              │                              │
+Primary ──────┼─► OPA      ─── violations ──┼──► merge + dedup + sort
+              │                              │
+              ├─► Ansible  ─── violations ──┤
+              │                              │
+              └─► Gitleaks ─── violations ──┘
 ```
 
-Wall-clock time = `max(native, opa, ansible)` instead of `sum`. Each validator is discovered by environment variable (`NATIVE_GRPC_ADDRESS`, `OPA_GRPC_ADDRESS`, `ANSIBLE_GRPC_ADDRESS`). If a variable is unset, that validator is skipped.
+Wall-clock time = `max(native, opa, ansible, gitleaks)` instead of `sum`. Each validator is discovered by environment variable (`NATIVE_GRPC_ADDRESS`, `OPA_GRPC_ADDRESS`, `ANSIBLE_GRPC_ADDRESS`, `GITLEAKS_GRPC_ADDRESS`). If a variable is unset, that validator is skipped.
 
 ## Serialization
 
@@ -134,6 +137,18 @@ The OPA container runs a multi-process architecture:
 
 This keeps OPA's native REST interface intact while presenting a uniform gRPC contract to Primary.
 
+## Gitleaks container internals
+
+The Gitleaks container follows a similar multi-stage pattern:
+
+1. **Gitleaks binary** is copied from the official `zricethezav/gitleaks` image into a Python 3.12 slim image
+2. **`apme-gitleaks-validator`** (Python gRPC wrapper) starts on port 50056, receives `ValidateRequest`, writes `files` to a temp directory, runs `gitleaks detect --no-git --report-format json`, parses the JSON report, and converts findings to `ValidateResponse`
+
+The wrapper adds Ansible-aware filtering:
+- **Vault filtering**: files containing `$ANSIBLE_VAULT;` headers are excluded
+- **Jinja filtering**: matches that are pure Jinja2 expressions (`{{ var }}`) are filtered out as false positives
+- **Rule ID mapping**: Gitleaks rule IDs are prefixed with `SEC:` (e.g., `SEC:aws-access-key-id`) and can be mapped to stable APME rule IDs via `RULE_ID_MAP`
+
 ## Volumes
 
 | Volume | Mount | Services | Access |
@@ -150,10 +165,11 @@ This keeps OPA's native REST interface intact while presenting a uniform gRPC co
 | 50053 | Ansible | gRPC |
 | 50054 | OPA | gRPC (wrapper; OPA REST on 8181 internal) |
 | 50055 | Native | gRPC |
+| 50056 | Gitleaks | gRPC (wrapper; gitleaks binary for detection) |
 
 ## Scaling
 
-**Scale pods, not services within a pod.** Each pod is a self-contained stack (Primary + Native + OPA + Ansible + Cache Maintainer) that can process a scan request end-to-end.
+**Scale pods, not services within a pod.** Each pod is a self-contained stack (Primary + Native + OPA + Ansible + Gitleaks + Cache Maintainer) that can process a scan request end-to-end.
 
 ```
                     ┌─────────────┐

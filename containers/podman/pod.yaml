@@ -23,6 +23,8 @@ spec:
           value: "127.0.0.1:50054"
         - name: ANSIBLE_GRPC_ADDRESS
           value: "127.0.0.1:50053"
+        - name: GITLEAKS_GRPC_ADDRESS
+          value: "127.0.0.1:50056"
       ports:
         - containerPort: 50051
           hostPort: 50051
@@ -56,6 +58,14 @@ spec:
         - name: cache
           mountPath: /cache
           readOnly: true
+    - name: gitleaks
+      image: apme-gitleaks:latest
+      env:
+        - name: APME_GITLEAKS_VALIDATOR_LISTEN
+          value: "0.0.0.0:50056"
+      ports:
+        - containerPort: 50056
+          hostPort: 50056
     - name: cache-maintainer
       image: apme-cache-maintainer:latest
       env:

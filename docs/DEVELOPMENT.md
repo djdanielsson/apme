@@ -12,8 +12,9 @@ pip install -e ".[dev]"
 
 ```
 src/apme_engine/
-├── cli.py                  CLI entry point (apme-scan)
+├── cli.py                  CLI entry point (scan, format, fix, health-check)
 ├── runner.py               run_scan() → ScanContext
+├── formatter.py            YAML formatter (format_file, format_directory)
 ├── opa_client.py           OPA eval (Podman or local binary)
 │
 ├── engine/                 ARI-based scanner
@@ -195,6 +196,7 @@ tests/
 ├── test_cli.py                    CLI tests
 ├── test_opa_client.py             OPA client + Rego eval tests
 ├── test_scanner_hierarchy.py      Engine hierarchy tests
+├── test_formatter.py              YAML formatter tests (transforms, idempotency)
 ├── test_validators.py             Validator tests
 ├── test_validator_servicers.py    gRPC servicer tests
 ├── test_collection_cache_venv_builder.py
@@ -250,6 +252,47 @@ podman run --rm \
 
 Coverage is configured at 95% (`fail_under = 95` in `pyproject.toml`). Rule files under `validators/*/rules/` are excluded from coverage measurement (they have colocated tests instead).
 
+## YAML formatter
+
+The `format` subcommand normalizes YAML files to a consistent style before semantic analysis. This is Phase 1 of the remediation pipeline.
+
+### Transforms applied
+
+1. **Tab removal** — converts tabs to 2-space indentation
+2. **Key reordering** — `name` first, then module/action, then conditional/loop/meta keys
+3. **Jinja spacing** — normalizes `{{foo}}` to `{{ foo }}`
+4. **Indentation** — ruamel.yaml round-trip enforces 2-space indent
+
+### Usage
+
+```bash
+# Show diffs without changing files
+apme-scan format /path/to/project
+
+# Apply formatting in place
+apme-scan format --apply /path/to/project
+
+# CI mode: exit 1 if any file needs formatting
+apme-scan format --check /path/to/project
+
+# Exclude patterns
+apme-scan format --apply --exclude "vendor/*" "tests/fixtures/*" .
+```
+
+### Fix pipeline
+
+The `fix` subcommand chains format → idempotency check → re-scan → modernize:
+
+```bash
+apme-scan fix --apply /path/to/project
+```
+
+This runs the formatter, verifies idempotency (a second format pass produces zero diffs), then re-scans. The modernization step will be added in Phase 2.
+
+### gRPC Format RPC
+
+The Primary service exposes a `Format` RPC (`FormatRequest` / `FormatResponse` with `FileDiff` messages) for containerized formatting. The CLI uses local formatting; the gRPC path is for IDE/API integration.
+
 ## Rule ID conventions
 
 | Prefix | Category | Examples |
@@ -269,7 +312,7 @@ Defined in `pyproject.toml`:
 
 | Command | Module | Purpose |
 |---------|--------|---------|
-| `apme-scan` | `apme_engine.cli:main` | CLI (scan, cache, health-check) |
+| `apme-scan` | `apme_engine.cli:main` | CLI (scan, format, fix, cache, health-check) |
 | `apme-primary` | `apme_engine.daemon.primary_main:main` | Primary daemon |
 | `apme-native-validator` | `apme_engine.daemon.native_validator_main:main` | Native validator daemon |
 | `apme-opa-validator` | `apme_engine.daemon.opa_validator_main:main` | OPA validator daemon |

@@ -70,6 +70,7 @@ VALIDATOR_ENV_VARS = {
     "native": "NATIVE_GRPC_ADDRESS",
     "opa": "OPA_GRPC_ADDRESS",
     "ansible": "ANSIBLE_GRPC_ADDRESS",
+    "gitleaks": "GITLEAKS_GRPC_ADDRESS",
 }
 
 
@@ -149,6 +150,33 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
                     shutil.rmtree(temp_dir)
                 except OSError:
                     pass
+
+    def Format(self, request, context):
+        from apme_engine.formatter import format_content
+
+        sys.stderr.write(f"Format: received {len(request.files)} file(s)\n")
+        sys.stderr.flush()
+
+        diffs = []
+        for f in request.files:
+            if not f.path.endswith((".yml", ".yaml")):
+                continue
+            try:
+                text = f.content.decode("utf-8")
+            except UnicodeDecodeError:
+                continue
+            result = format_content(text, filename=f.path)
+            if result.changed:
+                diffs.append(primary_pb2.FileDiff(
+                    path=f.path,
+                    original=f.content,
+                    formatted=result.formatted.encode("utf-8"),
+                    diff=result.diff,
+                ))
+
+        sys.stderr.write(f"Format: {len(diffs)} file(s) changed\n")
+        sys.stderr.flush()
+        return primary_pb2.FormatResponse(diffs=diffs)
 
     def Health(self, request, context):
         return common_pb2.HealthResponse(status="ok")
