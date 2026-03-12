@@ -16,7 +16,7 @@ Agent skills for development workflow and spec-driven development.
 | Skill | Purpose | Arguments |
 |-------|---------|-----------|
 | `sdlc-status` | Show project status and blockers | `[phase or req]` |
-| `workflow` | Get workflow guidance | `[next\|blockers\|start\|resume]` |
+| `workflow` | Get workflow guidance | `[next\|blockers\|start\|resume\|decision\|import]` |
 | `prd-import` | Import PRD, create artifacts | `[path or URL]` |
 | `phase-new` | Create delivery phase | `[Phase Name]` |
 | `req-new` | Create requirement spec | `[Feature] [--phase X]` |
