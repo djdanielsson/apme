@@ -15,7 +15,7 @@ _SKIP_NATIVE_FILES = {"__init__", "base_rule", "sample_rule"}
 
 def _discover_native_rule_ids() -> list[tuple[str, str, Path]]:
     """Return (rule_id, source_file, expected_md_dir) for each native Python rule."""
-    results = []
+    results: list[tuple[str, str, Path]] = []
     pat = re.compile(r'rule_id:\s*str\s*=\s*"([^"]+)"')
     for py in NATIVE_RULES_DIR.glob("*.py"):
         if py.name.endswith("_test.py") or py.stem in _SKIP_NATIVE_FILES:
@@ -29,7 +29,7 @@ def _discover_native_rule_ids() -> list[tuple[str, str, Path]]:
 
 def _discover_opa_rule_ids() -> list[tuple[str, str, Path]]:
     """Return (rule_id, source_file, expected_md_dir) for each OPA rego rule."""
-    results = []
+    results: list[tuple[str, str, Path]] = []
     pat = re.compile(r'"rule_id":\s*"([^"]+)"')
     for rego in OPA_BUNDLE_DIR.glob("*.rego"):
         if rego.name.endswith("_test.rego") or rego.name.startswith("_"):
@@ -43,7 +43,7 @@ def _discover_opa_rule_ids() -> list[tuple[str, str, Path]]:
 
 def _discover_ansible_rule_ids() -> list[tuple[str, str, Path]]:
     """Return (rule_id, source_file, expected_md_dir) for each ansible validator rule."""
-    results = []
+    results: list[tuple[str, str, Path]] = []
     if not ANSIBLE_RULES_DIR.is_dir():
         return results
 
@@ -75,11 +75,11 @@ def _find_md_for_rule(rule_id: str, md_dir: Path) -> Path | None:
     return None
 
 
-def _collect_all_rules():
-    rules = []
-    rules.extend(("native", *r) for r in _discover_native_rule_ids())
-    rules.extend(("opa", *r) for r in _discover_opa_rule_ids())
-    rules.extend(("ansible", *r) for r in _discover_ansible_rule_ids())
+def _collect_all_rules() -> list[tuple[str, str, str, Path]]:
+    rules: list[tuple[str, str, str, Path]] = []
+    rules.extend(("native", r[0], r[1], r[2]) for r in _discover_native_rule_ids())
+    rules.extend(("opa", r[0], r[1], r[2]) for r in _discover_opa_rule_ids())
+    rules.extend(("ansible", r[0], r[1], r[2]) for r in _discover_ansible_rule_ids())
     return rules
 
 
@@ -91,8 +91,8 @@ _PARAM_IDS = [f"{validator}:{rule_id}" for validator, rule_id, _, _ in _ALL_RULE
     "validator,rule_id,source_file,md_dir",
     _ALL_RULES if _ALL_RULES else [("skip", "skip", "skip", Path("."))],
     ids=_PARAM_IDS if _PARAM_IDS else ["no_rules"],
-)
-def test_rule_has_doc(validator, rule_id, source_file, md_dir):
+)  # type: ignore[untyped-decorator]
+def test_rule_has_doc(validator: str, rule_id: str, source_file: str, md_dir: Path) -> None:
     """Every rule must have a .md doc file."""
     if rule_id == "skip":
         pytest.skip("No rules discovered")
@@ -102,7 +102,7 @@ def test_rule_has_doc(validator, rule_id, source_file, md_dir):
     )
 
 
-def test_minimum_rule_count():
+def test_minimum_rule_count() -> None:
     """Sanity check: we should discover a reasonable number of rules."""
     native = _discover_native_rule_ids()
     opa = _discover_opa_rule_ids()

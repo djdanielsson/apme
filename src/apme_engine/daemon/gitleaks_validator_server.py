@@ -9,11 +9,14 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from typing import Any
 
 import grpc
 import grpc.aio
 
-from apme.v1 import common_pb2, validate_pb2, validate_pb2_grpc
+from apme.v1 import validate_pb2_grpc
+from apme.v1.common_pb2 import HealthResponse, RuleTiming, ValidatorDiagnostics
+from apme.v1.validate_pb2 import ValidateResponse
 from apme_engine.daemon.violation_convert import violation_dict_to_proto
 from apme_engine.validators.gitleaks.scanner import GITLEAKS_BIN, run_gitleaks
 
@@ -32,7 +35,7 @@ _SCANNABLE_EXTENSIONS = (
 )
 
 
-def _run_scan(files: list) -> tuple[list[dict], int]:
+def _run_scan(files: list[Any]) -> tuple[list[dict[str, Any]], int]:
     """Blocking function: write files to temp dir, run gitleaks, return (violations, files_written)."""
     temp_dir = Path(tempfile.mkdtemp(prefix="apme_gitleaks_"))
     try:
@@ -65,12 +68,12 @@ def _get_gitleaks_version() -> str:
 class GitleaksValidatorServicer(validate_pb2_grpc.ValidatorServicer):
     """Async gRPC adapter: runs gitleaks in executor thread."""
 
-    async def Validate(self, request, context):
+    async def Validate(self, request: Any, context: Any) -> ValidateResponse:
         req_id = request.request_id or ""
         t0 = time.monotonic()
         try:
             if not request.files:
-                return validate_pb2.ValidateResponse(violations=[], request_id=req_id)
+                return ValidateResponse(violations=[], request_id=req_id)
 
             sys.stderr.write(f"[req={req_id}] Gitleaks: scanning {len(request.files)} file(s)\n")
             sys.stderr.flush()
@@ -85,14 +88,14 @@ class GitleaksValidatorServicer(validate_pb2_grpc.ValidatorServicer):
             sys.stderr.write(f"[req={req_id}] Gitleaks: {len(violations)} finding(s) in {total_ms:.1f}ms\n")
             sys.stderr.flush()
 
-            diag = common_pb2.ValidatorDiagnostics(
+            diag = ValidatorDiagnostics(
                 validator_name="gitleaks",
                 request_id=req_id,
                 total_ms=total_ms,
                 files_received=len(request.files),
                 violations_found=len(violations),
                 rule_timings=[
-                    common_pb2.RuleTiming(
+                    RuleTiming(
                         rule_id="gitleaks_subprocess",
                         elapsed_ms=total_ms,
                         violations=len(violations),
@@ -104,7 +107,7 @@ class GitleaksValidatorServicer(validate_pb2_grpc.ValidatorServicer):
                 },
             )
 
-            return validate_pb2.ValidateResponse(
+            return ValidateResponse(
                 violations=[violation_dict_to_proto(v) for v in violations],
                 request_id=req_id,
                 diagnostics=diag,
@@ -115,9 +118,9 @@ class GitleaksValidatorServicer(validate_pb2_grpc.ValidatorServicer):
             sys.stderr.write(f"[req={req_id}] Gitleaks error: {e}\n")
             traceback.print_exc(file=sys.stderr)
             sys.stderr.flush()
-            return validate_pb2.ValidateResponse(violations=[], request_id=req_id)
+            return ValidateResponse(violations=[], request_id=req_id)
 
-    async def Health(self, request, context):
+    async def Health(self, request: Any, context: Any) -> HealthResponse:
         try:
             proc = await asyncio.create_subprocess_exec(
                 GITLEAKS_BIN,
@@ -128,18 +131,18 @@ class GitleaksValidatorServicer(validate_pb2_grpc.ValidatorServicer):
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
             if proc.returncode == 0:
                 version = stdout.decode().strip()
-                return common_pb2.HealthResponse(status=f"ok (gitleaks {version})")
-            return common_pb2.HealthResponse(status=f"gitleaks exited {proc.returncode}")
+                return HealthResponse(status=f"ok (gitleaks {version})")
+            return HealthResponse(status=f"gitleaks exited {proc.returncode}")
         except FileNotFoundError:
-            return common_pb2.HealthResponse(status="gitleaks binary not found")
+            return HealthResponse(status="gitleaks binary not found")
         except Exception as e:
-            return common_pb2.HealthResponse(status=f"gitleaks health error: {e}")
+            return HealthResponse(status=f"gitleaks health error: {e}")
 
 
-async def serve(listen: str = "0.0.0.0:50056"):
+async def serve(listen: str = "0.0.0.0:50056") -> Any:
     """Create, bind, and start async gRPC server with Gitleaks servicer."""
     server = grpc.aio.server(maximum_concurrent_rpcs=_MAX_CONCURRENT_RPCS)
-    validate_pb2_grpc.add_ValidatorServicer_to_server(GitleaksValidatorServicer(), server)
+    validate_pb2_grpc.add_ValidatorServicer_to_server(GitleaksValidatorServicer(), server)  # type: ignore[no-untyped-call]
     if ":" in listen:
         _, _, port = listen.rpartition(":")
         server.add_insecure_port(f"[::]:{port}")

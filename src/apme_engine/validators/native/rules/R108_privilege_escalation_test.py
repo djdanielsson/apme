@@ -4,11 +4,12 @@ from apme_engine.validators.native.rules._test_helpers import make_context, make
 from apme_engine.validators.native.rules.R108_privilege_escalation import PrivilegeEscalationRule
 
 
-def test_R108_does_not_fire_when_no_annotation():
+def test_R108_does_not_fire_when_no_annotation() -> None:
     spec = make_task_spec(module="become", resolved_name="ansible.builtin.become")
     task = make_task_call(spec)
     ctx = make_context(task)
     rule = PrivilegeEscalationRule()
     assert rule.match(ctx)
     result = rule.process(ctx)
+    assert result is not None
     assert result.verdict is False

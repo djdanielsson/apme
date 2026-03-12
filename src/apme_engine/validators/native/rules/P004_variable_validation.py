@@ -4,20 +4,21 @@ from apme_engine.engine.models import (
     AnsibleRunContext,
     ArgumentsType,
     Rule,
+    RuleResult,
     RunTargetType,
     Severity,
+    TaskCall,
     VariableType,
 )
-from apme_engine.engine.models import (
-    RuleTag as Tag,
-)
+from apme_engine.engine.models import RuleTag as Tag
 
 
-def is_loop_var(value, task):
+def is_loop_var(value: str, task: TaskCall) -> bool:
     # `item` or alternative loop variable (if any) should not be replaced to avoid breaking loop
-    skip_variables = []
-    if task.spec.loop and isinstance(task.spec.loop, dict):
-        skip_variables.extend(list(task.spec.loop.keys()))
+    skip_variables: list[str] = []
+    loop = getattr(task.spec, "loop", None)
+    if loop and isinstance(loop, dict):
+        skip_variables.extend(list(loop.keys()))
 
     _v = value.replace(" ", "")
 
@@ -36,19 +37,23 @@ class VariableValidationRule(Rule):
     enabled: bool = True
     name: str = "VariableValidation"
     version: str = "v0.0.1"
-    severity: Severity = Severity.NONE
-    tags: tuple = Tag.QUALITY
+    severity: str = Severity.NONE
+    tags: tuple[str, ...] = (Tag.QUALITY,)
     precedence: int = 0
 
     def match(self, ctx: AnsibleRunContext) -> bool:
-        return ctx.current.type == RunTargetType.Task
+        if ctx.current is None:
+            return False
+        return bool(ctx.current.type == RunTargetType.Task)
 
-    def process(self, ctx: AnsibleRunContext):
+    def process(self, ctx: AnsibleRunContext) -> RuleResult | None:
         task = ctx.current
+        if task is None or not isinstance(task, TaskCall):
+            return None
 
-        undefined_variables = []
-        unknown_name_vars = []
-        unnecessary_loop = []
+        undefined_variables: list[str] = []
+        unknown_name_vars: list[str] = []
+        unnecessary_loop: list[dict[str, str]] = []
         task_arg_keys = []
         if task.args.type == ArgumentsType.DICT:
             task_arg_keys = list(task.args.raw.keys())
@@ -69,9 +74,10 @@ class VariableValidationRule(Rule):
             if v and v[-1].type == VariableType.Unknown:
                 if v_name not in undefined_variables:
                     undefined_variables.append(v_name)
+                existing_names = [x["name"] for x in unnecessary_loop if isinstance(x, dict) and "name" in x]
                 if v_name not in unknown_name_vars and v_name not in task_arg_keys:
                     unknown_name_vars.append(v_name)
-                if v_name not in unnecessary_loop:
+                if v_name not in existing_names:
                     v_str = "{{ " + v_name + " }}"
                     if not is_loop_var(v_str, task):
                         unnecessary_loop.append({"name": v_name, "suggested": v_name.replace("item.", "")})

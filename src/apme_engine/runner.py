@@ -4,6 +4,7 @@ import os
 import tempfile
 import time
 from pathlib import Path
+from typing import Any
 
 from apme_engine.engine.scanner import ARIScanner
 from apme_engine.validators.base import EngineDiagnostics, ScanContext
@@ -98,7 +99,7 @@ def run_scan(
     )
 
 
-def _extract_engine_diagnostics(scandata, engine_total_ms: float) -> EngineDiagnostics:
+def _extract_engine_diagnostics(scandata: Any, engine_total_ms: float) -> EngineDiagnostics:
     """Pull per-phase elapsed times from the scanner's time_records."""
     diag = EngineDiagnostics(total_ms=engine_total_ms)
     if not scandata:
@@ -109,7 +110,7 @@ def _extract_engine_diagnostics(scandata, engine_total_ms: float) -> EngineDiagn
         tr = getattr(scandata.findings, "metadata", {}).get("time_records", {})
 
     def _ms(key: str) -> float:
-        return tr.get(key, {}).get("elapsed", 0.0) * 1000
+        return float(tr.get(key, {}).get("elapsed", 0.0)) * 1000
 
     diag.parse_ms = _ms("target_load") + _ms("prm_load") + _ms("metadata_load")
     diag.annotate_ms = _ms("module_annotators") + _ms("variable_resolution")

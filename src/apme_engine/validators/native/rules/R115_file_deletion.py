@@ -7,13 +7,10 @@ from apme_engine.engine.models import (
     RuleResult,
     RunTargetType,
     Severity,
+    TaskCall,
 )
-from apme_engine.engine.models import (
-    DefaultRiskType as RiskType,
-)
-from apme_engine.engine.models import (
-    RuleTag as Tag,
-)
+from apme_engine.engine.models import DefaultRiskType as RiskType
+from apme_engine.engine.models import RuleTag as Tag
 
 
 @dataclass
@@ -23,23 +20,27 @@ class FileDeletionRule(Rule):
     enabled: bool = False
     name: str = "FileDeletionRule"
     version: str = "v0.0.1"
-    severity: Severity = Severity.LOW
-    tags: tuple = Tag.SYSTEM
+    severity: str = Severity.LOW
+    tags: tuple[str, ...] = (Tag.SYSTEM,)
 
     def match(self, ctx: AnsibleRunContext) -> bool:
-        return ctx.current.type == RunTargetType.Task
+        if ctx.current is None:
+            return False
+        return bool(ctx.current.type == RunTargetType.Task)
 
-    def process(self, ctx: AnsibleRunContext):
+    def process(self, ctx: AnsibleRunContext) -> RuleResult | None:
         task = ctx.current
+        if task is None or not isinstance(task, TaskCall):
+            return None
 
         # define a condition for this rule here
         ac = AnnotationCondition().risk_type(RiskType.FILE_CHANGE).attr("is_delete", True).attr("is_mutable_path", True)
         verdict = task.has_annotation_by_condition(ac)
 
-        detail = {}
+        detail: dict[str, object] = {}
         if verdict:
             anno = task.get_annotation_by_condition(ac)
-            if anno:
+            if anno is not None and hasattr(anno, "path") and anno.path is not None:
                 detail["path"] = anno.path.value
 
         return RuleResult(verdict=verdict, detail=detail, file=task.file_info(), rule=self.get_metadata())

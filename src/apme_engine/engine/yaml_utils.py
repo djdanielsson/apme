@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from ruamel.yaml.representer import RoundTripRepresenter
 
 
-class OctalIntYAML11(ScalarInt):
+class OctalIntYAML11(ScalarInt):  # type: ignore[misc]
     """OctalInt representation for YAML 1.1."""
 
     # tell mypy that ScalarInt has these attributes
@@ -57,7 +57,7 @@ class OctalIntYAML11(ScalarInt):
         )
 
 
-class CustomConstructor(RoundTripConstructor):
+class CustomConstructor(RoundTripConstructor):  # type: ignore[misc]
     """Custom YAML constructor that preserves Octal formatting in YAML 1.1."""
 
     def construct_yaml_int(self, node: ScalarNode) -> Any:
@@ -104,7 +104,7 @@ CustomConstructor.add_constructor(
 )
 
 
-class FormattedEmitter(Emitter):
+class FormattedEmitter(Emitter):  # type: ignore[misc]
     """Emitter that applies custom formatting rules when dumping YAML.
 
     Differences from ruamel.yaml defaults:
@@ -142,7 +142,7 @@ class FormattedEmitter(Emitter):
 
 
 # pylint: disable=too-many-instance-attributes
-class FormattedYAML(YAML):
+class FormattedYAML(YAML):  # type: ignore[misc]
     """A YAML loader/dumper that handles ansible content better by default."""
 
     def __init__(  # pylint: disable=too-many-arguments
@@ -235,8 +235,8 @@ class FormattedYAML(YAML):
         # max_spaces_inside: int = cast(int, config["max_spaces_inside"])
 
         self.default_flow_style = False
-        self.compact_seq_seq = True  # type: ignore[assignment] # dash after dash
-        self.compact_seq_map = True  # type: ignore[assignment] # key after dash
+        self.compact_seq_seq = True  # dash after dash
+        self.compact_seq_map = True  # key after dash
 
         # Do not use yaml.indent() as it obscures the purpose of these vars:
         self.map_indent = 2
@@ -322,7 +322,7 @@ class FormattedYAML(YAML):
             data,
             CommentedMap | CommentedSeq,
         ):
-            data.preamble_comment = preamble_comment  # type: ignore[union-attr]
+            data.preamble_comment = preamble_comment
         # Because data can validly also be None for empty documents, we cannot
         # really annotate the return type here, so we need to remember to
         # never save None or scalar data types when reformatting.

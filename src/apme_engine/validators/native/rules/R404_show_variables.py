@@ -6,11 +6,10 @@ from apme_engine.engine.models import (
     RuleResult,
     RunTargetType,
     Severity,
+    TaskCall,
     VariableDict,
 )
-from apme_engine.engine.models import (
-    RuleTag as Tag,
-)
+from apme_engine.engine.models import RuleTag as Tag
 
 
 @dataclass
@@ -20,23 +19,30 @@ class ShowVariablesRule(Rule):
     enabled: bool = False
     name: str = "ShowVariables"
     version: str = "v0.0.1"
-    severity: Severity = Severity.NONE
-    tags: tuple = Tag.VARIABLE
+    severity: str = Severity.NONE
+    tags: tuple[str, ...] = (Tag.VARIABLE,)
 
     def match(self, ctx: AnsibleRunContext) -> bool:
-        return ctx.current.type == RunTargetType.Task
+        if ctx.current is None:
+            return False
+        return bool(ctx.current.type == RunTargetType.Task)
 
-    def process(self, ctx: AnsibleRunContext):
+    def process(self, ctx: AnsibleRunContext) -> RuleResult | None:
         task = ctx.current
+        if task is None:
+            return None
 
         verdict = True
-        detail = {"variables": task.variable_set}
+        variables: dict[str, object] = {}
+        if isinstance(task, TaskCall):
+            variables = task.variable_set
+        detail: dict[str, object] = {"variables": variables}
 
         return RuleResult(verdict=verdict, detail=detail, file=task.file_info(), rule=self.get_metadata())
 
-    def print(self, result: RuleResult):
-        variables = result.detail["variables"]
-        var_table = "None"
+    def print(self, result: RuleResult) -> str:
+        variables = result.detail.get("variables") if result.detail is not None else None
+        var_table: str = "None"
         if variables:
             var_table = "\n" + VariableDict.print_table(variables)
         output = f"ruleID={self.rule_id}, \

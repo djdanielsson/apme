@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Any
 
 from apme_engine.engine.models import (
     AnsibleRunContext,
@@ -6,6 +7,7 @@ from apme_engine.engine.models import (
     RuleResult,
     RunTargetType,
     Severity,
+    TaskCall,
 )
 
 
@@ -16,18 +18,24 @@ class SampleRule(Rule):
     enabled: bool = False
     name: str = "EchoTaskContent"
     version: str = "v0.0.1"
-    severity: Severity = Severity.NONE
-    tags: tuple = "sample"
+    severity: str = Severity.NONE
+    tags: tuple[str, ...] = ("sample",)
 
     def match(self, ctx: AnsibleRunContext) -> bool:
         # specify targets to be checked
-        return ctx.current.type == RunTargetType.Task
+        if ctx.current is None:
+            return False
+        return bool(ctx.current.type == RunTargetType.Task)
 
-    def process(self, ctx: AnsibleRunContext):
+    def process(self, ctx: AnsibleRunContext) -> RuleResult | None:
+        if ctx.current is None:
+            return None
         task = ctx.current
+        if not isinstance(task, TaskCall) or task.content is None:
+            return None
 
         verdict = True
-        detail = {}
+        detail: dict[str, Any] = {}
         task_block = task.content.yaml()
         detail["task_block"] = task_block
 

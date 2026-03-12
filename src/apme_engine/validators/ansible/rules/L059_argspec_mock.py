@@ -12,6 +12,7 @@ import subprocess
 import sys
 import textwrap
 from pathlib import Path
+from typing import Any
 
 RULE_ID = "L059"
 
@@ -176,14 +177,14 @@ json.dump(violations, sys.stdout)
 
 
 def run(
-    task_nodes: list[dict],
+    task_nodes: list[dict[str, Any]],
     venv_root: Path,
-    env_extra: dict | None = None,
-    **_kwargs,
-) -> list[dict]:
+    env_extra: dict[str, str] | None = None,
+    **_kwargs: Any,
+) -> list[dict[str, Any]]:
     """Run mock/patch-based argspec validation in the venv's Python."""
     task_modules: dict[str, bool] = {}
-    tasks_for_check: list[dict] = []
+    tasks_for_check: list[dict[str, Any]] = []
     for node in task_nodes:
         module = node.get("module", "")
         module_options = node.get("module_options")

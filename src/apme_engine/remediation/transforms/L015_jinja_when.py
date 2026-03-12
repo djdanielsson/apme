@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from typing import Any
 
 from apme_engine.engine.yaml_utils import FormattedYAML
 from apme_engine.remediation.registry import TransformResult
@@ -11,7 +12,7 @@ from apme_engine.remediation.transforms._helpers import find_task_at_line
 _JINJA_EXPR = re.compile(r"\{\{\s*(.+?)\s*\}\}")
 
 
-def fix_jinja_when(content: str, violation: dict) -> TransformResult:
+def fix_jinja_when(content: str, violation: dict[str, Any]) -> TransformResult:
     """Replace ``{{ var }}`` in when with bare ``var``."""
     yaml = FormattedYAML(typ="rt", pure=True, version=(1, 1))
 

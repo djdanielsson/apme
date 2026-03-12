@@ -11,9 +11,9 @@ ram_actions = ["search", "list", "diff", "generate", "update", "release"]
 
 
 class RAMCLI:
-    _cli = None
+    _cli: RAMSearchCLI | RAMListCLI | RAMDiffCLI | RAMGenerateCLI | RAMUpdateCLI | RAMReleaseCLI | None = None
 
-    def __init__(self):
+    def __init__(self) -> None:
         args = sys.argv
         if len(args) > 2:
             action = args[2]
@@ -41,6 +41,6 @@ class RAMCLI:
         else:
             raise ValueError(f"An action must be specified; {ram_actions}")
 
-    def run(self):
-        if self._cli:
+    def run(self) -> None:
+        if self._cli is not None:
             self._cli.run()

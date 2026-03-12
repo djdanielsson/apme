@@ -7,6 +7,7 @@ import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from apme_engine.remediation.partition import partition_violations
 from apme_engine.remediation.registry import TransformRegistry
@@ -26,13 +27,13 @@ class FixReport:
     passes: int
     fixed: int
     applied_patches: list[FilePatch]
-    remaining_ai: list[dict]
-    remaining_manual: list[dict]
-    ai_proposed: list[dict]
+    remaining_ai: list[dict[str, Any]]
+    remaining_manual: list[dict[str, Any]]
+    ai_proposed: list[dict[str, Any]]
     oscillation_detected: bool
 
 
-ScanFn = Callable[[list[str]], list[dict]]
+ScanFn = Callable[[list[str]], list[dict[str, Any]]]
 
 
 class RemediationEngine:

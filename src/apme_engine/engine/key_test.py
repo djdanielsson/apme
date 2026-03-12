@@ -1,6 +1,6 @@
 import json
 
-from keyutil import get_obj_info_by_key
+from apme_engine.engine.keyutil import get_obj_info_by_key
 
 if __name__ == "__main__":
     keys = [

@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 import copy
 import os
 from pathlib import Path
+from typing import Any, cast
 
 from . import logger
 from .model_loader import (
@@ -35,25 +38,34 @@ from .utils import (
 
 class Parser:
     def __init__(
-        self, do_save=False, use_ansible_doc=True, skip_playbook_format_error=True, skip_task_format_error=True
-    ):
+        self,
+        do_save: bool = False,
+        use_ansible_doc: bool = True,
+        skip_playbook_format_error: bool = True,
+        skip_task_format_error: bool = True,
+    ) -> None:
         self.do_save = do_save
         self.use_ansible_doc = use_ansible_doc
         self.skip_playbook_format_error = skip_playbook_format_error
         self.skip_task_format_error = skip_task_format_error
 
-    def run(self, load_data=None, load_json_path="", collection_name_of_project=""):
-        ld = Load()
+    def run(
+        self,
+        load_data: Load | None = None,
+        load_json_path: str = "",
+        collection_name_of_project: str = "",
+    ) -> Any:
+        ld: Load = Load()
         if load_data is not None:
             ld = load_data
         elif load_json_path != "":
             if not os.path.exists(load_json_path):
                 raise ValueError(f"file not found: {load_json_path}")
-            ld = Load.from_json(Path(load_json_path).read_text())
+            ld = cast(Load, Load.from_json(Path(load_json_path).read_text()))
 
         collection_name = ""
         role_name = ""
-        obj = None
+        obj: Any = None
         if ld.target_type == LoadType.COLLECTION:
             collection_name = ld.target_name
             try:
@@ -109,7 +121,7 @@ class Parser:
                     skip_playbook_format_error=self.skip_playbook_format_error,
                     skip_task_format_error=self.skip_task_format_error,
                     include_test_contents=ld.include_test_contents,
-                    yaml_label_list=ld.yaml_label_list,
+                    yaml_label_list=cast("list[tuple[str, str, Any]] | None", ld.yaml_label_list),
                 )
             except PlaybookFormatError:
                 if not self.skip_playbook_format_error:
@@ -207,7 +219,7 @@ class Parser:
         else:
             raise ValueError(f"unsupported type: {ld.target_type}")
 
-        mappings = {
+        mappings: dict[str, list[Any]] = {
             "roles": [],
             "taskfiles": [],
             "modules": [],
@@ -301,8 +313,9 @@ class Parser:
             except Exception as e:
                 logger.debug(f"failed to load a playbook: {e}")
                 continue
-            playbooks.append(p)
-            mappings["playbooks"].append([playbook_path, p.key])
+            if p is not None:
+                playbooks.append(p)
+                mappings["playbooks"].append([playbook_path, p.key])
 
         plays = [play for p in playbooks for play in p.plays]
 
@@ -339,8 +352,9 @@ class Parser:
             except Exception as e:
                 logger.debug(f"failed to load a module: {e}")
                 continue
-            modules.append(m)
-            mappings["modules"].append([module_path, m.key])
+            if m is not None:
+                modules.append(m)
+                mappings["modules"].append([module_path, m.key])
 
         files = []
         for file_path in ld.files:
@@ -348,7 +362,8 @@ class Parser:
             try:
                 label = "others"
                 if ld.yaml_label_list:
-                    for _fpath, _label, _ in ld.yaml_label_list:
+                    yaml_labels = cast(list[tuple[str, str, Any]], ld.yaml_label_list)
+                    for _fpath, _label, _ in yaml_labels:
                         if _fpath == file_path:
                             label = _label
                 f = load_file(
@@ -361,8 +376,9 @@ class Parser:
             except Exception as e:
                 logger.debug(f"failed to load a file: {e}")
                 continue
-            files.append(f)
-            mappings["files"].append([file_path, f.key])
+            if f is not None:
+                files.append(f)
+                mappings["files"].append([file_path, f.key])
 
         logger.debug(f"roles: {len(roles)}")
         logger.debug(f"taskfiles: {len(taskfiles)}")
@@ -385,10 +401,10 @@ class Parser:
         elif ld.target_type == LoadType.PROJECT:
             projects = [obj]
 
-        if len(collections) > 0:
-            collections = [c.children_to_key() for c in collections]
-        if len(projects) > 0:
-            projects = [p.children_to_key() for p in projects]
+        if len(collections) > 0 and obj is not None:
+            collections = [obj.children_to_key()]
+        if len(projects) > 0 and obj is not None:
+            projects = [obj.children_to_key()]
         if len(roles) > 0:
             roles = [r.children_to_key() for r in roles]
         if len(taskfiles) > 0:
@@ -426,7 +442,7 @@ class Parser:
         return definitions, ld
 
     @classmethod
-    def restore_definition_objects(cls, input_dir):
+    def restore_definition_objects(cls: type[Any], input_dir: str) -> tuple[dict[str, Any], Load]:
         collections = _load_object_list(Collection, os.path.join(input_dir, "collections.json"))
 
         # TODO: only repository?
@@ -455,15 +471,14 @@ class Parser:
             "tasks": tasks,
         }
 
-        ld = Load()
         mapping_path = os.path.join(input_dir, "mappings.json")
         if not os.path.exists(mapping_path):
             raise ValueError(f"file not found: {mapping_path}")
-        ld = Load.from_json(Path(mapping_path).read_text())
+        ld = cast(Load, Load.from_json(Path(mapping_path).read_text()))
         return definitions, ld
 
     @classmethod
-    def dump_definition_objects(cls, output_dir, definitions, ld):
+    def dump_definition_objects(cls: type[Any], output_dir: str, definitions: dict[str, Any], ld: Load) -> None:
         collections = definitions.get("collections", [])
         if len(collections) > 0:
             _dump_object_list(collections, os.path.join(output_dir, "collections.json"))
@@ -499,7 +514,7 @@ class Parser:
         Path(mapping_path).write_text(ld.dump())
 
 
-def _dump_object_list(obj_list, output_path):
+def _dump_object_list(obj_list: list[Any], output_path: str) -> None:
     tmp_obj_list = copy.deepcopy(obj_list)
     lines = []
     for i in range(len(tmp_obj_list)):
@@ -508,7 +523,7 @@ def _dump_object_list(obj_list, output_path):
     return
 
 
-def _load_object_list(cls, input_path):
+def _load_object_list(cls: type[Any], input_path: str) -> list[Any]:
     obj_list = []
     if os.path.exists(input_path):
         with open(input_path) as f:
@@ -518,7 +533,7 @@ def _load_object_list(cls, input_path):
     return obj_list
 
 
-def load_name2target_name(path):
+def load_name2target_name(path: str) -> str:
     filename = os.path.basename(path)
     parts = os.path.splitext(filename)
     prefix = "load-"

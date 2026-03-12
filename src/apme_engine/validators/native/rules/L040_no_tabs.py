@@ -19,14 +19,18 @@ class NoTabsRule(Rule):
     enabled: bool = True
     name: str = "NoTabs"
     version: str = "v0.0.1"
-    severity: Severity = Severity.VERY_LOW
-    tags: tuple = Tag.DEPENDENCY
+    severity: str = Severity.VERY_LOW
+    tags: tuple[str, ...] = (Tag.DEPENDENCY,)
 
     def match(self, ctx: AnsibleRunContext) -> bool:
-        return ctx.current.type == RunTargetType.Task
+        if ctx.current is None:
+            return False
+        return bool(ctx.current.type == RunTargetType.Task)
 
-    def process(self, ctx: AnsibleRunContext):
+    def process(self, ctx: AnsibleRunContext) -> RuleResult | None:
         task = ctx.current
+        if task is None:
+            return None
         yaml_lines = getattr(task.spec, "yaml_lines", "") or ""
         lines_with_tabs = []
         for i, line in enumerate(yaml_lines.splitlines(), start=1):

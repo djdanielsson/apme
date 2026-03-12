@@ -7,7 +7,7 @@ valid_playbook_re = re.compile(r"^\s*?-?\s*?(?:hosts|include|import_playbook):\s
 
 # this method is based on awx code
 # awx/main/utils/ansible.py#L42-L64 in ansible/awx
-def could_be_playbook(fpath):
+def could_be_playbook(fpath: str) -> bool:
     basename, ext = os.path.splitext(fpath)
     if ext not in [".yml", ".yaml"]:
         return False
@@ -28,7 +28,7 @@ def could_be_playbook(fpath):
 
 # this method is based on awx code
 # awx/main/models/projects.py#L206-L217 in ansible/awx
-def search_playbooks(root_path):
+def search_playbooks(root_path: str) -> list[str]:
     results = []
     if root_path and os.path.exists(root_path):
         for dirpath, _dirnames, filenames in os.walk(root_path, followlinks=False):
@@ -43,7 +43,7 @@ def search_playbooks(root_path):
 
 # this method is based on awx code
 # awx/main/utils/ansible.py#L24-L39 in ansible/awx
-def skip_directory(relative_directory_path):
+def skip_directory(relative_directory_path: str) -> bool:
     path_elements = relative_directory_path.split(os.sep)
     # Exclude files in a roles subdirectory.
     if "roles" in path_elements:

@@ -1,9 +1,12 @@
+from __future__ import annotations
+
 import argparse
 import contextlib
 import json
 import os
 import time
 import traceback
+from typing import Any
 
 from . import logger
 from .analyzer import load_taskcalls_in_trees
@@ -25,11 +28,11 @@ from .utils import load_classes_in_dir
 rule_versions_filename = "rule_versions.json"
 
 
-def key2name(key: str):
+def key2name(key: str) -> str:
     return key.split(key_delimiter)[-1]
 
 
-def load_rule_versions_file(filepath: str):
+def load_rule_versions_file(filepath: str) -> dict[str, Any]:
     if not os.path.exists(filepath):
         return {}
 
@@ -50,8 +53,11 @@ def load_rule_versions_file(filepath: str):
 
 
 def load_rules(
-    rules_dir: str = "", rule_id_list: list = None, fail_on_error: bool = False, exclude_rule_ids: list = None
-):
+    rules_dir: str = "",
+    rule_id_list: list[str] | None = None,
+    fail_on_error: bool = False,
+    exclude_rule_ids: list[str] | None = None,
+) -> list[Rule]:
     if rule_id_list is None:
         rule_id_list = []
     if not rules_dir:
@@ -96,7 +102,7 @@ def load_rules(
     # sort by `rules` configuration for ARIScanner
     if rule_id_list:
 
-        def index(_list, x):
+        def index(_list: list[str], x: Rule) -> int:
             if x.rule_id in _list:
                 return _list.index(x.rule_id)
             else:
@@ -110,7 +116,7 @@ def load_rules(
     return _rules
 
 
-def make_subject_str(playbook_num: int, role_num: int):
+def make_subject_str(playbook_num: int, role_num: int) -> str:
     subject = ""
     if playbook_num > 0 and role_num > 0:
         subject = "playbooks/roles"
@@ -124,23 +130,25 @@ def make_subject_str(playbook_num: int, role_num: int):
 def detect(
     contexts: list[AnsibleRunContext],
     rules_dir: str = "",
-    rules: list = None,
-    rules_cache: list = None,
+    rules: list[Rule] | None = None,
+    rules_cache: list[Rule] | None = None,
     save_only_rule_result: bool = False,
-    exclude_rule_ids: list = None,
-):
+    exclude_rule_ids: list[str] | None = None,
+) -> tuple[dict[str, Any], list[Rule]]:
     if rules_cache is None:
         rules_cache = []
     if rules is None:
         rules = []
-    loaded_rules = []
-    loaded_rules = rules_cache or load_rules(rules_dir, rules, False, exclude_rule_ids=exclude_rule_ids or [])
+    rule_ids: list[str] | None = [r.rule_id for r in rules] if rules else None
+    loaded_rules: list[Rule] = rules_cache or load_rules(
+        rules_dir, rule_ids, False, exclude_rule_ids=exclude_rule_ids or []
+    )
 
     playbook_count = {"total": 0, "risk_found": 0}
     role_count = {"total": 0, "risk_found": 0}
 
-    data_report = {"summary": {}, "details": [], "ari_result": None}
-    role_to_playbook_mappings = {}
+    data_report: dict[str, Any] = {"summary": {}, "details": [], "ari_result": None}
+    role_to_playbook_mappings: dict[str, list[str]] = {}
 
     ari_result = ARIResult()
     spec_mutations = {}
@@ -162,7 +170,8 @@ def detect(
             playbook_count["total"] += 1
 
             for task in ctx.taskcalls:
-                parts = task.spec.defined_in.split("/")
+                defined_in = getattr(task.spec, "defined_in", "") if task.spec else ""
+                parts = defined_in.split("/")
                 if parts[0] == "roles":
                     role_name = parts[1]
                     _mappings = role_to_playbook_mappings.get(role_name, [])
@@ -181,7 +190,7 @@ def detect(
                 rule_id = rule.rule_id
                 start_time = time.time()
                 r_result = RuleResult(file=t.file_info(), rule=rule.get_metadata())
-                detail = {}
+                detail: dict[str, Any] = {}
                 try:
                     matched = rule.match(ctx)
                     if matched:
@@ -190,13 +199,13 @@ def detect(
                             r_result = tmp_result
                         r_result.matched = matched
                     r_result.duration = round((time.time() - start_time) * 1000, 6)
-                    detail = r_result.get_detail()
+                    detail = r_result.get_detail() or {}
                     fatal = detail.get("fatal", False) if detail else False
                     if fatal:
                         error = r_result.error or "unknown error"
                         error = f"ARI rule evaluation threw fatal exception: RuleID={rule_id}, error={error}"
                         raise FatalRuleResultError(error)
-                    if rule.spec_mutation and isinstance(detail, dict):
+                    if rule.spec_mutation:
                         s_mutations = detail.get("spec_mutations", [])
                         for s_mutation in s_mutations:
                             if not isinstance(s_mutation, SpecMutation):
@@ -208,8 +217,8 @@ def detect(
                     exc = traceback.format_exc()
                     r_result.error = f"failed to execute the rule `{rule.rule_id}`: {exc}"
                 n_result.rules.append(r_result)
-            # remove node details
-            if save_only_rule_result:
+            # remove node details (replace node with summary dict when save_only_rule_result)
+            if save_only_rule_result and n_result.node is not None and isinstance(n_result.node, RunTarget):
                 n_result.node = omit_node_details(n_result.node)
             t_result.nodes.append(n_result)
         ari_result.targets.append(t_result)
@@ -220,16 +229,16 @@ def detect(
     return data_report, loaded_rules
 
 
-def omit_node_details(node: RunTarget):
+def omit_node_details(node: RunTarget) -> dict[str, Any]:
     spec = None
     if node.spec:
         spec = {
-            "type": node.spec.type,
-            "name": node.spec.name,
-            "defined_in": node.spec.defined_in,
+            "type": getattr(node.spec, "type", ""),
+            "name": getattr(node.spec, "name", ""),
+            "defined_in": getattr(node.spec, "defined_in", ""),
         }
-        if isinstance(node, TaskCall):
-            spec["line_num_in_file"] = (node.spec.line_num_in_file,)
+        if isinstance(node, TaskCall) and node.spec:
+            spec["line_num_in_file"] = (getattr(node.spec, "line_num_in_file", 0),)
     summary = {
         "type": node.type,
         "spec": spec,
@@ -237,7 +246,7 @@ def omit_node_details(node: RunTarget):
     return summary
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         prog="risk_detector.py",
         description="Detect risks from tasks by checking rules",
@@ -257,8 +266,16 @@ def main():
     args = parser.parse_args()
 
     tasks_in_trees = load_taskcalls_in_trees(args.input)
-
-    detect(tasks_in_trees)
+    # Convert TaskCallsInTree to AnsibleRunContext for detect()
+    contexts: list[AnsibleRunContext] = []
+    for tct in tasks_in_trees:
+        ctx = AnsibleRunContext.from_targets(
+            targets=tct.taskcalls,
+            root_key=tct.root_key,
+        )
+        contexts.append(ctx)
+    if contexts:
+        detect(contexts)
 
 
 if __name__ == "__main__":

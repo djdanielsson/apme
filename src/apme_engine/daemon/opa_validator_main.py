@@ -8,14 +8,14 @@ import traceback
 from apme_engine.daemon.opa_validator_server import serve
 
 
-async def _run(listen: str):
+async def _run(listen: str) -> None:
     server = await serve(listen)
     sys.stderr.write(f"OPA validator (gRPC wrapper) listening on {listen}\n")
     sys.stderr.flush()
     await server.wait_for_termination()
 
 
-def main():
+def main() -> None:
     listen = os.environ.get("APME_OPA_VALIDATOR_LISTEN", "0.0.0.0:50054")
     try:
         asyncio.run(_run(listen))

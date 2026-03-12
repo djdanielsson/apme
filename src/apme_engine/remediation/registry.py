@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import NamedTuple
+from collections.abc import Callable, Iterator
+from typing import Any, NamedTuple
 
 
 class TransformResult(NamedTuple):
@@ -11,7 +11,7 @@ class TransformResult(NamedTuple):
     applied: bool
 
 
-TransformFn = Callable[[str, dict], TransformResult]
+TransformFn = Callable[[str, dict[str, Any]], TransformResult]
 
 
 class TransformRegistry:
@@ -34,14 +34,14 @@ class TransformRegistry:
     def __len__(self) -> int:
         return len(self._transforms)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[str]:
         return iter(self._transforms)
 
     @property
     def rule_ids(self) -> list[str]:
         return sorted(self._transforms)
 
-    def apply(self, rule_id: str, content: str, violation: dict) -> TransformResult:
+    def apply(self, rule_id: str, content: str, violation: dict[str, Any]) -> TransformResult:
         fn = self._transforms.get(rule_id)
         if fn is None:
             return TransformResult(content=content, applied=False)

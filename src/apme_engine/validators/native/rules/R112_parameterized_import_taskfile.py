@@ -6,13 +6,12 @@ from apme_engine.engine.models import (
     RuleResult,
     RunTargetType,
     Severity,
+    TaskCall,
 )
 from apme_engine.engine.models import (
     ExecutableType as ActionType,
 )
-from apme_engine.engine.models import (
-    RuleTag as Tag,
-)
+from apme_engine.engine.models import RuleTag as Tag
 
 
 @dataclass
@@ -22,14 +21,18 @@ class ParameterizedImportTaskfileRule(Rule):
     enabled: bool = True
     name: str = "ParameterizedImportTaskfile"
     version: str = "v0.0.1"
-    severity: Severity = Severity.MEDIUM
-    tags: tuple = Tag.DEPENDENCY
+    severity: str = Severity.MEDIUM
+    tags: tuple[str, ...] = (Tag.DEPENDENCY,)
 
     def match(self, ctx: AnsibleRunContext) -> bool:
-        return ctx.current.type == RunTargetType.Task
+        if ctx.current is None:
+            return False
+        return bool(ctx.current.type == RunTargetType.Task)
 
-    def process(self, ctx: AnsibleRunContext):
+    def process(self, ctx: AnsibleRunContext) -> RuleResult | None:
         task = ctx.current
+        if task is None or not isinstance(task, TaskCall):
+            return None
 
         # import_tasks: xxx.yml
         #   or
@@ -40,7 +43,11 @@ class ParameterizedImportTaskfileRule(Rule):
         if not taskfile_ref_arg:
             taskfile_ref_arg = task.args
 
-        verdict = task.action_type == ActionType.TASKFILE_TYPE and taskfile_ref_arg and taskfile_ref_arg.is_mutable
+        verdict = bool(
+            task.action_type == ActionType.TASKFILE_TYPE
+            and taskfile_ref_arg is not None
+            and taskfile_ref_arg.is_mutable
+        )
         taskfile_ref = taskfile_ref_arg.raw if taskfile_ref_arg else None
         detail = {
             "taskfile": taskfile_ref,

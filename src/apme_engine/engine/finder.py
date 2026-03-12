@@ -1,9 +1,13 @@
+from __future__ import annotations
+
 import json
 import os
 import re
 import traceback
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -11,11 +15,10 @@ from .yaml_utils import FormattedYAML
 
 try:
     # if `libyaml` is available, use C based loader for performance
-    import _yaml  # noqa: F401
+    import _yaml  # type: ignore[import-not-found]  # noqa: F401
     from yaml import CSafeLoader as Loader
 except Exception:
-    # otherwise, use Python based loader
-    from yaml import SafeLoader as Loader
+    from yaml import SafeLoader as Loader  # type: ignore[assignment]
 import contextlib
 
 from . import logger
@@ -38,9 +41,9 @@ github_workflows_dir = ".github/workflows"
 
 
 class Singleton(type):
-    _instances = {}
+    _instances: dict[type[Any], Any] = {}
 
-    def __call__(cls, *args, **kwargs):
+    def __call__(cls: type[Any], *args: Any, **kwargs: Any) -> Any:
         if cls not in cls._instances:
             cls._instances[cls] = super().__call__(*args, **kwargs)
         return cls._instances[cls]
@@ -48,27 +51,27 @@ class Singleton(type):
 
 @dataclass(frozen=True)
 class TaskKeywordSet(metaclass=Singleton):
-    task_keywords: set
+    task_keywords: set[str] = field(default_factory=set)
 
 
 @dataclass(frozen=True)
 class BuiltinModuleSet(metaclass=Singleton):
-    builtin_modules: set
+    builtin_modules: set[str] = field(default_factory=set)
 
 
 p = Path(__file__).resolve().parent
 with open(p / "task_keywords.txt") as f:
-    TaskKeywordSet(set(f.read().splitlines()))
+    TaskKeywordSet(task_keywords=set(f.read().splitlines()))
 
 with open(p / "builtin-modules.txt") as f:
-    BuiltinModuleSet(set(f.read().splitlines()))
+    BuiltinModuleSet(builtin_modules=set(f.read().splitlines()))
 
 
-def get_builtin_module_names():
+def get_builtin_module_names() -> set[str]:
     return BuiltinModuleSet().builtin_modules
 
 
-def find_module_name(data_block):
+def find_module_name(data_block: dict[str, Any]) -> str:
     keys = [k for k in data_block]
     task_keywords = TaskKeywordSet().task_keywords
     builtin_modules = BuiltinModuleSet().builtin_modules
@@ -103,11 +106,11 @@ def find_module_name(data_block):
 
 
 def get_task_blocks(
-    fpath="",
-    yaml_str="",
-    task_dict_list=None,
-    jsonpath_prefix="",
-):
+    fpath: str = "",
+    yaml_str: str = "",
+    task_dict_list: list[dict[str, Any]] | None = None,
+    jsonpath_prefix: str = "",
+) -> tuple[list[tuple[dict[str, Any], str]] | None, str | None]:
     d = None
     yaml_lines = ""
     if yaml_str:
@@ -153,7 +156,11 @@ def get_task_blocks(
 #         - some_module2
 #         - some_module3
 #
-def flatten_block_tasks(task_dict, jsonpath_prefix="", module_defaults=None):
+def flatten_block_tasks(
+    task_dict: dict[str, Any] | None,
+    jsonpath_prefix: str = "",
+    module_defaults: dict[str, Any] | None = None,
+) -> list[tuple[dict[str, Any], str]]:
     if module_defaults is None:
         module_defaults = {}
     if task_dict is None:
@@ -210,7 +217,7 @@ def flatten_block_tasks(task_dict, jsonpath_prefix="", module_defaults=None):
 
 def identify_lines_with_jsonpath(
     fpath: str = "", yaml_str: str = "", jsonpath: str = ""
-) -> tuple[str, tuple[int, int]]:
+) -> tuple[str | None, tuple[int, int] | None]:
     if not jsonpath:
         return None, None
 
@@ -259,8 +266,8 @@ def identify_lines_with_jsonpath(
     return current_lines, line_num_tuple
 
 
-def find_child_yaml_block(yaml_str: str, key: str = "", line_num_offset: int = -1) -> list:
-    skip_condition_funcs = [
+def find_child_yaml_block(yaml_str: str, key: str = "", line_num_offset: int = -1) -> list[tuple[str, tuple[int, int]]]:
+    skip_condition_funcs: list[Callable[[str], bool]] = [
         # for YAML separator
         lambda x: x.strip() == "---",
         # for empty line
@@ -269,16 +276,16 @@ def find_child_yaml_block(yaml_str: str, key: str = "", line_num_offset: int = -
         lambda x: x.strip().startswith("#"),
     ]
 
-    def match_condition_func(x):
+    def match_condition_func(x: str) -> bool:
         if key:
             return x.strip().startswith(f"{key}:")
         else:
             return x.strip().startswith("- ")
 
-    def is_yaml_end_separator(x):
+    def is_yaml_end_separator(x: str) -> bool:
         return x.strip() == "..."
 
-    def get_indent_level(x):
+    def get_indent_level(x: str) -> int:
         return len(x) - len(x.lstrip())
 
     top_level_indent = 100
@@ -297,9 +304,9 @@ def find_child_yaml_block(yaml_str: str, key: str = "", line_num_offset: int = -
     if top_level_indent == 100:
         return []
 
-    blocks = []
-    line_buffer = []
-    isolated_line_buffer = []
+    blocks: list[tuple[str, tuple[int, int]]] = []
+    line_buffer: list[str] = []
+    isolated_line_buffer: list[str] = []
     buffer_begin = -1
     if key:
         for i, line in enumerate(yaml_str.splitlines()):
@@ -376,7 +383,7 @@ def find_child_yaml_block(yaml_str: str, key: str = "", line_num_offset: int = -
     return blocks
 
 
-def search_module_files(path, module_dir_paths=None):
+def search_module_files(path: str, module_dir_paths: list[str] | None = None) -> list[str]:
     if module_dir_paths is None:
         module_dir_paths = []
     file_list = []
@@ -408,7 +415,7 @@ def search_module_files(path, module_dir_paths=None):
     return file_list
 
 
-def find_module_dirs(role_root_dir):
+def find_module_dirs(role_root_dir: str) -> list[str]:
     module_dirs = []
     for module_dir_pattern in module_dir_patterns:
         moddir = os.path.join(role_root_dir, module_dir_pattern)
@@ -417,7 +424,7 @@ def find_module_dirs(role_root_dir):
     return module_dirs
 
 
-def search_taskfiles_for_playbooks(path, taskfile_dir_paths: list = None):
+def search_taskfiles_for_playbooks(path: str, taskfile_dir_paths: list[str] | None = None) -> list[str]:
     # must copy the input here; otherwise, the added items are kept forever
     if taskfile_dir_paths is None:
         taskfile_dir_paths = []
@@ -448,16 +455,15 @@ def search_taskfiles_for_playbooks(path, taskfile_dir_paths: list = None):
     return candidates
 
 
-def search_inventory_files(path):
+def search_inventory_files(path: str) -> list[str]:
     inventory_file_patterns = [
         os.path.join(path, "**/group_vars", "*"),
         os.path.join(path, "**/host_vars", "*"),
     ]
-    files = safe_glob(patterns=inventory_file_patterns, recursive=True)
-    return files
+    return safe_glob(patterns=inventory_file_patterns, recursive=True)
 
 
-def find_best_repo_root_path(path):
+def find_best_repo_root_path(path: str) -> str:
     base_path = path
 
     manifest_json_path = os.path.join(base_path, "MANIFEST.json")
@@ -511,10 +517,10 @@ def find_best_repo_root_path(path):
             if len(candidate) < len(root_path):
                 root_path = candidate
 
-    return root_path
+    return str(root_path)
 
 
-def find_collection_name_of_repo(path):
+def find_collection_name_of_repo(path: str) -> str:
     galaxy_yml_pattern = os.path.join(path, "**/galaxy.yml")
     manifest_json_pattern = os.path.join(path, "**/MANIFEST.json")
     found_metadata_files = safe_glob([galaxy_yml_pattern, manifest_json_pattern], recursive=True)
@@ -549,25 +555,23 @@ def find_collection_name_of_repo(path):
                     logger.debug(f"failed to load this json file to read MANIFEST.json; {e.args[0]}")
         if my_collection_info is None:
             return ""
-        namespace = my_collection_info.get("namespace", "")
-        name = my_collection_info.get("name", "")
+        namespace = str(my_collection_info.get("namespace", ""))
+        name = str(my_collection_info.get("name", ""))
         my_collection_name = f"{namespace}.{name}"
-    return my_collection_name
+    return str(my_collection_name)
 
 
-def find_all_ymls(root_dir: str):
+def find_all_ymls(root_dir: str) -> list[str]:
     patterns = [os.path.join(root_dir, "**", "*.ya?ml")]
-    ymls = safe_glob(patterns)
-    return ymls
+    return safe_glob(patterns)
 
 
-def find_all_files(root_dir: str):
+def find_all_files(root_dir: str) -> list[str]:
     patterns = [os.path.join(root_dir, "**", "*")]
-    files = safe_glob(patterns, type="file")
-    return files
+    return safe_glob(patterns, type=["file"])
 
 
-def _get_body_data(body: str = "", data: list = None, fpath: str = ""):
+def _get_body_data(body: str = "", data: list[Any] | None = None, fpath: str = "") -> tuple[str, Any, str]:
     if fpath and not body and not data:
         try:
             with open(fpath) as file:
@@ -581,7 +585,7 @@ def _get_body_data(body: str = "", data: list = None, fpath: str = ""):
     return body, data, fpath
 
 
-def could_be_playbook_detail(body: str = "", data: list = None, fpath: str = ""):
+def could_be_playbook_detail(body: str = "", data: list[Any] | None = None, fpath: str = "") -> bool:
     body, data, fpath = _get_body_data(body, data, fpath)
 
     if not body:
@@ -605,7 +609,7 @@ def could_be_playbook_detail(body: str = "", data: list = None, fpath: str = "")
     return bool("import_playbook" in data[0] or "ansible.builtin.import_playbook" in data[0])
 
 
-def could_be_taskfile(body: str = "", data: list = None, fpath: str = ""):
+def could_be_taskfile(body: str = "", data: list[Any] | None = None, fpath: str = "") -> bool:
     body, data, fpath = _get_body_data(body, data, fpath)
 
     if not body:
@@ -635,7 +639,7 @@ def could_be_taskfile(body: str = "", data: list = None, fpath: str = ""):
 # this function is only for empty files
 # if a target file has some contents, it should be checked with
 # some dedicated functions like `could_be_taskfile()`.
-def label_empty_file_by_path(fpath: str):
+def label_empty_file_by_path(fpath: str) -> str:
     taskfile_dir = ["/tasks/", "/handlers/"]
     for t_d in taskfile_dir:
         if t_d in fpath:
@@ -649,7 +653,7 @@ def label_empty_file_by_path(fpath: str):
     return ""
 
 
-def get_role_info_from_path(fpath: str):
+def get_role_info_from_path(fpath: str) -> tuple[str, str]:
     patterns = [
         "/roles/",
         "/tests/integration/targets/",
@@ -709,22 +713,22 @@ def get_role_info_from_path(fpath: str):
 
 
 # TODO: implement this
-def get_project_info_for_file(fpath, root_dir):
+def get_project_info_for_file(fpath: str, root_dir: str) -> tuple[str, str]:
     return os.path.basename(root_dir), root_dir
 
 
-def is_meta_yml(yml_path):
+def is_meta_yml(yml_path: str) -> bool:
     parts = yml_path.split("/")
     return bool(len(parts) > 2 and parts[-2] == "meta")
 
 
-def is_vars_yml(yml_path):
+def is_vars_yml(yml_path: str) -> bool:
     parts = yml_path.split("/")
     return bool(len(parts) > 2 and parts[-2] in ["vars", "defaults"])
 
 
-def count_top_level_element(yml_body: str = ""):
-    def _is_skip_line(line: str):
+def count_top_level_element(yml_body: str = "") -> int:
+    def _is_skip_line(line: str) -> bool:
         # skip empty line
         if not line.strip():
             return True
@@ -762,7 +766,9 @@ def count_top_level_element(yml_body: str = ""):
     return count
 
 
-def label_yml_file(yml_path: str = "", yml_body: str = "", task_num_thresh: int = 50):
+def label_yml_file(
+    yml_path: str = "", yml_body: str = "", task_num_thresh: int = 50
+) -> tuple[str, int, dict[str, str] | None]:
     body = ""
     data = None
     error = None
@@ -816,7 +822,9 @@ def label_yml_file(yml_path: str = "", yml_body: str = "", task_num_thresh: int 
     return label, name_count, None
 
 
-def get_yml_label(file_path, root_path, task_num_threshold: int = -1):
+def get_yml_label(
+    file_path: str, root_path: str, task_num_threshold: int = -1
+) -> tuple[str, dict[str, Any] | None, dict[str, Any] | None]:
     relative_path = file_path.replace(root_path, "")
     if relative_path[-1] == "/":
         relative_path = relative_path[:-1]
@@ -839,7 +847,7 @@ def get_yml_label(file_path, root_path, task_num_threshold: int = -1):
     return label, role_info, project_info
 
 
-def get_yml_list(root_dir: str, task_num_threshold: int = -1):
+def get_yml_list(root_dir: str, task_num_threshold: int = -1) -> list[dict[str, Any]]:
     found_ymls = find_all_ymls(root_dir)
     all_files = []
     for yml_path in found_ymls:
@@ -849,11 +857,11 @@ def get_yml_list(root_dir: str, task_num_threshold: int = -1):
         if not project_info:
             project_info = {}
         if role_info:
-            if role_info["path"] and not role_info["path"].startswith(root_dir):
+            if role_info.get("path") and not str(role_info.get("path", "")).startswith(root_dir):
                 role_info["path"] = os.path.join(root_dir, role_info["path"])
-            role_info["is_external_dependency"] = "." in role_info["name"]
-        in_role = bool(role_info)
-        in_project = bool(project_info)
+            role_info["is_external_dependency"] = "." in role_info.get("name", "")
+        in_role: bool = bool(role_info)
+        in_project: bool = bool(project_info)
         all_files.append(
             {
                 "filepath": yml_path,
@@ -868,7 +876,7 @@ def get_yml_list(root_dir: str, task_num_threshold: int = -1):
     return all_files
 
 
-def list_scan_target(root_dir: str, task_num_threshold: int = -1):
+def list_scan_target(root_dir: str, task_num_threshold: int = -1) -> list[dict[str, Any]]:
     yml_list = get_yml_list(root_dir=root_dir, task_num_threshold=task_num_threshold)
     known_roles = set()
     all_targets = []
@@ -903,7 +911,7 @@ def list_scan_target(root_dir: str, task_num_threshold: int = -1):
     return all_targets
 
 
-def update_line_with_space(new_line_content, old_line_content, leading_spaces=0):
+def update_line_with_space(new_line_content: str, old_line_content: str, leading_spaces: int = 0) -> str:
     """
     Returns the line of the input lines with mutation, having spaces
     exactly same as input yaml lines
@@ -914,7 +922,7 @@ def update_line_with_space(new_line_content, old_line_content, leading_spaces=0)
     return " " * leading_spaces + new_line_content
 
 
-def populate_new_data_list(data, line_number_list):
+def populate_new_data_list(data: str, line_number_list: list[str]) -> list[str]:
     """
     Function to check diff in line between the
     first mutated results, and then copy the in
@@ -928,7 +936,7 @@ def populate_new_data_list(data, line_number_list):
     return temp_data[0 : input_line_number - 1]
 
 
-def check_and_add_diff_lines(start_line, stop_line, lines, data_copy):
+def check_and_add_diff_lines(start_line: int, stop_line: int, lines: list[str], data_copy: list[str]) -> None:
     """
     Function to check diff in line between the mutated results,
     and then copy the in between lines to mutated data lines
@@ -940,7 +948,9 @@ def check_and_add_diff_lines(start_line, stop_line, lines, data_copy):
         data_copy.append(line)
 
 
-def check_diff_and_copy_olddata_to_newdata(line_number_list, lines, new_data):
+def check_diff_and_copy_olddata_to_newdata(
+    line_number_list: list[str], lines: list[str], new_data: list[str]
+) -> list[str]:
     """
     Function to find the old lines which weren't mutated by ARI rules,
     it need to be copied to new content as is
@@ -952,9 +962,10 @@ def check_diff_and_copy_olddata_to_newdata(line_number_list, lines, new_data):
             for i in range(new_content_last_line, len(lines)):
                 new_data.append(lines[i])
         return new_data
+    return new_data
 
 
-def update_and_append_new_line(new_line, old_line, leading_spaces, data_copy):
+def update_and_append_new_line(new_line: str, old_line: str, leading_spaces: int, data_copy: list[str]) -> str:
     """
     Function to get the leading space for the new ARI mutated line, with
     its equivaltent old line with space similar to the old line
@@ -964,7 +975,7 @@ def update_and_append_new_line(new_line, old_line, leading_spaces, data_copy):
     return ""
 
 
-def update_the_yaml_target(file_path, line_number_list, new_content_list):
+def update_the_yaml_target(file_path: str, line_number_list: list[str], new_content_list: list[str]) -> None:
     try:
         # Read the original YAML file
         with open(file_path) as file:
@@ -974,7 +985,7 @@ def update_the_yaml_target(file_path, line_number_list, new_content_list):
         )
         data_copy = populate_new_data_list(data, line_number_list)
         stop_line_number = 0
-        new_lines = []
+        new_lines: list[str] = []
         for iter in range(len(line_number_list)):
             line_number = line_number_list[iter]
             new_content = new_content_list[iter]
@@ -998,7 +1009,7 @@ def update_the_yaml_target(file_path, line_number_list, new_content_list):
             end = stop_line_number - 1
             data_copy.append("\n")
             for i in range(start, end):
-                line_number = i
+                line_idx = i
                 if len(lines) == i:
                     break
                 try:
@@ -1006,17 +1017,17 @@ def update_the_yaml_target(file_path, line_number_list, new_content_list):
                     new_line_content = new_lines.pop(0)
                 except IndexError:
                     break
-                if 0 <= line_number < len(lines):
+                if 0 <= line_idx < len(lines):
                     # Preserve the original indentation
-                    old_line_content = lines[line_number]
+                    old_line_content = lines[line_idx]
                     if "---" in old_line_content:
                         continue
                     if new_line_content in old_line_content:
-                        leading_spaces = len(lines[line_number]) - len(lines[line_number].lstrip())
+                        leading_spaces = len(lines[line_idx]) - len(lines[line_idx].lstrip())
                         temp_content.append(new_line_content)
                         new_line_content = new_line_content.lstrip(" ")
-                        lines[line_number] = " " * leading_spaces + new_line_content
-                        data_copy.append(lines[line_number])
+                        lines[line_idx] = " " * leading_spaces + new_line_content
+                        data_copy.append(lines[line_idx])
                     else:
                         new_line_key = new_line_content.split(":")
                         new_key = new_line_key[0].strip(" ")
@@ -1055,7 +1066,7 @@ def update_the_yaml_target(file_path, line_number_list, new_content_list):
                         if new_line_content:
                             data_copy.append(new_line_content)
                 else:
-                    return IndexError("Line number out of range.")
+                    raise IndexError("Line number out of range.")
         # check for diff b/w new content and old contents,
         # and copy the old content that's not updated by ARI mutation
         data_copy = check_diff_and_copy_olddata_to_newdata(line_number_list, lines, data_copy)
@@ -1071,3 +1082,4 @@ def update_the_yaml_target(file_path, line_number_list, new_content_list):
         logger.warning(
             "YAML LINES: ARI fix update yaml by lines failed for file: '%s', with error: '%s'", file_path, ex
         )
+        return

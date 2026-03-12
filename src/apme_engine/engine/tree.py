@@ -1,8 +1,11 @@
+from __future__ import annotations
+
 import json
 import os
 import re
 from copy import deepcopy
 from dataclasses import dataclass, field
+from typing import Any, cast
 
 from . import logger
 from .keyutil import detect_type, key_delimiter, object_delimiter
@@ -11,6 +14,8 @@ from .models import (
     CallObject,
     ExecutableType,
     LoadType,
+    Module,
+    Object,
     ObjectList,
     Play,
     Playbook,
@@ -40,14 +45,14 @@ class TreeNode:
     key: str = ""
 
     # children is a list of TreeNode
-    children: list = field(default_factory=list)
+    children: list[TreeNode] = field(default_factory=list)
 
-    definition: dict = field(default_factory=dict)
+    definition: dict[str, Any] = field(default_factory=dict)
 
     # load a list of (src, dst) as a tree structure
     # which is composed of multiple TreeNode
     @staticmethod
-    def load(graph=None):
+    def load(graph: list[tuple[str | None, str]] | None = None) -> TreeNode:
         if graph is None:
             graph = []
         root_key_cands = [pair[1] for pair in graph if pair[0] is None]
@@ -62,7 +67,7 @@ class TreeNode:
         return tree
 
     # output list of (src, dst) to stdout or file
-    def dump(self, path=""):
+    def dump(self, path: str = "") -> None:
         src_dst_array = self.to_graph()
         if path == "":
             print(json.dumps(src_dst_array, indent=2))
@@ -71,23 +76,23 @@ class TreeNode:
             with open(path, "w") as file:
                 file.write(tree_json)
 
-    def to_str(self):
+    def to_str(self) -> str:
         src_dst_array = self.to_graph()
         return json.dumps(src_dst_array)
 
     # return list of (src, dst)
-    def to_graph(self):
+    def to_graph(self) -> list[tuple[str | None, str]]:
         return self.recursive_graph_dump(None, self)
 
     # return list of dst keys
-    def to_keys(self):
+    def to_keys(self) -> list[str]:
         return [p[1] for p in self.to_graph()]
 
     # reutrn list of TreeNodes that are under this TreeNode
-    def to_list(self):
+    def to_list(self) -> list[TreeNode]:
         return self.recursive_convert_to_list(self)
 
-    def recursive_convert_to_list(self, node, nodelist=None):
+    def recursive_convert_to_list(self, node: TreeNode, nodelist: list[TreeNode] | None = None) -> list[TreeNode]:
         if nodelist is None:
             nodelist = []
         current = [pair for pair in nodelist]
@@ -96,7 +101,12 @@ class TreeNode:
             current = self.recursive_convert_to_list(child_node, current)
         return current
 
-    def recursive_tree_load(self, node_key, src_dst_array, parent_keys=None):
+    def recursive_tree_load(
+        self,
+        node_key: str,
+        src_dst_array: list[tuple[str | None, str]],
+        parent_keys: set[str] | None = None,
+    ) -> tuple[TreeNode, set[str]]:
         if parent_keys is None:
             parent_keys = set()
         n = TreeNode(key=node_key)
@@ -114,7 +124,12 @@ class TreeNode:
                 new_parent_keys = new_parent_keys.union(sub_parent_keys)
         return n, new_parent_keys
 
-    def recursive_graph_dump(self, parent_node, node, src_dst_array=None):
+    def recursive_graph_dump(
+        self,
+        parent_node: TreeNode | None,
+        node: TreeNode,
+        src_dst_array: list[tuple[str | None, str]] | None = None,
+    ) -> list[tuple[str | None, str]]:
         if src_dst_array is None:
             src_dst_array = []
         current = [pair for pair in src_dst_array]
@@ -130,36 +145,40 @@ class TreeNode:
 
     # return a list of (src, dst) which ends with the "end_key"
     # this could return multiple paths
-    def path_to_root(self, end_key):
+    def path_to_root(self, end_key: str) -> list[TreeNode]:
         path_array = self.search_branch_to_key(end_key, self)
-        path_array = [nodelist2branch(nodelist) for nodelist in path_array]
-        return path_array
+        return [nodelist2branch(nodelist) for nodelist in path_array]
 
-    def search_branch_to_key(self, search_key, node, ancestors=None):
+    def search_branch_to_key(
+        self,
+        search_key: str,
+        node: TreeNode,
+        ancestors: list[TreeNode] | None = None,
+    ) -> list[list[TreeNode]]:
         if ancestors is None:
             ancestors = []
         current = [n for n in ancestors]
-        found = []
+        found: list[list[TreeNode]] = []
         if node.key == search_key:
-            found = current + [node]
+            found.append(current + [node])
         for child_node in node.children:
             found_in_child = self.search_branch_to_key(search_key, child_node, current + [node])
             found.extend(found_in_child)
         return found
 
-    def copy(self):
+    def copy(self) -> TreeNode:
         return deepcopy(self)
 
     @property
-    def is_empty(self):
+    def is_empty(self) -> bool:
         return self.key == "" and len(self.children) == 0
 
     @property
-    def has_definition(self):
+    def has_definition(self) -> bool:
         return len(self.definition) == 0
 
 
-def nodelist2branch(nodelist):
+def nodelist2branch(nodelist: list[TreeNode]) -> TreeNode:
     if len(nodelist) == 0:
         return TreeNode()
     t = nodelist[0].copy()
@@ -172,7 +191,7 @@ def nodelist2branch(nodelist):
     return t
 
 
-def load_single_definition(defs: dict, key: str):
+def load_single_definition(defs: dict[str, Any], key: str) -> ObjectList:
     obj_list = ObjectList()
     items = defs.get(key, [])
     for item in items:
@@ -180,7 +199,7 @@ def load_single_definition(defs: dict, key: str):
     return obj_list
 
 
-def load_definitions(defs: dict, types: list):
+def load_definitions(defs: dict[str, Any], types: list[str]) -> list[ObjectList]:
     def_list = []
     for type_key in types:
         objs_per_type = load_single_definition(defs, type_key)
@@ -188,10 +207,10 @@ def load_definitions(defs: dict, types: list):
     return def_list
 
 
-def load_all_definitions(definitions: dict):
-    _definitions = {}
+def load_all_definitions(definitions: dict[str, Any]) -> dict[str, ObjectList]:
+    _definitions: dict[str, Any] = {}
     _definitions = {"root": definitions} if "mappings" in definitions else definitions
-    loaded = {}
+    loaded: dict[str, ObjectList] = {}
     types = ["collections", "roles", "taskfiles", "modules", "playbooks", "plays", "tasks"]
     for type_key in types:
         loaded[type_key] = ObjectList()
@@ -205,8 +224,8 @@ def load_all_definitions(definitions: dict):
     return loaded
 
 
-def make_dicts(root_definitions, ext_definitions):
-    definitions = {
+def make_dicts(root_definitions: dict[str, Any], ext_definitions: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    definitions: dict[str, ObjectList] = {
         "roles": ObjectList(),
         "modules": ObjectList(),
         "taskfiles": ObjectList(),
@@ -215,7 +234,7 @@ def make_dicts(root_definitions, ext_definitions):
     for type_key in definitions:
         definitions[type_key].merge(root_definitions.get(type_key, ObjectList()))
         definitions[type_key].merge(ext_definitions.get(type_key, ObjectList()))
-    dicts = {k: {} for k in definitions}
+    dicts: dict[str, dict[str, Any]] = {k: {} for k in definitions}
     for type_key, obj_list in definitions.items():
         for obj in obj_list.items:
             obj_dict_key = obj.fqcn if hasattr(obj, "fqcn") else obj.key
@@ -225,7 +244,11 @@ def make_dicts(root_definitions, ext_definitions):
     return dicts
 
 
-def load_module_redirects(root_definitions, ext_definitions, module_dict=None):
+def load_module_redirects(
+    root_definitions: dict[str, Any],
+    ext_definitions: dict[str, Any],
+    module_dict: dict[str, Any] | None = None,
+) -> dict[str, str]:
     if module_dict is None:
         module_dict = {}
     collection_list = root_definitions.get("collections", ObjectList())
@@ -246,7 +269,7 @@ def load_module_redirects(root_definitions, ext_definitions, module_dict=None):
     return redirects
 
 
-def resolve(obj, dicts):
+def resolve(obj: Task | Play, dicts: dict[str, dict[str, Any]]) -> tuple[Task | Play, bool]:
     failed = False
     if isinstance(obj, Task):
         task = obj
@@ -281,7 +304,11 @@ def resolve(obj, dicts):
     return obj, failed
 
 
-def resolve_module(module_name, module_dict=None, module_redirects=None):
+def resolve_module(
+    module_name: str,
+    module_dict: dict[str, Any] | None = None,
+    module_redirects: dict[str, str] | None = None,
+) -> str:
     if module_redirects is None:
         module_redirects = {}
     if module_dict is None:
@@ -301,7 +328,12 @@ def resolve_module(module_name, module_dict=None, module_redirects=None):
     return module_key
 
 
-def resolve_role(role_name, role_dict=None, my_collection_name="", collections_in_play=None):
+def resolve_role(
+    role_name: str,
+    role_dict: dict[str, Any] | None = None,
+    my_collection_name: str = "",
+    collections_in_play: list[str] | None = None,
+) -> str:
     if collections_in_play is None:
         collections_in_play = []
     if role_dict is None:
@@ -335,7 +367,11 @@ def resolve_role(role_name, role_dict=None, my_collection_name="", collections_i
     return role_key
 
 
-def resolve_taskfile(taskfile_ref, taskfile_dict=None, task_key=""):
+def resolve_taskfile(
+    taskfile_ref: str,
+    taskfile_dict: dict[str, Any] | None = None,
+    task_key: str = "",
+) -> str:
     if taskfile_dict is None:
         taskfile_dict = {}
     type_prefix = "task "
@@ -357,7 +393,7 @@ def resolve_taskfile(taskfile_ref, taskfile_dict=None, task_key=""):
         taskfile_key = f"taskfile {parent_key}taskfile{key_delimiter}{fpath}"
         found_tf = taskfile_dict.get(taskfile_key)
         if found_tf is not None:
-            return found_tf.key
+            return str(found_tf.key)
 
     task_dir = os.path.dirname(task_defined_path)
     fpath = os.path.join(task_dir, taskfile_ref)
@@ -368,12 +404,16 @@ def resolve_taskfile(taskfile_ref, taskfile_dict=None, task_key=""):
     taskfile_key = f"taskfile {parent_key}taskfile{key_delimiter}{fpath}"
     found_tf = taskfile_dict.get(taskfile_key)
     if found_tf is not None:
-        return found_tf.key
+        return str(found_tf.key)
 
     return ""
 
 
-def resolve_playbook(playbook_ref, playbook_dict=None, play_key=""):
+def resolve_playbook(
+    playbook_ref: str,
+    playbook_dict: dict[str, Any] | None = None,
+    play_key: str = "",
+) -> str:
     if playbook_dict is None:
         playbook_dict = {}
     type_prefix = "play "
@@ -394,11 +434,11 @@ def resolve_playbook(playbook_ref, playbook_dict=None, play_key=""):
     playbook_key = f"playbook {parent_key}playbook{key_delimiter}{fpath}"
     found_playbook = playbook_dict.get(playbook_key)
     if found_playbook is not None:
-        return found_playbook.key
+        return str(found_playbook.key)
     return ""
 
 
-def init_builtin_modules():
+def init_builtin_modules() -> list[Any]:
     builtin_module_dict = load_builtin_modules()
     modules = list(builtin_module_dict.values())
     return modules
@@ -407,14 +447,14 @@ def init_builtin_modules():
 class TreeLoader:
     def __init__(
         self,
-        root_definitions,
-        ext_definitions,
-        ram_client=None,
-        target_playbook_path=None,
-        target_taskfile_path=None,
-        load_all_taskfiles=False,
-    ):
-        self.ram_client: RAMClient = ram_client
+        root_definitions: dict[str, Any],
+        ext_definitions: dict[str, Any],
+        ram_client: RAMClient | None = None,
+        target_playbook_path: str | None = None,
+        target_taskfile_path: str | None = None,
+        load_all_taskfiles: bool = False,
+    ) -> None:
+        self.ram_client: RAMClient | None = ram_client
 
         self.org_root_definitions = root_definitions
         self.org_ext_definitions = ext_definitions
@@ -431,9 +471,10 @@ class TreeLoader:
 
         # use mappings just to get tree tops (playbook/role)
         # we don't load any files by this mappings here
-        self.load_and_mapping = root_definitions.get("mappings", None)
-        self.playbook_mappings = self.load_and_mapping.playbooks
-        self.role_mappings = self.load_and_mapping.roles
+        self.load_and_mapping = root_definitions.get("mappings")
+        load_mapping = self.load_and_mapping
+        self.playbook_mappings = load_mapping.playbooks if load_mapping else []
+        self.role_mappings = load_mapping.roles if load_mapping else []
         self.taskfile_mappings = []
 
         # role can have child playbooks (mostly for test)
@@ -442,7 +483,7 @@ class TreeLoader:
             for mapping in self.role_mappings:
                 role_key = mapping[1]
                 role = self.get_object(role_key, False)
-                if not role:
+                if not role or not isinstance(role, Role):
                     continue
                 playbook_keys = role.playbooks
                 playbook_mappings_in_role = [(None, p_key) for p_key in playbook_keys]
@@ -458,15 +499,15 @@ class TreeLoader:
             for mapping in self.role_mappings:
                 role_key = mapping[1]
                 role = self.get_object(role_key, False)
-                if not role:
+                if not role or not isinstance(role, Role):
                     continue
                 taskfile_keys = role.taskfiles
                 taskfile_mappings_in_role = [(None, tf_key) for tf_key in taskfile_keys]
                 self.taskfile_mappings.extend(taskfile_mappings_in_role)
-            self.taskfile_mappings.extend(self.load_and_mapping.taskfiles)
+            self.taskfile_mappings.extend(load_mapping.taskfiles if load_mapping else [])
         # or, if the scan is for a single taskfile, ARI just scans it
         elif target_taskfile_path:
-            self.taskfile_mappings = self.load_and_mapping.taskfiles
+            self.taskfile_mappings = load_mapping.taskfiles if load_mapping else []
             self.taskfile_mappings = [tf for tf in self.taskfile_mappings if tf[0] == target_taskfile_path]
             self.playbook_mappings = []
             self.role_mappings = []
@@ -477,29 +518,29 @@ class TreeLoader:
         self.target_playbook_path = target_playbook_path
         self.load_all_taskfiles = load_all_taskfiles
 
-        self.module_resolve_cache = {}
-        self.role_resolve_cache = {}
-        self.taskfile_resolve_cache = {}
+        self.module_resolve_cache: dict[str, str] = {}
+        self.role_resolve_cache: dict[str, str] = {}
+        self.taskfile_resolve_cache: dict[str, str] = {}
 
-        self.resolved_module_from_ram = {}
-        self.resolved_role_from_ram = {}
-        self.resolved_taskfile_from_ram = {}
+        self.resolved_module_from_ram: dict[str, tuple[str, str]] = {}
+        self.resolved_role_from_ram: dict[str, tuple[str, str]] = {}
+        self.resolved_taskfile_from_ram: dict[str, tuple[str, str]] = {}
 
-        self.extra_requirements = []
-        self.extra_requirement_obj_set = set()
+        self.extra_requirements: list[dict[str, Any]] = []
+        self.extra_requirement_obj_set: set[str] = set()
 
-        self.trees = []
+        self.trees: list[ObjectList] = []
 
-        self.resolve_failures = {
+        self.resolve_failures: dict[str, dict[str, int]] = {
             "module": {},
             "taskfile": {},
             "role": {},
         }
         return
 
-    def run(self):
+    def run(self) -> tuple[list[ObjectList], ObjectList]:
         additional_objects = ObjectList()
-        if self.load_and_mapping.target_type == LoadType.PROJECT:
+        if self.load_and_mapping and self.load_and_mapping.target_type == LoadType.PROJECT:
             p_defs = self.org_root_definitions.get("definitions", {}).get("projects", [])
             if len(p_defs) > 0:
                 additional_objects.add(p_defs[0])
@@ -545,7 +586,14 @@ class TreeLoader:
             self.trees.append(tree_objects)
         return self.trees, additional_objects
 
-    def _recursive_get_calls(self, key, caller=None, handover=None, index=0, history=None):
+    def _recursive_get_calls(
+        self,
+        key: str,
+        caller: CallObject | None = None,
+        handover: dict[str, Any] | None = None,
+        index: int = 0,
+        history: list[str] | None = None,
+    ) -> ObjectList:
         if history is None:
             history = []
         if handover is None:
@@ -556,10 +604,15 @@ class TreeLoader:
             return obj_list
         if key in history:
             return obj_list
+        spec_obj = obj.spec if isinstance(obj, CallObject) else obj
         _history = []
         if history:
             _history = [h for h in history]
-        call_obj = call_obj_from_spec(spec=obj, caller=caller, index=index)
+        call_obj = call_obj_from_spec(
+            spec=spec_obj,
+            caller=caller,
+            index=index,
+        )
         if call_obj is not None:
             obj_list.add(call_obj, update_dict=False)
             _history.append(key)
@@ -581,75 +634,91 @@ class TreeLoader:
             )
             if isinstance(call_obj, TaskCall):
                 taskcall = call_obj
+                task_spec = cast(Task, taskcall.spec)
                 if len(child_objects.items) > 0:
-                    c_obj = child_objects.items[0]
-                    if taskcall.spec.executable_type == ExecutableType.MODULE_TYPE:
-                        taskcall.module = c_obj.spec
+                    c_obj = cast(CallObject, child_objects.items[0])
+                    if task_spec.executable_type == ExecutableType.MODULE_TYPE:
+                        mod_spec = cast(Module, c_obj.spec)
+                        taskcall.module = mod_spec
                         if c_key in from_ram:
                             req_info = from_ram[c_key]
-                            taskcall.spec.possible_candidates = [(c_obj.spec.fqcn, req_info)]
+                            task_spec.possible_candidates = [(mod_spec.fqcn, req_info)]
                         else:
-                            taskcall.spec.resolved_name = c_obj.spec.fqcn
-                        taskcall.spec.module_info = {
-                            "collection": c_obj.spec.collection,
-                            "short_name": c_obj.spec.name,
-                            "fqcn": c_obj.spec.fqcn,
-                            "key": c_obj.spec.key,
+                            task_spec.resolved_name = mod_spec.fqcn
+                        task_spec.module_info = {
+                            "collection": mod_spec.collection,
+                            "short_name": mod_spec.name,
+                            "fqcn": mod_spec.fqcn,
+                            "key": mod_spec.key,
                         }
-                    elif taskcall.spec.executable_type == ExecutableType.ROLE_TYPE:
+                    elif task_spec.executable_type == ExecutableType.ROLE_TYPE:
+                        role_spec = cast(Role, c_obj.spec)
                         if c_key in from_ram:
                             req_info = from_ram[c_key]
-                            taskcall.spec.possible_candidates = [(c_obj.spec.fqcn, req_info)]
+                            task_spec.possible_candidates = [(role_spec.fqcn, req_info)]
                         else:
-                            taskcall.spec.resolved_name = c_obj.spec.fqcn
-                        taskcall.spec.include_info = {
+                            task_spec.resolved_name = role_spec.fqcn
+                        task_spec.include_info = {
                             "type": "role",
-                            "fqcn": c_obj.spec.fqcn,
-                            "path": c_obj.spec.defined_in,
-                            "key": c_obj.spec.key,
+                            "fqcn": role_spec.fqcn,
+                            "path": role_spec.defined_in,
+                            "key": role_spec.key,
                         }
-                    elif taskcall.spec.executable_type == ExecutableType.TASKFILE_TYPE:
+                    elif task_spec.executable_type == ExecutableType.TASKFILE_TYPE:
+                        tf_spec = cast(TaskFile, c_obj.spec)
                         if c_key in from_ram:
                             req_info = from_ram[c_key]
-                            taskcall.spec.possible_candidates = [(c_obj.spec.key, req_info)]
+                            task_spec.possible_candidates = [(tf_spec.key, req_info)]
                         else:
-                            taskcall.spec.resolved_name = c_obj.spec.key
-                        taskcall.spec.include_info = {
+                            task_spec.resolved_name = tf_spec.key
+                        task_spec.include_info = {
                             "type": "taskfile",
-                            "path": c_obj.spec.defined_in,
-                            "key": c_obj.spec.key,
+                            "path": tf_spec.defined_in,
+                            "key": tf_spec.key,
                         }
                 elif loop_found and loop_obj:
-                    if taskcall.spec.executable_type == ExecutableType.ROLE_TYPE:
-                        taskcall.spec.include_info = {
+                    loop_spec = loop_obj.spec if isinstance(loop_obj, CallObject) else loop_obj
+                    if task_spec.executable_type == ExecutableType.ROLE_TYPE:
+                        task_spec.include_info = {
                             "type": "role",
-                            "path": loop_obj.defined_in,
-                            "key": loop_obj.key,
+                            "path": getattr(loop_spec, "defined_in", ""),
+                            "key": getattr(loop_spec, "key", ""),
                         }
-                    elif taskcall.spec.executable_type == ExecutableType.TASKFILE_TYPE:
-                        taskcall.spec.include_info = {
+                    elif task_spec.executable_type == ExecutableType.TASKFILE_TYPE:
+                        task_spec.include_info = {
                             "type": "taskfile",
-                            "path": loop_obj.defined_in,
-                            "key": loop_obj.key,
+                            "path": getattr(loop_spec, "defined_in", ""),
+                            "key": getattr(loop_spec, "key", ""),
                         }
             elif isinstance(call_obj, PlayCall):
                 playcall = call_obj
                 if len(child_objects.items) > 0 and "roles_info" in handover:
-                    c_obj = child_objects.items[0]
-                    if isinstance(c_obj, RoleCall):
-                        for rip in playcall.spec.roles:
-                            resolved_key = handover["roles_info"].get(rip.key, "")
-                            if resolved_key and resolved_key == c_obj.spec.key:
-                                rip.role_info = {
-                                    "fqcn": c_obj.spec.fqcn,
-                                    "path": c_obj.spec.defined_in,
-                                    "key": c_obj.spec.key,
-                                }
-            for c_obj in child_objects.items:
-                obj_list.add(c_obj)
+                    first_child = child_objects.items[0]
+                    if isinstance(first_child, RoleCall):
+                        role_spec = cast(Role, first_child.spec)
+                        play_spec = playcall.spec
+                        if isinstance(play_spec, Play):
+                            for rip in play_spec.roles:
+                                if not isinstance(rip, RoleInPlay):
+                                    continue
+                                resolved_key = handover["roles_info"].get(rip.key, "")
+                                if resolved_key and resolved_key == role_spec.key:
+                                    rip.role_info = {
+                                        "fqcn": role_spec.fqcn,
+                                        "path": role_spec.defined_in,
+                                        "key": role_spec.key,
+                                    }
+            for child_obj in child_objects.items:
+                obj_list.add(child_obj)
         return obj_list
 
-    def _recursive_make_graph(self, key, graph, _objects, caller=None):
+    def _recursive_make_graph(
+        self,
+        key: str,
+        graph: list[list[str | None]],
+        _objects: ObjectList,
+        caller: CallObject | None = None,
+    ) -> list[list[str | None]]:
         current_graph = [g for g in graph]
         # if this key is already in the graph src, no need to trace children
         key_in_graph_src = [g for g in current_graph if g[0] == key]
@@ -659,13 +728,17 @@ class TreeLoader:
         obj = self.get_object(key)
         if obj is None:
             return current_graph
-        call_obj = call_obj_from_spec(spec=obj, caller=caller)
+        spec_obj = obj.spec if isinstance(obj, CallObject) else obj
+        call_obj = call_obj_from_spec(
+            spec=spec_obj,
+            caller=caller,
+        )
         if call_obj is not None:
             caller_key = None if caller is None else caller.key
             my_key = call_obj.key
             current_graph.append([caller_key, my_key])
             _objects.add(call_obj, update_dict=False)
-        children_keys = self._get_children_keys(obj)
+        children_keys, _, _ = self._get_children_keys(obj)
         for c_key in children_keys:
             updated_graph = self._recursive_make_graph(
                 c_key,
@@ -677,7 +750,7 @@ class TreeLoader:
         return current_graph
 
     # get definition object from root/ext definitions
-    def get_object(self, obj_key, search_ram=False):
+    def get_object(self, obj_key: str, search_ram: bool = False) -> Object | CallObject | None:
         obj_type = detect_type(obj_key)
         if obj_type == "":
             raise ValueError(f'failed to detect object type from key "{obj_key}"')
@@ -693,26 +766,31 @@ class TreeLoader:
 
         if search_ram and self.ram_client:
             matched_obj = self.ram_client.get_object_by_key(obj_key)
-            obj = matched_obj.get("object", None)
+            if matched_obj is not None:
+                obj = matched_obj.get("object", None)
             if obj is not None:
-                return obj
+                return cast(Object | CallObject, obj)
 
         return None
 
-    def add_builtin_modules(self):
+    def add_builtin_modules(self) -> None:
         builtin_module_dict = load_builtin_modules()
         builtin_modules = list(builtin_module_dict.values())
-        obj_list = ObjectList(items=builtin_modules)
+        obj_list = ObjectList(items=[cast(Object | CallObject, m) for m in builtin_modules])
         self.ext_definitions["modules"].merge(obj_list)
 
-    def _get_children_keys(self, obj, handover_from_upper_node=None):
+    def _get_children_keys(
+        self,
+        obj: Object | CallObject,
+        handover_from_upper_node: dict[str, Any] | None = None,
+    ) -> tuple[list[str], dict[str, str], dict[str, Any]]:
         if handover_from_upper_node is None:
             handover_from_upper_node = {}
         if isinstance(obj, CallObject):
-            return self._get_children_keys(obj.spec)
+            return self._get_children_keys(obj.spec, handover_from_upper_node)
         children_keys = []
         from_ram = {}
-        handover = {}
+        handover: dict[str, Any] = {}
         if isinstance(obj, Playbook):
             children_keys = obj.plays
         elif isinstance(obj, Play):
@@ -958,8 +1036,8 @@ class TreeLoader:
                 children_keys.append(resolved_key)
         return children_keys, from_ram, handover
 
-    def node_objects(self, tree):
-        loaded = {}
+    def node_objects(self, tree: TreeNode) -> ObjectList:
+        loaded: dict[str, Object | CallObject] = {}
         obj_list = ObjectList()
         for k in tree.to_keys():
             if k in loaded:
@@ -974,12 +1052,12 @@ class TreeLoader:
         return obj_list
 
 
-def is_templated(txt):
+def is_templated(txt: str) -> bool:
     return "{{" in txt
 
 
 # TODO: need to use variable manager
-def render_template(txt, variable_manager=None):
+def render_template(txt: str, variable_manager: Any = None) -> str:
     regex = r'[\'"]([^\'"]+\.ya?ml)[\'"]'
     matched = re.search(regex, txt)
     if matched:
@@ -993,7 +1071,7 @@ def render_template(txt, variable_manager=None):
     return txt
 
 
-def dump_node_objects(obj_list, path=""):
+def dump_node_objects(obj_list: ObjectList, path: str = "") -> None:
     if path == "":
         lines = obj_list.dump()
         for line in lines:
@@ -1003,5 +1081,6 @@ def dump_node_objects(obj_list, path=""):
         obj_list.dump(fpath=path)
 
 
-def key_to_file_name(prefix, key):
-    return prefix + "___" + key.translate(str.maketrans({" ": "___", "/": "---", ".": "_dot_"})) + ".json"
+def key_to_file_name(prefix: str, key: str) -> str:
+    trans_table = str.maketrans({" ": "___", "/": "---", ".": "_dot_"})
+    return prefix + "___" + key.translate(trans_table) + ".json"

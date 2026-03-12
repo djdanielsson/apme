@@ -8,6 +8,7 @@ import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from apme_engine.validators.base import ScanContext
 
@@ -23,11 +24,11 @@ class AnsibleRuleTiming:
 
 @dataclass
 class AnsibleRunResult:
-    violations: list = field(default_factory=list)
-    rule_timings: list = field(default_factory=list)
+    violations: list[dict[str, Any]] = field(default_factory=list)
+    rule_timings: list[AnsibleRuleTiming] = field(default_factory=list)
 
 
-def _extract_task_nodes(hierarchy_payload: dict) -> list[dict]:
+def _extract_task_nodes(hierarchy_payload: dict[str, Any]) -> list[dict[str, Any]]:
     """Extract all taskcall nodes from the hierarchy payload."""
     nodes = []
     for tree in hierarchy_payload.get("hierarchy", []):
@@ -53,18 +54,18 @@ class AnsibleValidator:
     def __init__(
         self,
         venv_root: Path,
-        env_extra: dict | None = None,
+        env_extra: dict[str, str] | None = None,
     ):
         self._venv_root = venv_root
         self._env_extra = env_extra
 
-    def run(self, context: ScanContext) -> list[dict]:
+    def run(self, context: ScanContext) -> list[dict[str, Any]]:
         """Run all ansible checks and return violation dicts."""
         return self.run_with_timing(context).violations
 
     def run_with_timing(self, context: ScanContext) -> AnsibleRunResult:
         """Run all ansible checks and return violations + per-rule timing."""
-        violations: list[dict] = []
+        violations: list[dict[str, Any]] = []
         rule_timings: list[AnsibleRuleTiming] = []
         root_dir = Path(context.root_dir) if context.root_dir else None
 

@@ -13,6 +13,7 @@ import subprocess
 import sys
 import textwrap
 from pathlib import Path
+from typing import cast
 
 _SCRIPT = textwrap.dedent("""\
 import json, sys
@@ -53,7 +54,9 @@ json.dump(results, sys.stdout)
 """)
 
 
-def _run_introspection(module_names: list[str], venv_root: Path, env_extra: dict | None = None) -> dict:
+def _run_introspection(
+    module_names: list[str], venv_root: Path, env_extra: dict[str, str] | None = None
+) -> dict[str, object]:
     """Run plugin introspection in the venv's Python. Returns {name: info_dict}."""
     if not module_names:
         return {}
@@ -85,20 +88,20 @@ def _run_introspection(module_names: list[str], venv_root: Path, env_extra: dict
         return {}
 
     try:
-        return json.loads(result.stdout)
+        return cast(dict[str, object], json.loads(result.stdout))
     except json.JSONDecodeError:
         sys.stderr.write(f"Plugin introspection returned invalid JSON: {result.stdout[:200]}\n")
         return {}
 
 
 def run(
-    task_nodes: list[dict],
+    task_nodes: list[dict[str, object]],
     venv_root: Path,
-    env_extra: dict | None = None,
-    **_kwargs,
-) -> list[dict]:
+    env_extra: dict[str, str] | None = None,
+    **_kwargs: object,
+) -> list[dict[str, object]]:
     """Run plugin introspection and return M001-M004 violations."""
-    unique_modules = list({n.get("module", "") for n in task_nodes if n.get("module")})
+    unique_modules: list[str] = [str(m) for m in {n.get("module", "") for n in task_nodes if n.get("module")}]
     if not unique_modules:
         return []
 
@@ -108,15 +111,16 @@ def run(
 
     violations = []
     for node in task_nodes:
-        module_name = node.get("module", "")
+        module_name = str(node.get("module", ""))
         if not module_name:
             continue
 
-        info = intro.get(module_name)
-        if not info:
+        info_raw = intro.get(module_name)
+        if not isinstance(info_raw, dict):
             continue
+        info = info_raw
 
-        file_path = node.get("file", "")
+        file_path = str(node.get("file", ""))
         line = node.get("line")
         line_num = line[0] if isinstance(line, (list, tuple)) and line else 1
 
@@ -126,7 +130,7 @@ def run(
                 {
                     "rule_id": "M004",
                     "level": "error",
-                    "message": info.get("removal_msg") or f"Module {module_name} has been removed",
+                    "message": str(info.get("removal_msg", "")) or f"Module {module_name} has been removed",
                     "file": file_path,
                     "line": line_num,
                     "path": node.get("key", ""),
@@ -136,7 +140,8 @@ def run(
 
         # M001: FQCN resolution
         fqcn = info.get("fqcn", "")
-        if fqcn and fqcn != module_name and module_name.count(".") < 2:
+        fqcn = str(info.get("fqcn", ""))
+        if fqcn and fqcn != module_name and str(module_name).count(".") < 2:
             violations.append(
                 {
                     "rule_id": "M001",
@@ -153,7 +158,8 @@ def run(
         # M002: Deprecation
         if info.get("deprecated") or info.get("warnings"):
             warnings = info.get("warnings", [])
-            msg = warnings[0] if warnings else f"Module {module_name} is deprecated"
+            w_list = warnings if isinstance(warnings, list) else []
+            msg = str(w_list[0]) if w_list else f"Module {module_name} is deprecated"
             violations.append(
                 {
                     "rule_id": "M002",
@@ -178,8 +184,8 @@ def run(
                     "line": line_num,
                     "path": node.get("key", ""),
                     "original_module": module_name,
-                    "resolved_fqcn": redirects[-1],
-                    "redirect_chain": redirects,
+                    "resolved_fqcn": str(redirects[-1]) if redirects else "",
+                    "redirect_chain": [str(r) for r in redirects],
                 }
             )
 

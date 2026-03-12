@@ -36,7 +36,7 @@ def _parse_frontmatter(path: Path) -> dict[str, str]:
     return dict(_KV.findall(m.group(1)))
 
 
-def _collect_opa_rules() -> list[dict]:
+def _collect_opa_rules() -> list[dict[str, str]]:
     rules = []
     for md in sorted(OPA_DIR.glob("*.md")):
         fm = _parse_frontmatter(md)
@@ -53,7 +53,7 @@ def _collect_opa_rules() -> list[dict]:
     return rules
 
 
-def _collect_native_rules() -> list[dict]:
+def _collect_native_rules() -> list[dict[str, str]]:
     rules = []
     for md in sorted(NATIVE_DIR.glob("*.md")):
         fm = _parse_frontmatter(md)
@@ -70,7 +70,7 @@ def _collect_native_rules() -> list[dict]:
     return rules
 
 
-def _collect_ansible_rules() -> list[dict]:
+def _collect_ansible_rules() -> list[dict[str, str]]:
     rules = []
     for md in sorted(ANSIBLE_DIR.glob("*.md")):
         fm = _parse_frontmatter(md)
@@ -87,7 +87,7 @@ def _collect_ansible_rules() -> list[dict]:
     return rules
 
 
-def _collect_gitleaks_rules() -> list[dict]:
+def _collect_gitleaks_rules() -> list[dict[str, str]]:
     return [
         {
             "rule_id": "SEC:*",
@@ -109,7 +109,7 @@ def _get_fixable_ids() -> set[str]:
         return set()
 
 
-def _sort_key(rule: dict) -> tuple:
+def _sort_key(rule: dict[str, str]) -> tuple[str, int]:
     rid = rule["rule_id"]
     prefix = rid.rstrip("0123456789:*")
     num_str = rid[len(prefix) :].split(":")[0].split("*")[0]
@@ -118,7 +118,7 @@ def _sort_key(rule: dict) -> tuple:
 
 
 def generate() -> str:
-    all_rules: list[dict] = []
+    all_rules: list[dict[str, str]] = []
     all_rules.extend(_collect_opa_rules())
     all_rules.extend(_collect_native_rules())
     all_rules.extend(_collect_ansible_rules())
@@ -150,7 +150,7 @@ def generate() -> str:
     lines.append("## By Validator")
     lines.append("")
 
-    validators = {}
+    validators: dict[str, list[dict[str, str]]] = {}
     for r in all_rules:
         validators.setdefault(r["validator"], []).append(r)
 
@@ -176,7 +176,7 @@ def generate() -> str:
     lines.append("| Rule ID | Transform |")
     lines.append("|---------|-----------|")
 
-    rule_map = {r["rule_id"]: r["description"] for r in all_rules}
+    rule_map: dict[str, str] = {r["rule_id"]: r["description"] for r in all_rules}
     for rid in sorted(fixable):
         desc = rule_map.get(rid, "")
         lines.append(f"| {rid} | {desc} |")
@@ -185,7 +185,7 @@ def generate() -> str:
     return "\n".join(lines)
 
 
-def main():
+def main() -> None:
     content = generate()
     OUTPUT.write_text(content, encoding="utf-8")
     print(f"Wrote {OUTPUT} ({content.count(chr(10))} lines)")

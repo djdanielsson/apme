@@ -6,9 +6,9 @@ from ...utils import show_diffs
 
 
 class RAMDiffCLI:
-    args = None
+    args: argparse.Namespace | None = None
 
-    def __init__(self):
+    def __init__(self) -> None:
         parser = argparse.ArgumentParser(description="TODO")
         parser.add_argument("target_type", help="content type", choices={"ram"})
         parser.add_argument("action", help="action for RAM command or target_name of search action")
@@ -18,8 +18,9 @@ class RAMDiffCLI:
         args = parser.parse_args()
         self.args = args
 
-    def run(self):
+    def run(self) -> None:
         args = self.args
+        assert args is not None
         action = args.action
         if action != "diff":
             raise ValueError('RAMDiffCLI cannot be executed without "diff" action')

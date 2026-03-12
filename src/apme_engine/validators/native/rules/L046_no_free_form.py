@@ -33,20 +33,25 @@ class NoFreeFormRule(Rule):
     enabled: bool = True
     name: str = "NoFreeForm"
     version: str = "v0.0.1"
-    severity: Severity = Severity.LOW
-    tags: tuple = Tag.COMMAND
+    severity: str = Severity.LOW
+    tags: tuple[str, ...] = (Tag.COMMAND,)
 
     def match(self, ctx: AnsibleRunContext) -> bool:
-        return ctx.current.type == RunTargetType.Task
+        if ctx.current is None:
+            return False
+        return bool(ctx.current.type == RunTargetType.Task)
 
-    def process(self, ctx: AnsibleRunContext):
+    def process(self, ctx: AnsibleRunContext) -> RuleResult | None:
         task = ctx.current
-        if task.action_type != ActionType.MODULE_TYPE:
+        if task is None:
+            return None
+        if getattr(task, "action_type", "") != ActionType.MODULE_TYPE:
             return RuleResult(verdict=False, file=task.file_info(), rule=self.get_metadata())
         resolved = getattr(task.spec, "resolved_name", "") or ""
         if resolved not in FREE_FORM_ACTIONS:
             return RuleResult(verdict=False, file=task.file_info(), rule=self.get_metadata())
-        raw = getattr(task.args, "raw", None)
+        args = getattr(task, "args", None)
+        raw = getattr(args, "raw", None) if args is not None else None
         # Free-form: args passed as a single string (no structured key)
         is_free_form = isinstance(raw, str) and raw.strip() != ""
         verdict = is_free_form

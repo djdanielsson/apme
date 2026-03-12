@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from apme_engine.engine.yaml_utils import FormattedYAML
 from apme_engine.remediation.registry import TransformResult
 from apme_engine.remediation.transforms._helpers import find_task_at_line, get_module_key
@@ -15,7 +17,7 @@ _SHELL_MODULES = frozenset(
 )
 
 
-def fix_pipefail(content: str, violation: dict) -> TransformResult:
+def fix_pipefail(content: str, violation: dict[str, Any]) -> TransformResult:
     """Prepend ``set -o pipefail &&`` to a piped shell command."""
     yaml = FormattedYAML(typ="rt", pure=True, version=(1, 1))
 

@@ -14,7 +14,7 @@ from apme_engine.engine.models import (
 PASSWORD_LIKE_KEYS = frozenset({"password", "passwd", "pwd", "secret", "token", "api_key", "apikey", "private_key"})
 
 
-def _option_keys_look_like_password(module_options):
+def _option_keys_look_like_password(module_options: object) -> bool:
     if not isinstance(module_options, dict):
         return False
     return any(k and k.lower() in PASSWORD_LIKE_KEYS for k in module_options)
@@ -27,14 +27,18 @@ class NoLogPasswordRule(Rule):
     enabled: bool = False
     name: str = "NoLogPassword"
     version: str = "v0.0.1"
-    severity: Severity = Severity.MEDIUM
-    tags: tuple = Tag.SYSTEM
+    severity: str = Severity.MEDIUM
+    tags: tuple[str, ...] = (Tag.SYSTEM,)
 
     def match(self, ctx: AnsibleRunContext) -> bool:
-        return ctx.current.type == RunTargetType.Task
+        if ctx.current is None:
+            return False
+        return bool(ctx.current.type == RunTargetType.Task)
 
-    def process(self, ctx: AnsibleRunContext):
+    def process(self, ctx: AnsibleRunContext) -> RuleResult | None:
         task = ctx.current
+        if task is None:
+            return None
         options = getattr(task.spec, "options", None) or {}
         module_options = getattr(task.spec, "module_options", None) or {}
         has_no_log = options.get("no_log") is True

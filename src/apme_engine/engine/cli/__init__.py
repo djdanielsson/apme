@@ -1,7 +1,9 @@
 import argparse
 import json
 import os
+from typing import Any
 
+from .. import logger
 from ..finder import get_yml_list, list_scan_target, update_the_yaml_target
 from ..scanner import ARIScanner, config
 from ..utils import (
@@ -11,13 +13,14 @@ from ..utils import (
     is_url,
     split_name_and_version,
 )
-from . import logger
+
+__all__ = ["ARICLI", "RAMCLI", "logger"]
 
 
 class ARICLI:
-    args = None
+    args: argparse.Namespace | None = None
 
-    def __init__(self):
+    def __init__(self) -> None:
         parser = argparse.ArgumentParser(description="TODO")
         parser.add_argument(
             "-s",
@@ -113,8 +116,9 @@ class ARICLI:
         args = parser.parse_args()
         self.args = args
 
-    def run(self):
+    def run(self) -> None:
         args = self.args
+        assert args is not None
         print("ARI args: ", args.target_name)
         target_name = args.target_name
         target_version = ""
@@ -206,7 +210,7 @@ class ARICLI:
             targets = list_scan_target(root_dir=target_name, task_num_threshold=task_num_threshold)
             print("Start scanning")
             total = len(targets)
-            file_list = {"playbook": [], "role": [], "taskfile": []}
+            file_list: dict[str, list[str]] = {"playbook": [], "role": [], "taskfile": []}
             for i, target_info in enumerate(targets):
                 fpath = target_info["filepath"]
                 fpath_from_root = target_info["path_from_root"]
@@ -256,8 +260,8 @@ class ARICLI:
                             for i in reversed(range(len(targets))):
                                 logger.debug("Nodes dir number: %s", i)
                                 nodes = targets[i]["nodes"]
-                                line_number_list = []
-                                mutated_yaml_list = []
+                                line_number_list: list[str] = []
+                                mutated_yaml_list: list[Any] = []
                                 target_file_path = ""
                                 temp_file_path = ""
                                 for j in range(1, len(nodes)):
@@ -296,7 +300,13 @@ class ARICLI:
                                                 mutated_yaml_list.append(mutated_yaml)
                                                 temp_file_path = target_file_path
                                             line_number = w007_rule["file"][1]
-                                            line_number_list.append(line_number)
+                                            if isinstance(line_number, (list, tuple)) and len(line_number) >= 2:
+                                                ln_str = f"{line_number[0]}-{line_number[1]}"
+                                            elif isinstance(line_number, int):
+                                                ln_str = f"{line_number}-{line_number}"
+                                            else:
+                                                ln_str = str(line_number)
+                                            line_number_list.append(ln_str)
                                             break  # w007 rule with mutated yaml is processed, breaking out of iteration
                                 try:
                                     if target_file_path == "" or not mutated_yaml_list or not line_number_list:

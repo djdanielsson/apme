@@ -72,9 +72,9 @@ class FormatResult:
     diff: str = field(default="", repr=False)
 
 
-def _normalize_jinja(match: re.Match) -> str:
+def _normalize_jinja(match: re.Match[str]) -> str:
     """Normalize {{ foo }} spacing to exactly one space inside braces."""
-    inner = match.group(2).strip()
+    inner: str = match.group(2).strip()
     if not inner:
         return "{{ }}"
     return "{{ " + inner + " }}"

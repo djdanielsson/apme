@@ -22,16 +22,21 @@ class MetaVideoLinksRule(Rule):
     enabled: bool = True
     name: str = "MetaVideoLinks"
     version: str = "v0.0.1"
-    severity: Severity = Severity.VERY_LOW
-    tags: tuple = Tag.DEPENDENCY
+    severity: str = Severity.VERY_LOW
+    tags: tuple[str, ...] = (Tag.DEPENDENCY,)
 
     def match(self, ctx: AnsibleRunContext) -> bool:
-        return ctx.current.type == RunTargetType.Role
+        if ctx.current is None:
+            return False
+        return bool(ctx.current.type == RunTargetType.Role)
 
-    def process(self, ctx: AnsibleRunContext):
+    def process(self, ctx: AnsibleRunContext) -> RuleResult | None:
         role = ctx.current
+        if role is None:
+            return None
         metadata = getattr(role.spec, "metadata", None) or {}
-        galaxy_info = metadata.get("galaxy_info") if isinstance(metadata.get("galaxy_info"), dict) else {}
+        gi = metadata.get("galaxy_info")
+        galaxy_info = gi if isinstance(gi, dict) else {}
         video_links = galaxy_info.get("video_links") if galaxy_info else None
         if not video_links:
             return RuleResult(verdict=False, file=role.file_info(), rule=self.get_metadata())

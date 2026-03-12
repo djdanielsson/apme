@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
+from typing import Any
 
 from apme_engine.engine.annotators.annotator_base import Annotator, AnnotatorResult
 from apme_engine.engine.context import Context, resolve_module_options
@@ -6,6 +9,8 @@ from apme_engine.engine.keyutil import detect_type
 from apme_engine.engine.models import (
     Arguments,
     ArgumentsType,
+    CallObject,
+    Object,
     ObjectList,
     Playbook,
     Repository,
@@ -19,12 +24,13 @@ from apme_engine.engine.models import (
 
 class VariableAnnotator(Annotator):
     type: str = VariableAnnotation.type
-    context: Context = None
+    context: Context
 
-    def __init__(self, context: Context):
+    def __init__(self, context: Context) -> None:
+        super().__init__(context=context)
         self.context = context
 
-    def run(self, taskcall: TaskCall):
+    def run(self, taskcall: TaskCall) -> VariableAnnotatorResult:
         resolved = resolve_module_options(self.context, taskcall)
         resolved_module_options = resolved[0]
         resolved_variables = resolved[1]
@@ -68,7 +74,7 @@ class VariableAnnotator(Annotator):
             history.append(v)
             self.context.var_use_history[v.name] = history
 
-        m_opts = taskcall.spec.module_options
+        m_opts = getattr(taskcall.spec, "module_options", None)
         if isinstance(m_opts, list):
             args_type = ArgumentsType.LIST
         elif isinstance(m_opts, dict):
@@ -100,24 +106,25 @@ class VariableAnnotatorResult(AnnotatorResult):
     pass
 
 
-def tree_to_task_list(tree, node_objects):
-    node_dict = {}
+def tree_to_task_list(tree: Any, node_objects: ObjectList) -> list[dict[str, Any]]:
+    """Convert tree (TreeNode-like with .key, .children) to task list. tree is unused/dead."""
+    node_dict: dict[str, Object | CallObject] = {}
     for no in node_objects.items:
         node_dict[no.key] = no
 
-    def getSubTree(node):
-        tasks = []
+    def getSubTree(node: Any) -> tuple[list[dict[str, Any]], str]:
+        tasks: list[dict[str, Any]] = []
         resolved_name = ""
         no = node_dict[node.key]
         node_type = detect_type(node.key)
 
-        children_tasks = []
+        children_tasks: list[dict[str, Any]] = []
         if node_type == "module" or node_type == "role":
-            resolved_name = no.fqcn
+            resolved_name = getattr(no, "fqcn", "")
         elif node_type == "taskfile":
             resolved_name = no.key
 
-        children_per_type = {}
+        children_per_type: dict[str, list[Object | CallObject]] = {}
         for c in node.children:
             ctype = detect_type(c.key)
             if ctype in children_per_type:
@@ -157,25 +164,28 @@ def tree_to_task_list(tree, node_objects):
             resolved_name = fqcns[0] if len(fqcns) > 0 else ""
 
         if node_type == "task":
-            no.resolved_name = resolved_name
+            no.resolved_name = resolved_name  # type: ignore[union-attr]
             tasks.append(no.__dict__)
         tasks.extend(children_tasks)
         return tasks, resolved_name
 
-    tasks, _ = getSubTree(tree)
+    root = tree.items[0] if isinstance(tree, ObjectList) and tree.items else tree
+    tasks, _ = getSubTree(root)
     return tasks
 
 
 def resolve_variables(tree: ObjectList, additional: ObjectList) -> list[TaskCall]:
-    tree_root_key = tree.items[0].spec.key if len(tree.items) > 0 else ""
+    first_item = tree.items[0] if len(tree.items) > 0 else None
+    tree_root_key = getattr(getattr(first_item, "spec", None), "key", "") if first_item else ""
     inventories = get_inventories(tree_root_key, additional)
     context = Context(inventories=inventories)
-    depth_dict = {}
-    resolved_taskcalls = []
+    depth_dict: dict[str, int] = {}
+    resolved_taskcalls: list[TaskCall] = []
     for call_obj in tree.items:
         caller_depth_lvl = 0
-        if call_obj.called_from != "":
-            caller_key = call_obj.called_from
+        called_from = getattr(call_obj, "called_from", "")
+        if called_from != "":
+            caller_key = called_from
             caller_depth_lvl = depth_dict.get(caller_key, 0)
         depth_lvl = caller_depth_lvl + 1
         depth_dict[call_obj.key] = depth_lvl
@@ -190,7 +200,7 @@ def resolve_variables(tree: ObjectList, additional: ObjectList) -> list[TaskCall
     return resolved_taskcalls
 
 
-def get_inventories(tree_root_key, additional):
+def get_inventories(tree_root_key: str, additional: ObjectList) -> list[Any]:
     if tree_root_key == "":
         return []
     tree_root_type = detect_type(tree_root_key)

@@ -54,7 +54,7 @@ def resolve_ansible_playbook(version: str) -> Path | None:
     return None
 
 
-def setup_collections_env(collection_specs: list[str], cache_root: Path) -> dict | None:
+def setup_collections_env(collection_specs: list[str], cache_root: Path) -> dict[str, str] | None:
     """Build ANSIBLE_COLLECTIONS_PATH pointing at the cache so ansible finds collections."""
     if not collection_specs:
         return None

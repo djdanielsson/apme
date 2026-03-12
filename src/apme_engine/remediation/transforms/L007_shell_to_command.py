@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from apme_engine.engine.yaml_utils import FormattedYAML
 from apme_engine.remediation.registry import TransformResult
 from apme_engine.remediation.transforms._helpers import find_task_at_line, get_module_key, rename_key
@@ -19,7 +21,7 @@ def _uses_shell_features(cmd: str) -> bool:
     return any(ch in cmd for ch in _SHELL_CHARS)
 
 
-def fix_shell_to_command(content: str, violation: dict) -> TransformResult:
+def fix_shell_to_command(content: str, violation: dict[str, Any]) -> TransformResult:
     """Replace shell with command when the command string uses no shell features."""
     yaml = FormattedYAML(typ="rt", pure=True, version=(1, 1))
 

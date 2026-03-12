@@ -6,10 +6,9 @@ from apme_engine.engine.models import (
     RuleResult,
     RunTargetType,
     Severity,
+    TaskCall,
 )
-from apme_engine.engine.models import (
-    RuleTag as Tag,
-)
+from apme_engine.engine.models import RuleTag as Tag
 
 
 @dataclass
@@ -19,16 +18,20 @@ class PrivilegeEscalationRule(Rule):
     enabled: bool = True
     name: str = "PrivilegeEscalation"
     version: str = "v0.0.1"
-    severity: Severity = Severity.HIGH
-    tags: tuple = Tag.SYSTEM
+    severity: str = Severity.HIGH
+    tags: tuple[str, ...] = (Tag.SYSTEM,)
 
     def match(self, ctx: AnsibleRunContext) -> bool:
-        return ctx.current.type == RunTargetType.Task
+        if ctx.current is None:
+            return False
+        return bool(ctx.current.type == RunTargetType.Task)
 
-    def process(self, ctx: AnsibleRunContext):
+    def process(self, ctx: AnsibleRunContext) -> RuleResult | None:
         task = ctx.current
+        if task is None or not isinstance(task, TaskCall):
+            return None
 
-        verdict = task.become and task.become.enabled
+        verdict = bool(task.become and task.become.enabled)
         detail = {}
         if verdict:
             detail = task.become.__dict__

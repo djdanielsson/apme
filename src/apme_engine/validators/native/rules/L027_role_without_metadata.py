@@ -19,15 +19,19 @@ class RoleWithoutMetadataRule(Rule):
     enabled: bool = True
     name: str = "RoleWithoutMetadata"
     version: str = "v0.0.1"
-    severity: Severity = Severity.LOW
-    tags: tuple = Tag.DEPENDENCY
+    severity: str = Severity.LOW
+    tags: tuple[str, ...] = (Tag.DEPENDENCY,)
 
     def match(self, ctx: AnsibleRunContext) -> bool:
-        return ctx.current.type == RunTargetType.Role
+        if ctx.current is None:
+            return False
+        return bool(ctx.current.type == RunTargetType.Role)
 
-    def process(self, ctx: AnsibleRunContext):
+    def process(self, ctx: AnsibleRunContext) -> RuleResult | None:
         role = ctx.current
+        if role is None:
+            return None
 
-        verdict = not role.spec.metadata
+        verdict = not getattr(role.spec, "metadata", None)
 
         return RuleResult(verdict=verdict, file=role.file_info(), rule=self.get_metadata())

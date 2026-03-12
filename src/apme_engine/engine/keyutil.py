@@ -1,26 +1,30 @@
+from __future__ import annotations
+
 import os
+from typing import Any
 
 key_delimiter = ":"
 object_delimiter = "#"
 
 
 class Key:
-    def __init__(self, str):
-        self.key = str
+    def __init__(self, key_str: str) -> None:
+        self.key = key_str
 
-    def detect_type(self):
+    def detect_type(self) -> str:
         return self.key.split(" ")[0]
 
     # convert key to tree root name
-    def to_name(self):
+    def to_name(self) -> str | None:
         _type = self.detect_type()
         if _type == "playbook":
             return os.path.basename(self.key.split(key_delimiter)[-1])
         elif _type == "role":
             return self.key.split(key_delimiter)[-1]
+        return None
 
 
-def make_global_key_prefix(collection, role):
+def make_global_key_prefix(collection: str, role: str) -> str:
     key_prefix = ""
     if collection != "":
         key_prefix = f"collection{key_delimiter}{collection}{object_delimiter}"
@@ -29,11 +33,11 @@ def make_global_key_prefix(collection, role):
     return key_prefix
 
 
-def detect_type(key=""):
+def detect_type(key: str = "") -> str:
     return key.split(" ")[0]
 
 
-def set_play_key(obj, parent_key="", parent_local_key=""):
+def set_play_key(obj: Any, parent_key: str = "", parent_local_key: str = "") -> None:
     type_str = obj.type
     index_info = f"[{obj.index}]"
     _parent_key = parent_key.split(" ")[-1]
@@ -44,7 +48,7 @@ def set_play_key(obj, parent_key="", parent_local_key=""):
     obj.local_key = local_key
 
 
-def set_role_key(obj):
+def set_role_key(obj: Any) -> None:
     global_key_prefix = make_global_key_prefix(obj.collection, "")
     global_key = f"{obj.type} {global_key_prefix}{obj.type}{key_delimiter}{obj.fqcn}"
     local_key = f"{obj.type} {obj.type}{key_delimiter}{obj.defined_in}"
@@ -52,7 +56,7 @@ def set_role_key(obj):
     obj.local_key = local_key
 
 
-def set_module_key(obj):
+def set_module_key(obj: Any) -> None:
     global_key_prefix = make_global_key_prefix(obj.collection, obj.role)
     global_key = f"{obj.type} {global_key_prefix}{obj.type}{key_delimiter}{obj.fqcn}"
     local_key = f"{obj.type} {obj.type}{key_delimiter}{obj.defined_in}"
@@ -60,14 +64,14 @@ def set_module_key(obj):
     obj.local_key = local_key
 
 
-def set_collection_key(obj):
+def set_collection_key(obj: Any) -> None:
     global_key = f"{obj.type} {obj.type}{key_delimiter}{obj.name}"
     local_key = global_key
     obj.key = global_key
     obj.local_key = local_key
 
 
-def get_obj_type(key):
+def get_obj_type(key: str) -> str | None:
     idx0 = key.find(" ")
     obj_type = key[:idx0]
     if obj_type in [
@@ -85,8 +89,8 @@ def get_obj_type(key):
         return None
 
 
-def get_obj_info_by_key(key):
-    info = {}
+def get_obj_info_by_key(key: str) -> dict[str, Any]:
+    info: dict[str, Any] = {}
     info["key"] = key
     skip = False
 
@@ -163,7 +167,7 @@ def get_obj_info_by_key(key):
     return info
 
 
-def set_task_key(obj, parent_key="", parent_local_key=""):
+def set_task_key(obj: Any, parent_key: str = "", parent_local_key: str = "") -> None:
     index_info = f"[{obj.index}]"
     _parent_key = parent_key.split(" ")[-1]
     _parent_local_key = parent_local_key.split(" ")[-1]
@@ -173,7 +177,7 @@ def set_task_key(obj, parent_key="", parent_local_key=""):
     obj.local_key = local_key
 
 
-def set_taskfile_key(obj):
+def set_taskfile_key(obj: Any) -> None:
     global_key_prefix = make_global_key_prefix(obj.collection, obj.role)
     global_key = f"{obj.type} {global_key_prefix}{obj.type}{key_delimiter}{obj.defined_in}"
     local_key = f"{obj.type} {obj.type}{key_delimiter}{obj.defined_in}"
@@ -181,7 +185,7 @@ def set_taskfile_key(obj):
     obj.local_key = local_key
 
 
-def set_playbook_key(obj):
+def set_playbook_key(obj: Any) -> None:
     global_key_prefix = make_global_key_prefix(obj.collection, obj.role)
     global_key = f"{obj.type} {global_key_prefix}{obj.type}{key_delimiter}{obj.defined_in}"
     local_key = f"{obj.type} {obj.type}{key_delimiter}{obj.defined_in}"
@@ -189,20 +193,20 @@ def set_playbook_key(obj):
     obj.local_key = local_key
 
 
-def set_repository_key(obj):
+def set_repository_key(obj: Any) -> None:
     global_key = f"{obj.type} {obj.type}{key_delimiter}{obj.name}"
     local_key = global_key
     obj.key = global_key
     obj.local_key = local_key
 
 
-def set_call_object_key(cls_name: str, spec_key: str, caller_key: str):
+def set_call_object_key(cls_name: str, spec_key: str, caller_key: str) -> str:
     parts = spec_key.split(" ", 1)
     caller_only = caller_key.split(" FROM ")[0]
     return f"{cls_name} {parts[1]} FROM {caller_only}"
 
 
-def make_imported_taskfile_key(caller_key, path):
+def make_imported_taskfile_key(caller_key: str, path: str) -> str:
     caller_key_payload = caller_key.split(" ")[-1]
     parts = caller_key_payload.split(object_delimiter)
     parent = ""
@@ -213,7 +217,7 @@ def make_imported_taskfile_key(caller_key, path):
     return key
 
 
-def set_file_key(obj):
+def set_file_key(obj: Any) -> None:
     global_key_prefix = make_global_key_prefix(obj.collection, obj.role)
     global_key = f"{obj.type} {global_key_prefix}{obj.type}{key_delimiter}{obj.defined_in}"
     local_key = f"{obj.type} {obj.type}{key_delimiter}{obj.defined_in}"

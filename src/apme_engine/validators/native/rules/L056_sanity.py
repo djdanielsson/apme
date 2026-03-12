@@ -28,14 +28,16 @@ class SanityRule(Rule):
     enabled: bool = True
     name: str = "Sanity"
     version: str = "v0.0.1"
-    severity: Severity = Severity.VERY_LOW
-    tags: tuple = Tag.QUALITY
+    severity: str = Severity.VERY_LOW
+    tags: tuple[str, ...] = (Tag.QUALITY,)
 
     def match(self, ctx: AnsibleRunContext) -> bool:
-        return ctx.current.type in (RunTargetType.Task, RunTargetType.Role)
+        return bool(ctx.current is not None and ctx.current.type in (RunTargetType.Task, RunTargetType.Role))
 
-    def process(self, ctx: AnsibleRunContext):
+    def process(self, ctx: AnsibleRunContext) -> RuleResult | None:
         target = ctx.current
+        if target is None:
+            return None
         defined_in = getattr(target.spec, "defined_in", "") or ""
         verdict = any(p.search(defined_in) for p in SANITY_IGNORE_PATTERNS)
         detail = {}

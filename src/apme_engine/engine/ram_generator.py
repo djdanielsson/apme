@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import datetime
 import json
 import os
@@ -11,27 +13,27 @@ from .scanner import ARIScanner, config
 
 
 class RiskAssessmentModelGenerator:
-    _queue: list = []
-    _resume: int = -1
-    _update: bool = False
-
-    start: float = None
+    _queue: list[tuple[str, str]]
+    _resume: int
+    _update: bool
+    _scanner: ARIScanner
+    start: float | None = None
 
     def __init__(
         self,
-        target_list=None,
-        resume=-1,
-        update=False,
-        parallel=True,
-        download_only=False,
-        include_test_contents=False,
-        out_dir=None,
-        no_module_spec=False,
-        no_retry=False,
-    ):
+        target_list: list[tuple[str, str]] | None = None,
+        resume: int = -1,
+        update: bool = False,
+        parallel: bool = True,
+        download_only: bool = False,
+        include_test_contents: bool = False,
+        out_dir: str | None = None,
+        no_module_spec: bool = False,
+        no_retry: bool = False,
+    ) -> None:
         if target_list is None:
             target_list = []
-        self._queue = target_list
+        self._queue = list(target_list)
         self._resume = resume
         self._update = update
         self._parallel = parallel
@@ -60,7 +62,7 @@ class RiskAssessmentModelGenerator:
             write_ram=write_ram,
         )
 
-    def run(self):
+    def run(self) -> None:
         num = len(self._queue)
         resume_str = f"(resume from {self._resume})" if self._resume > 0 else ""
         print(f"Start scanning {num} targets {resume_str}")
@@ -91,8 +93,9 @@ class RiskAssessmentModelGenerator:
             for i, num, _type, _name in input_list:
                 self.scan(i, num, _type, _name)
 
-    def scan(self, i, num, type, name):
-        elapsed = round(time.time() - self.start, 2)
+    def scan(self, i: int, num: int, type: str, name: str) -> None:
+        start_val = self.start if self.start is not None else time.time()
+        elapsed = round(time.time() - start_val, 2)
         start_of_this_scan = time.time()
         thread_id = threading.get_native_id()
         print(f"[{i + 1}/{num}] start {type} {name} ({elapsed} sec. elapsed) (thread: {thread_id})")
@@ -109,6 +112,7 @@ class RiskAssessmentModelGenerator:
             out_dir = None
             if self._out_dir_base:
                 out_dir = os.path.join(self._out_dir_base, type, name)
+            out_dir_str = out_dir if out_dir else ""
             self._scanner.evaluate(
                 type=type,
                 name=name,
@@ -116,7 +120,7 @@ class RiskAssessmentModelGenerator:
                 download_only=self._download_only,
                 include_test_contents=self._include_test_contents,
                 use_src_cache=use_src_cache,
-                out_dir=out_dir,
+                out_dir=out_dir_str,
             )
         except Exception:
             error = traceback.format_exc()
@@ -128,7 +132,7 @@ class RiskAssessmentModelGenerator:
         if elapsed_for_this_scan > 60:
             print(f"WARNING: It took {elapsed_for_this_scan} sec. to process [{i + 1}/{num}] {type} {name}")
 
-    def save_ram_log(self, type, name, fail):
+    def save_ram_log(self, type: str, name: str, fail: bool) -> None:
         out_dir = os.path.join(self._scanner.root_dir, "log", type, name)
         path = os.path.join(out_dir, "ram_log.json")
 
@@ -149,7 +153,7 @@ class RiskAssessmentModelGenerator:
             json.dump(logs, file)
         return
 
-    def skip_scan(self, type, name) -> bool:
+    def skip_scan(self, type: str, name: str) -> bool:
         skip = False
         path = os.path.join(self._scanner.root_dir, "log", type, name, "ram_log.json")
         if not os.path.exists(path):

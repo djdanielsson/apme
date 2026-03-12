@@ -5,20 +5,21 @@ from apme_engine.engine.models import (
     ArgumentsType,
     ExecutableType,
     Rule,
+    RuleResult,
     RunTargetType,
     Severity,
+    TaskCall,
     VariableType,
 )
-from apme_engine.engine.models import (
-    RuleTag as Tag,
-)
+from apme_engine.engine.models import RuleTag as Tag
 
 
-def is_loop_var(value, task):
+def is_loop_var(value: str, task: TaskCall) -> bool:
     # `item` and alternative loop variable (if any) should not be replaced to avoid breaking loop
     skip_variables = ["item"]
-    if task.spec.loop and isinstance(task.spec.loop, dict):
-        skip_variables.extend(list(task.spec.loop.keys()))
+    loop = getattr(task.spec, "loop", None)
+    if loop and isinstance(loop, dict):
+        skip_variables.extend(list(loop.keys()))
 
     _v = value.replace(" ", "")
 
@@ -30,7 +31,7 @@ def is_loop_var(value, task):
     return False
 
 
-def is_debug(module_fqcn):
+def is_debug(module_fqcn: str) -> bool:
     return module_fqcn == "ansible.builtin.debug"
 
 
@@ -41,17 +42,25 @@ class ModuleArgumentValueValidationRule(Rule):
     enabled: bool = True
     name: str = "ModuleArgumentValueValidation"
     version: str = "v0.0.1"
-    severity: Severity = Severity.NONE
-    tags: tuple = Tag.QUALITY
+    severity: str = Severity.NONE
+    tags: tuple[str, ...] = (Tag.QUALITY,)
     precedence: int = 0
 
     def match(self, ctx: AnsibleRunContext) -> bool:
-        return ctx.current.type == RunTargetType.Task
+        if ctx.current is None:
+            return False
+        return bool(ctx.current.type == RunTargetType.Task)
 
-    def process(self, ctx: AnsibleRunContext):
+    def process(self, ctx: AnsibleRunContext) -> RuleResult | None:
         task = ctx.current
+        if task is None or not isinstance(task, TaskCall):
+            return None
 
-        if task.spec.executable_type == ExecutableType.MODULE_TYPE and task.module and task.module.arguments:
+        if (
+            getattr(task.spec, "executable_type", "") == ExecutableType.MODULE_TYPE
+            and task.module
+            and task.module.arguments
+        ):
             wrong_values = []
             undefined_values = []
             unknown_type_values = []

@@ -7,6 +7,7 @@ octal ambiguity (``0644`` → int 420 vs ``644`` → int 644).
 from __future__ import annotations
 
 import re
+from typing import Any
 
 from apme_engine.remediation.registry import TransformResult
 
@@ -21,7 +22,7 @@ _MODE_QUOTED_NO_ZERO = re.compile(
 )
 
 
-def fix_octal_mode(content: str, violation: dict) -> TransformResult:
+def fix_octal_mode(content: str, violation: dict[str, Any]) -> TransformResult:
     """Convert ``mode: 644`` or ``mode: 0644`` to ``mode: "0644"``."""
     target_line = violation.get("line", 0)
     if isinstance(target_line, (list, tuple)):

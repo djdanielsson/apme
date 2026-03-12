@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Any
 
 from apme_engine.engine.models import (
     AnsibleRunContext,
@@ -19,20 +20,26 @@ class UnusedOverrideRule(Rule):
     enabled: bool = True
     name: str = "UnusedOverride"
     version: str = "v0.0.1"
-    severity: Severity = Severity.VERY_LOW
-    tags: tuple = Tag.VARIABLE
+    severity: str = Severity.VERY_LOW
+    tags: tuple[str, ...] = (Tag.VARIABLE,)
 
     def match(self, ctx: AnsibleRunContext) -> bool:
-        return ctx.current.type == RunTargetType.Task
+        if ctx.current is None:
+            return False
+        return bool(ctx.current.type == RunTargetType.Task)
 
-    def process(self, ctx: AnsibleRunContext):
+    def process(self, ctx: AnsibleRunContext) -> RuleResult | None:
         task = ctx.current
+        if task is None:
+            return None
 
         verdict = False
-        detail = {"variables": []}
-        if task.spec.defined_vars:
-            for v in task.spec.defined_vars:
-                all_definitions = task.variable_set.get(v, [])
+        detail: dict[str, Any] = {"variables": []}
+        defined_vars = getattr(task.spec, "defined_vars", None) or []
+        variable_set = getattr(task, "variable_set", {}) or {}
+        if defined_vars:
+            for v in defined_vars:
+                all_definitions = variable_set.get(v, [])
                 if len(all_definitions) > 1:
                     prev_prec = all_definitions[-2].type
                     new_prec = all_definitions[-1].type

@@ -27,7 +27,19 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "pytest-cov", "pytest-mock", "pytest-asyncio>=0.24", "ruff"]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "pytest-mock",
+    "pytest-asyncio>=0.24",
+    "ruff",
+    "mypy",
+    "types-protobuf",
+    "types-PyYAML",
+    "types-requests",
+    "types-tabulate",
+    "grpc-stubs",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "src/apme_engine/validators/native/rules"]
@@ -70,6 +82,42 @@ select = ["E", "F", "W", "I", "UP", "B", "SIM"]
 
 [tool.ruff.lint.per-file-ignores]
 "src/apme_engine/engine/annotators/ansible.builtin/*.py" = ["E501"]
+
+[tool.mypy]
+strict = true
+python_version = "3.10"
+mypy_path = "src"
+exclude = ["src/apme/v1/.*_pb2"]
+
+[[tool.mypy.overrides]]
+module = [
+    "pytest",
+    "ruamel.*",
+    "ansible.*",
+    "jsonpickle",
+    "filelock",
+    "rapidfuzz.*",
+    "joblib",
+    "httpx",
+    "gitdb",
+    "smmap",
+    "tabulate",
+    "yaml",
+    "grpc",
+    "grpc.*",
+]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = [
+    "apme.v1.ansible_pb2",
+    "apme.v1.ansible_pb2_grpc",
+    "apme.v1.cache_pb2_grpc",
+    "apme.v1.common_pb2_grpc",
+    "apme.v1.primary_pb2_grpc",
+    "apme.v1.validate_pb2_grpc",
+]
+ignore_errors = true
 
 [tool.setuptools.packages.find]
 where = ["src"]

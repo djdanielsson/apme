@@ -1,16 +1,19 @@
+from __future__ import annotations
+
 import argparse
 import json
+from typing import Any, cast
 
 import apme_engine.engine.logger as logger
 from apme_engine.engine.annotators.risk_annotator_base import RiskAnnotator
 
-from .models import AnsibleRunContext, TaskCallsInTree
+from .models import AnsibleRunContext, TaskCall, TaskCallsInTree
 from .utils import load_classes_in_dir
 
-annotator_cache = []
+annotator_cache: list[Any] = []
 
 
-def load_annotators(ctx: AnsibleRunContext = None):
+def load_annotators(ctx: AnsibleRunContext | None = None) -> list[RiskAnnotator]:
     global annotator_cache
 
     if annotator_cache:
@@ -29,23 +32,25 @@ def load_annotators(ctx: AnsibleRunContext = None):
 
 
 def load_taskcalls_in_trees(path: str) -> list[TaskCallsInTree]:
-    taskcalls_in_trees = []
+    taskcalls_in_trees: list[TaskCallsInTree] = []
     try:
         with open(path) as file:
             for line in file:
-                taskcalls_in_tree = TaskCallsInTree.from_json(line)
+                taskcalls_in_tree = cast(TaskCallsInTree, TaskCallsInTree.from_json(line))
                 taskcalls_in_trees.append(taskcalls_in_tree)
     except Exception as e:
         raise ValueError(f"failed to load the json file {path} {e}") from e
     return taskcalls_in_trees
 
 
-def analyze(contexts: list[AnsibleRunContext]):
+def analyze(contexts: list[AnsibleRunContext]) -> list[AnsibleRunContext]:
     num = len(contexts)
     for i, ctx in enumerate(contexts):
         if not isinstance(ctx, AnsibleRunContext):
             continue
         for _j, t in enumerate(ctx.tasks):
+            if not isinstance(t, TaskCall):
+                continue
             annotator = None
             _annotators = load_annotators(ctx)
             for ax in _annotators:
@@ -65,7 +70,7 @@ def analyze(contexts: list[AnsibleRunContext]):
     return contexts
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         prog="analyze.py",
         description="analyze tasks",
@@ -84,7 +89,16 @@ def main():
     args = parser.parse_args()
 
     taskcalls_in_trees = load_taskcalls_in_trees(args.input)
-    taskcalls_in_trees = analyze(taskcalls_in_trees)
+    # Convert to AnsibleRunContext for analyze, then back to TaskCallsInTree for output
+    contexts = [
+        AnsibleRunContext.from_targets(targets=tct.taskcalls, root_key=tct.root_key) for tct in taskcalls_in_trees
+    ]
+    analyzed_contexts = analyze(contexts)
+    # Update taskcalls_in_trees with annotated tasks from analyzed_contexts
+    for tct, ctx in zip(taskcalls_in_trees, analyzed_contexts, strict=False):
+        for i, tc in enumerate(ctx.taskcalls):
+            if i < len(tct.taskcalls):
+                tct.taskcalls[i] = tc
 
     if args.output != "":
         lines = [json.dumps(single_tree_data) for single_tree_data in taskcalls_in_trees]

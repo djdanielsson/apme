@@ -11,12 +11,16 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import grpc
 import grpc.aio
 import jsonpickle
 
-from apme.v1 import common_pb2, primary_pb2, primary_pb2_grpc, validate_pb2, validate_pb2_grpc
+from apme.v1 import primary_pb2, primary_pb2_grpc, validate_pb2_grpc
+from apme.v1.common_pb2 import HealthResponse, ValidatorDiagnostics
+from apme.v1.primary_pb2 import FileDiff, FormatResponse, ScanDiagnostics, ScanResponse
+from apme.v1.validate_pb2 import ValidateRequest
 from apme_engine.daemon.violation_convert import violation_proto_to_dict
 from apme_engine.runner import run_scan
 
@@ -25,12 +29,12 @@ _MAX_CONCURRENT_RPCS = int(os.environ.get("APME_PRIMARY_MAX_RPCS", "16"))
 
 @dataclass
 class _ValidatorResult:
-    violations: list = field(default_factory=list)
-    diagnostics: common_pb2.ValidatorDiagnostics | None = None
+    violations: list[dict[str, Any]] = field(default_factory=list)
+    diagnostics: ValidatorDiagnostics | None = None
 
 
-def _sort_violations(violations: list[dict]) -> list[dict]:
-    def key(v):
+def _sort_violations(violations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def key(v: dict[str, Any]) -> tuple[str, int | float]:
         f = v.get("file") or ""
         line = v.get("line")
         if isinstance(line, (list, tuple)) and line:
@@ -42,10 +46,10 @@ def _sort_violations(violations: list[dict]) -> list[dict]:
     return sorted(violations, key=key)
 
 
-def _deduplicate_violations(violations: list[dict]) -> list[dict]:
+def _deduplicate_violations(violations: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Remove duplicate violations sharing the same (rule_id, file, line)."""
-    seen: set[tuple] = set()
-    out: list[dict] = []
+    seen: set[tuple[str, str, Any]] = set()
+    out: list[dict[str, Any]] = []
     for v in violations:
         line = v.get("line")
         if isinstance(line, (list, tuple)):
@@ -57,7 +61,7 @@ def _deduplicate_violations(violations: list[dict]) -> list[dict]:
     return out
 
 
-def _write_chunked_fs(project_root: str, files: list) -> Path:
+def _write_chunked_fs(project_root: str, files: list[Any]) -> Path:
     """Write request.files into a temp directory; return path to that directory."""
     tmp = Path(tempfile.mkdtemp(prefix="apme_primary_"))
     for f in files:
@@ -69,13 +73,13 @@ def _write_chunked_fs(project_root: str, files: list) -> Path:
 
 async def _call_validator(
     address: str,
-    request: validate_pb2.ValidateRequest,
+    request: ValidateRequest,
     timeout: int = 60,
 ) -> _ValidatorResult:
     """Call a validator over async gRPC; return violations + diagnostics."""
     req_id = request.request_id or ""
     channel = grpc.aio.insecure_channel(address)
-    stub = validate_pb2_grpc.ValidatorStub(channel)
+    stub = validate_pb2_grpc.ValidatorStub(channel)  # type: ignore[no-untyped-call]
     try:
         resp = await stub.Validate(request, timeout=timeout)
         return _ValidatorResult(
@@ -87,7 +91,7 @@ async def _call_validator(
         sys.stderr.flush()
         return _ValidatorResult()
     finally:
-        await channel.close()
+        await channel.close(grace=None)
 
 
 VALIDATOR_ENV_VARS = {
@@ -99,9 +103,9 @@ VALIDATOR_ENV_VARS = {
 
 
 class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
-    async def Scan(self, request, context):
+    async def Scan(self, request: Any, context: Any) -> primary_pb2.ScanResponse:
         scan_id = request.scan_id or str(uuid.uuid4())
-        violations: list[dict] = []
+        violations: list[dict[str, Any]] = []
         temp_dir = None
         scan_t0 = time.monotonic()
 
@@ -110,7 +114,7 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
             sys.stderr.flush()
 
             if not request.files:
-                return primary_pb2.ScanResponse(scan_id=scan_id, violations=[])
+                return ScanResponse(scan_id=scan_id, violations=[])
 
             temp_dir = await asyncio.get_event_loop().run_in_executor(
                 None,
@@ -134,10 +138,10 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
             if not context_obj.hierarchy_payload:
                 sys.stderr.write(f"[req={scan_id}] Scan: no hierarchy payload produced\n")
                 sys.stderr.flush()
-                return primary_pb2.ScanResponse(scan_id=scan_id, violations=[])
+                return ScanResponse(scan_id=scan_id, violations=[])
 
             opts = request.options if request.HasField("options") else None
-            validate_request = validate_pb2.ValidateRequest(
+            validate_request = ValidateRequest(
                 request_id=scan_id,
                 project_root=request.project_root or "",
                 files=list(request.files),
@@ -154,7 +158,7 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
                     continue
                 tasks[name] = _call_validator(addr, validate_request)
 
-            validator_diagnostics: list[common_pb2.ValidatorDiagnostics] = []
+            validator_diagnostics: list[ValidatorDiagnostics] = []
 
             fan_out_ms = 0.0
             if tasks:
@@ -164,15 +168,16 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
 
                 counts: dict[str, int] = {}
                 for name, result in zip(tasks.keys(), results, strict=False):
-                    if isinstance(result, Exception):
+                    if isinstance(result, BaseException):
                         sys.stderr.write(f"[req={scan_id}] {name} raised: {result}\n")
                         sys.stderr.flush()
                         counts[name] = 0
                     else:
-                        counts[name] = len(result.violations)
-                        violations.extend(result.violations)
-                        if result.diagnostics:
-                            validator_diagnostics.append(result.diagnostics)
+                        res = result
+                        counts[name] = len(res.violations)
+                        violations.extend(res.violations)
+                        if res.diagnostics:
+                            validator_diagnostics.append(res.diagnostics)
 
                 parts = " ".join(f"{n.title()}={counts.get(n, 0)}" for n in VALIDATOR_ENV_VARS)
                 sys.stderr.write(f"[req={scan_id}] Scan: {parts} Total={len(violations)}\n")
@@ -185,7 +190,7 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
 
             total_ms = (time.monotonic() - scan_t0) * 1000
             ediag = context_obj.engine_diagnostics
-            scan_diag = primary_pb2.ScanDiagnostics(
+            scan_diag = ScanDiagnostics(
                 engine_parse_ms=ediag.parse_ms,
                 engine_annotate_ms=ediag.annotate_ms,
                 engine_total_ms=ediag.total_ms,
@@ -197,7 +202,7 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
                 total_ms=total_ms,
             )
 
-            return primary_pb2.ScanResponse(
+            return ScanResponse(
                 violations=proto_violations,
                 scan_id=scan_id,
                 diagnostics=scan_diag,
@@ -214,13 +219,13 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
                 with contextlib.suppress(OSError):
                     shutil.rmtree(temp_dir)
 
-    async def Format(self, request, context):
+    async def Format(self, request: Any, context: Any) -> FormatResponse:
         from apme_engine.formatter import format_content
 
         sys.stderr.write(f"Format: received {len(request.files)} file(s)\n")
         sys.stderr.flush()
 
-        def _do_format(files):
+        def _do_format(files: list[Any]) -> list[Any]:
             diffs = []
             for f in files:
                 if not f.path.endswith((".yml", ".yaml")):
@@ -232,7 +237,7 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
                 result = format_content(text, filename=f.path)
                 if result.changed:
                     diffs.append(
-                        primary_pb2.FileDiff(
+                        FileDiff(
                             path=f.path,
                             original=f.content,
                             formatted=result.formatted.encode("utf-8"),
@@ -249,15 +254,15 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
 
         sys.stderr.write(f"Format: {len(diffs)} file(s) changed\n")
         sys.stderr.flush()
-        return primary_pb2.FormatResponse(diffs=diffs)
+        return FormatResponse(diffs=diffs)
 
-    async def Health(self, request, context):
-        return common_pb2.HealthResponse(status="ok")
+    async def Health(self, request: Any, context: Any) -> HealthResponse:
+        return HealthResponse(status="ok")
 
 
-async def serve(listen_address: str = "0.0.0.0:50051"):
+async def serve(listen_address: str = "0.0.0.0:50051") -> Any:
     server = grpc.aio.server(maximum_concurrent_rpcs=_MAX_CONCURRENT_RPCS)
-    primary_pb2_grpc.add_PrimaryServicer_to_server(PrimaryServicer(), server)
+    primary_pb2_grpc.add_PrimaryServicer_to_server(PrimaryServicer(), server)  # type: ignore[no-untyped-call]
     if ":" in listen_address:
         _, _, port = listen_address.rpartition(":")
         server.add_insecure_port(f"[::]:{port}")

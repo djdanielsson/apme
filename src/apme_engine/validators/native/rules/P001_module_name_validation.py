@@ -4,12 +4,13 @@ from apme_engine.engine.models import (
     AnsibleRunContext,
     ExecutableType,
     Rule,
+    RuleResult,
     RunTargetType,
     Severity,
+    Task,
+    TaskCall,
 )
-from apme_engine.engine.models import (
-    RuleTag as Tag,
-)
+from apme_engine.engine.models import RuleTag as Tag
 
 
 @dataclass
@@ -19,18 +20,25 @@ class ModuleNameValidationRule(Rule):
     enabled: bool = True
     name: str = "ModuleNameValidation"
     version: str = "v0.0.1"
-    severity: Severity = Severity.NONE
-    tags: tuple = Tag.QUALITY
+    severity: str = Severity.NONE
+    tags: tuple[str, ...] = (Tag.QUALITY,)
     precedence: int = 0
 
     def match(self, ctx: AnsibleRunContext) -> bool:
-        return ctx.current.type == RunTargetType.Task
+        if ctx.current is None:
+            return False
+        return bool(ctx.current.type == RunTargetType.Task)
 
-    def process(self, ctx: AnsibleRunContext):
+    def process(self, ctx: AnsibleRunContext) -> RuleResult | None:
         task = ctx.current
+        if task is None or not isinstance(task, TaskCall):
+            return None
+        spec = task.spec
+        if not isinstance(spec, Task):
+            return None
 
-        suggested_fqcns = []
-        suggested_dependency = []
+        suggested_fqcns: list[str] = []
+        suggested_dependency: list[object] = []
         resolved_fqcn = ""
         wrong_module_name = ""
         not_exist = False
@@ -38,38 +46,35 @@ class ModuleNameValidationRule(Rule):
         need_correction = False
 
         # normal task
-        if task.spec.executable_type == ExecutableType.MODULE_TYPE:
-            resolved_fqcn = task.spec.resolved_name
-            suggested_fqcns = [cand[0] for cand in task.spec.possible_candidates]
-            suggested_dependency = [cand[1] for cand in task.spec.possible_candidates]
+        if spec.executable_type == ExecutableType.MODULE_TYPE:
+            resolved_fqcn = spec.resolved_name
+            suggested_fqcns = [cand[0] for cand in spec.possible_candidates]
+            suggested_dependency = [cand[1] for cand in spec.possible_candidates]
 
-            if not task.spec.resolved_name:
+            if not spec.resolved_name:
                 for suggestion in suggested_fqcns:
-                    if suggestion != task.spec.module and not suggestion.endswith(f".{task.spec.module}"):
-                        wrong_module_name = task.spec.module
+                    if suggestion != spec.module and not suggestion.endswith(f".{spec.module}"):
+                        wrong_module_name = spec.module
                         break
-                if not task.spec.possible_candidates:
+                if not spec.possible_candidates:
                     not_exist = True
-                    wrong_module_name = task.spec.module
+                    wrong_module_name = spec.module
 
-            if task.spec.resolved_name:
-                correct_fqcn = task.spec.resolved_name
+            if spec.resolved_name:
+                correct_fqcn = spec.resolved_name
             elif suggested_fqcns:
                 correct_fqcn = suggested_fqcns[0]
 
-            if correct_fqcn != task.spec.module or not_exist:
+            if correct_fqcn != spec.module or not_exist:
                 need_correction = True
 
         # include_role, import_role
-        elif (
-            task.spec.executable_type == ExecutableType.ROLE_TYPE
-            or task.spec.executable_type == ExecutableType.TASKFILE_TYPE
-        ):
-            if "ansible.builtin." in task.spec.module:
-                resolved_fqcn = task.spec.module
+        elif spec.executable_type == ExecutableType.ROLE_TYPE or spec.executable_type == ExecutableType.TASKFILE_TYPE:
+            if "ansible.builtin." in spec.module:
+                resolved_fqcn = spec.module
                 correct_fqcn = resolved_fqcn
             else:
-                resolved_fqcn = "ansible.builtin." + task.spec.module
+                resolved_fqcn = "ansible.builtin." + spec.module
                 correct_fqcn = resolved_fqcn
                 need_correction = True
 

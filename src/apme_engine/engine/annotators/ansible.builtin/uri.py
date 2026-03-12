@@ -7,10 +7,12 @@ class URIAnnotator(ModuleAnnotator):
     enabled: bool = True
 
     def run(self, task: TaskCall) -> ModuleAnnotatorResult:
-        method = task.args.get("method")
+        method_val = task.args.get("method")
+        method = getattr(method_val, "raw", method_val) if method_val is not None else None
+        method_str = str(method) if method is not None else ""
 
         annotations = []
-        if method in ["PUT", "POST", "PATCH"]:
+        if method_str in ["PUT", "POST", "PATCH"]:
             url = task.args.get("url")
             body = task.args.get("body")
             annotation = RiskAnnotation.init(

@@ -1,12 +1,12 @@
 from apme_engine.engine.annotators.module_annotator_base import ModuleAnnotator, ModuleAnnotatorResult
-from apme_engine.engine.models import Annotation, DefaultRiskType, FileChangeDetail, RiskAnnotation, TaskCall
+from apme_engine.engine.models import DefaultRiskType, FileChangeDetail, RiskAnnotation, TaskCall
 
 
 class ReplaceAnnotator(ModuleAnnotator):
     fqcn: str = "ansible.builtin.replace"
     enabled: bool = True
 
-    def run(self, task: TaskCall) -> list[Annotation]:
+    def run(self, task: TaskCall) -> ModuleAnnotatorResult:
         path = task.args.get("path")
         mode = task.args.get("mode")
         unsafe_writes = task.args.get("unsafe_writes")

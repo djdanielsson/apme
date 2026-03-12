@@ -1,6 +1,8 @@
 """Tests for the remediation engine: registry, partition, transforms, convergence."""
 
 import textwrap
+from pathlib import Path
+from typing import Any
 
 from apme_engine.remediation.engine import RemediationEngine
 from apme_engine.remediation.partition import is_finding_resolvable, partition_violations
@@ -31,33 +33,33 @@ from apme_engine.remediation.transforms.M009_with_to_loop import fix_with_to_loo
 
 
 class TestTransformRegistry:
-    def test_register_and_contains(self):
+    def test_register_and_contains(self) -> None:
         reg = TransformRegistry()
         reg.register("L021", lambda c, v: TransformResult(c, False))
         assert "L021" in reg
         assert "L999" not in reg
 
-    def test_apply_known_rule(self):
+    def test_apply_known_rule(self) -> None:
         reg = TransformRegistry()
         reg.register("TEST", lambda c, v: TransformResult("fixed", True))
         result = reg.apply("TEST", "original", {})
         assert result.content == "fixed"
         assert result.applied is True
 
-    def test_apply_unknown_rule(self):
+    def test_apply_unknown_rule(self) -> None:
         reg = TransformRegistry()
         result = reg.apply("UNKNOWN", "original", {})
         assert result.content == "original"
         assert result.applied is False
 
-    def test_len_and_iter(self):
+    def test_len_and_iter(self) -> None:
         reg = TransformRegistry()
         reg.register("A", lambda c, v: TransformResult(c, False))
         reg.register("B", lambda c, v: TransformResult(c, False))
         assert len(reg) == 2
         assert set(reg) == {"A", "B"}
 
-    def test_rule_ids_sorted(self):
+    def test_rule_ids_sorted(self) -> None:
         reg = TransformRegistry()
         reg.register("Z", lambda c, v: TransformResult(c, False))
         reg.register("A", lambda c, v: TransformResult(c, False))
@@ -70,17 +72,17 @@ class TestTransformRegistry:
 
 
 class TestPartition:
-    def test_is_finding_resolvable(self):
+    def test_is_finding_resolvable(self) -> None:
         reg = TransformRegistry()
         reg.register("L021", lambda c, v: TransformResult(c, False))
         assert is_finding_resolvable({"rule_id": "L021"}, reg) is True
         assert is_finding_resolvable({"rule_id": "L999"}, reg) is False
 
-    def test_partition_three_tiers(self):
+    def test_partition_three_tiers(self) -> None:
         reg = TransformRegistry()
         reg.register("L021", lambda c, v: TransformResult(c, False))
 
-        violations = [
+        violations: list[dict[str, Any]] = [
             {"rule_id": "L021"},
             {"rule_id": "R118"},
             {"rule_id": "POLICY", "ai_proposable": False},
@@ -100,7 +102,7 @@ class TestPartition:
 
 
 class TestDefaultRegistry:
-    def test_build_default_registry(self):
+    def test_build_default_registry(self) -> None:
         reg = build_default_registry()
         for rule_id in (
             "L002",
@@ -134,7 +136,7 @@ class TestDefaultRegistry:
 
 
 class TestL021MissingMode:
-    def test_adds_mode_to_file_module(self):
+    def test_adds_mode_to_file_module(self) -> None:
         content = textwrap.dedent("""\
         - name: Copy a file
           ansible.builtin.copy:
@@ -146,7 +148,7 @@ class TestL021MissingMode:
         assert "mode:" in result.content
         assert "0644" in result.content
 
-    def test_no_change_when_mode_present(self):
+    def test_no_change_when_mode_present(self) -> None:
         content = textwrap.dedent("""\
         - name: Copy a file
           ansible.builtin.copy:
@@ -157,7 +159,7 @@ class TestL021MissingMode:
         result = fix_missing_mode(content, {"rule_id": "L021", "line": 1})
         assert result.applied is False
 
-    def test_no_change_for_non_file_module(self):
+    def test_no_change_for_non_file_module(self) -> None:
         content = textwrap.dedent("""\
         - name: Run command
           ansible.builtin.command: echo hello
@@ -165,7 +167,7 @@ class TestL021MissingMode:
         result = fix_missing_mode(content, {"rule_id": "L021", "line": 1})
         assert result.applied is False
 
-    def test_idempotent(self):
+    def test_idempotent(self) -> None:
         content = textwrap.dedent("""\
         - name: Template it
           ansible.builtin.template:
@@ -177,7 +179,7 @@ class TestL021MissingMode:
         r2 = fix_missing_mode(r1.content, {"rule_id": "L021", "line": 1})
         assert r2.applied is False
 
-    def test_handles_invalid_yaml(self):
+    def test_handles_invalid_yaml(self) -> None:
         result = fix_missing_mode("{{{{invalid", {"rule_id": "L021", "line": 1})
         assert result.applied is False
 
@@ -188,7 +190,7 @@ class TestL021MissingMode:
 
 
 class TestL007ShellToCommand:
-    def test_replaces_shell_with_command(self):
+    def test_replaces_shell_with_command(self) -> None:
         content = textwrap.dedent("""\
         - name: List files
           ansible.builtin.shell: ls -la /tmp
@@ -198,7 +200,7 @@ class TestL007ShellToCommand:
         assert "ansible.builtin.command" in result.content
         assert "ansible.builtin.shell" not in result.content
 
-    def test_no_change_when_pipe_present(self):
+    def test_no_change_when_pipe_present(self) -> None:
         content = textwrap.dedent("""\
         - name: Grep output
           ansible.builtin.shell: cat /tmp/log | grep error
@@ -206,7 +208,7 @@ class TestL007ShellToCommand:
         result = fix_shell_to_command(content, {"rule_id": "L007", "line": 1})
         assert result.applied is False
 
-    def test_no_change_when_and_present(self):
+    def test_no_change_when_and_present(self) -> None:
         content = textwrap.dedent("""\
         - name: Chain commands
           ansible.builtin.shell:
@@ -215,7 +217,7 @@ class TestL007ShellToCommand:
         result = fix_shell_to_command(content, {"rule_id": "L007", "line": 1})
         assert result.applied is False
 
-    def test_no_change_when_redirect_present(self):
+    def test_no_change_when_redirect_present(self) -> None:
         content = textwrap.dedent("""\
         - name: Write output
           ansible.builtin.shell: echo hello > /tmp/out
@@ -223,7 +225,7 @@ class TestL007ShellToCommand:
         result = fix_shell_to_command(content, {"rule_id": "L007", "line": 1})
         assert result.applied is False
 
-    def test_no_change_for_command_module(self):
+    def test_no_change_for_command_module(self) -> None:
         content = textwrap.dedent("""\
         - name: Already command
           ansible.builtin.command: echo hello
@@ -231,7 +233,7 @@ class TestL007ShellToCommand:
         result = fix_shell_to_command(content, {"rule_id": "L007", "line": 1})
         assert result.applied is False
 
-    def test_idempotent(self):
+    def test_idempotent(self) -> None:
         content = textwrap.dedent("""\
         - name: Simple command
           ansible.builtin.shell: whoami
@@ -241,7 +243,7 @@ class TestL007ShellToCommand:
         r2 = fix_shell_to_command(r1.content, {"rule_id": "L007", "line": 1})
         assert r2.applied is False
 
-    def test_dict_form_cmd(self):
+    def test_dict_form_cmd(self) -> None:
         content = textwrap.dedent("""\
         - name: Simple command
           ansible.builtin.shell:
@@ -258,7 +260,7 @@ class TestL007ShellToCommand:
 
 
 class TestFQCNTransform:
-    def test_rewrites_short_name_with_resolved_fqcn(self):
+    def test_rewrites_short_name_with_resolved_fqcn(self) -> None:
         content = textwrap.dedent("""\
         - name: Debug message
           debug:
@@ -275,7 +277,7 @@ class TestFQCNTransform:
         assert "ansible.builtin.debug" in result.content
         assert "\n  debug:" not in result.content
 
-    def test_falls_back_to_static_map_for_l002(self):
+    def test_falls_back_to_static_map_for_l002(self) -> None:
         content = textwrap.dedent("""\
         - name: Copy file
           copy:
@@ -287,7 +289,7 @@ class TestFQCNTransform:
         assert result.applied is True
         assert "ansible.builtin.copy" in result.content
 
-    def test_no_change_when_already_fqcn(self):
+    def test_no_change_when_already_fqcn(self) -> None:
         content = textwrap.dedent("""\
         - name: Debug message
           ansible.builtin.debug:
@@ -297,7 +299,7 @@ class TestFQCNTransform:
         result = fix_fqcn(content, violation)
         assert result.applied is False
 
-    def test_no_change_for_unknown_short_name(self):
+    def test_no_change_for_unknown_short_name(self) -> None:
         content = textwrap.dedent("""\
         - name: Custom module
           my_custom_module:
@@ -307,7 +309,7 @@ class TestFQCNTransform:
         result = fix_fqcn(content, violation)
         assert result.applied is False
 
-    def test_idempotent(self):
+    def test_idempotent(self) -> None:
         content = textwrap.dedent("""\
         - name: Install package
           yum:
@@ -319,7 +321,7 @@ class TestFQCNTransform:
         r2 = fix_fqcn(r1.content, {"rule_id": "L002", "line": 1})
         assert r2.applied is False
 
-    def test_m003_redirect_uses_resolved_fqcn(self):
+    def test_m003_redirect_uses_resolved_fqcn(self) -> None:
         content = textwrap.dedent("""\
         - name: Install package
           yum:
@@ -343,7 +345,7 @@ class TestFQCNTransform:
 
 
 class TestRemediationEngine:
-    def test_converges_in_one_pass(self, tmp_path):
+    def test_converges_in_one_pass(self, tmp_path: Path) -> None:
         playbook = tmp_path / "play.yml"
         playbook.write_text(
             textwrap.dedent("""\
@@ -354,7 +356,7 @@ class TestRemediationEngine:
         """)
         )
 
-        def scan_fn(paths):
+        def scan_fn(paths: list[str]) -> list[dict[str, Any]]:
             content = playbook.read_text()
             if "mode:" not in content:
                 return [{"rule_id": "L021", "file": str(playbook), "line": 1}]
@@ -369,7 +371,7 @@ class TestRemediationEngine:
         assert report.oscillation_detected is False
         assert "mode:" in playbook.read_text()
 
-    def test_no_apply_restores_originals(self, tmp_path):
+    def test_no_apply_restores_originals(self, tmp_path: Path) -> None:
         playbook = tmp_path / "play.yml"
         original = textwrap.dedent("""\
         - name: Copy file
@@ -379,7 +381,7 @@ class TestRemediationEngine:
         """)
         playbook.write_text(original)
 
-        def scan_fn(paths):
+        def scan_fn(paths: list[str]) -> list[dict[str, Any]]:
             content = playbook.read_text()
             if "mode:" not in content:
                 return [{"rule_id": "L021", "file": str(playbook), "line": 1}]
@@ -395,17 +397,17 @@ class TestRemediationEngine:
         assert report.applied_patches[0].diff != ""
         assert playbook.read_text() == original
 
-    def test_oscillation_detection(self, tmp_path):
+    def test_oscillation_detection(self, tmp_path: Path) -> None:
         playbook = tmp_path / "play.yml"
         playbook.write_text("- name: test\n  debug: msg=hi\n")
 
         call_count = [0]
 
-        def scan_fn(paths):
+        def scan_fn(paths: list[str]) -> list[dict[str, Any]]:
             call_count[0] += 1
             return [{"rule_id": "FLIP", "file": str(playbook), "line": 1}]
 
-        def flip_transform(content, violation):
+        def flip_transform(content: str, violation: dict[str, Any]) -> TransformResult:
             return TransformResult(content + "\n# flipped", True)
 
         reg = TransformRegistry()
@@ -416,11 +418,11 @@ class TestRemediationEngine:
         assert report.oscillation_detected is True
         assert report.passes <= 3
 
-    def test_empty_scan_no_changes(self, tmp_path):
+    def test_empty_scan_no_changes(self, tmp_path: Path) -> None:
         playbook = tmp_path / "play.yml"
         playbook.write_text("- name: Clean\n  ansible.builtin.debug:\n    msg: hi\n")
 
-        def scan_fn(paths):
+        def scan_fn(paths: list[str]) -> list[dict[str, Any]]:
             return []
 
         reg = build_default_registry()
@@ -431,11 +433,11 @@ class TestRemediationEngine:
         assert report.passes == 1
         assert report.oscillation_detected is False
 
-    def test_report_tiers(self, tmp_path):
+    def test_report_tiers(self, tmp_path: Path) -> None:
         playbook = tmp_path / "play.yml"
         playbook.write_text("- name: test\n  debug: msg=hi\n")
 
-        def scan_fn(paths):
+        def scan_fn(paths: list[str]) -> list[dict[str, Any]]:
             return [
                 {"rule_id": "UNKNOWN_AI", "file": str(playbook), "line": 1},
                 {"rule_id": "MANUAL", "file": str(playbook), "line": 1, "ai_proposable": False},
@@ -457,7 +459,7 @@ class TestRemediationEngine:
 
 
 class TestL008LocalAction:
-    def test_string_form(self):
+    def test_string_form(self) -> None:
         content = textwrap.dedent("""\
         - name: Run locally
           local_action: command echo hello
@@ -468,7 +470,7 @@ class TestL008LocalAction:
         assert "delegate_to: localhost" in result.content
         assert "command:" in result.content or "ansible.builtin.command:" in result.content
 
-    def test_dict_form(self):
+    def test_dict_form(self) -> None:
         content = textwrap.dedent("""\
         - name: Run locally
           local_action:
@@ -481,7 +483,7 @@ class TestL008LocalAction:
         assert "delegate_to: localhost" in result.content
         assert "ansible.builtin.debug" in result.content
 
-    def test_no_change_without_local_action(self):
+    def test_no_change_without_local_action(self) -> None:
         content = textwrap.dedent("""\
         - name: Normal task
           ansible.builtin.debug:
@@ -490,7 +492,7 @@ class TestL008LocalAction:
         result = fix_local_action(content, {"rule_id": "L008", "line": 1})
         assert result.applied is False
 
-    def test_idempotent(self):
+    def test_idempotent(self) -> None:
         content = textwrap.dedent("""\
         - name: Run locally
           local_action: command whoami
@@ -507,7 +509,7 @@ class TestL008LocalAction:
 
 
 class TestL009EmptyString:
-    def test_double_quote_equality(self):
+    def test_double_quote_equality(self) -> None:
         content = textwrap.dedent("""\
         - name: Check var
           ansible.builtin.debug:
@@ -518,7 +520,7 @@ class TestL009EmptyString:
         assert result.applied is True
         assert "myvar | length == 0" in result.content
 
-    def test_single_quote_inequality(self):
+    def test_single_quote_inequality(self) -> None:
         content = textwrap.dedent("""\
         - name: Check var
           ansible.builtin.debug:
@@ -529,7 +531,7 @@ class TestL009EmptyString:
         assert result.applied is True
         assert "myvar | length > 0" in result.content
 
-    def test_no_change_without_pattern(self):
+    def test_no_change_without_pattern(self) -> None:
         content = textwrap.dedent("""\
         - name: Check var
           ansible.builtin.debug:
@@ -539,7 +541,7 @@ class TestL009EmptyString:
         result = fix_empty_string(content, {"rule_id": "L009", "line": 1})
         assert result.applied is False
 
-    def test_idempotent(self):
+    def test_idempotent(self) -> None:
         content = textwrap.dedent("""\
         - name: Check
           ansible.builtin.debug:
@@ -557,7 +559,7 @@ class TestL009EmptyString:
 
 
 class TestL011LiteralBool:
-    def test_eq_true(self):
+    def test_eq_true(self) -> None:
         content = textwrap.dedent("""\
         - name: Check
           ansible.builtin.debug:
@@ -569,7 +571,7 @@ class TestL011LiteralBool:
         assert "enabled" in result.content
         assert "== true" not in result.content
 
-    def test_eq_false(self):
+    def test_eq_false(self) -> None:
         content = textwrap.dedent("""\
         - name: Check
           ansible.builtin.debug:
@@ -580,7 +582,7 @@ class TestL011LiteralBool:
         assert result.applied is True
         assert "not enabled" in result.content
 
-    def test_is_true(self):
+    def test_is_true(self) -> None:
         content = textwrap.dedent("""\
         - name: Check
           ansible.builtin.debug:
@@ -591,7 +593,7 @@ class TestL011LiteralBool:
         assert result.applied is True
         assert "is true" not in result.content
 
-    def test_python_True(self):
+    def test_python_True(self) -> None:
         content = textwrap.dedent("""\
         - name: Check
           ansible.builtin.debug:
@@ -601,7 +603,7 @@ class TestL011LiteralBool:
         result = fix_literal_bool(content, {"rule_id": "L011", "line": 1})
         assert result.applied is True
 
-    def test_no_change_without_pattern(self):
+    def test_no_change_without_pattern(self) -> None:
         content = textwrap.dedent("""\
         - name: Check
           ansible.builtin.debug:
@@ -618,7 +620,7 @@ class TestL011LiteralBool:
 
 
 class TestL015JinjaWhen:
-    def test_strips_jinja_delimiters(self):
+    def test_strips_jinja_delimiters(self) -> None:
         content = textwrap.dedent("""\
         - name: Check
           ansible.builtin.debug:
@@ -631,7 +633,7 @@ class TestL015JinjaWhen:
         assert "}}" not in result.content
         assert "my_var" in result.content
 
-    def test_no_change_without_jinja(self):
+    def test_no_change_without_jinja(self) -> None:
         content = textwrap.dedent("""\
         - name: Check
           ansible.builtin.debug:
@@ -641,7 +643,7 @@ class TestL015JinjaWhen:
         result = fix_jinja_when(content, {"rule_id": "L015", "line": 1})
         assert result.applied is False
 
-    def test_idempotent(self):
+    def test_idempotent(self) -> None:
         content = textwrap.dedent("""\
         - name: Check
           ansible.builtin.debug:
@@ -659,7 +661,7 @@ class TestL015JinjaWhen:
 
 
 class TestL020OctalMode:
-    def test_octal_literal_to_string(self):
+    def test_octal_literal_to_string(self) -> None:
         """YAML 1.1 parses 0644 as octal int 420; should become '0644'."""
         content = textwrap.dedent("""\
         - name: Set perms
@@ -671,7 +673,7 @@ class TestL020OctalMode:
         assert result.applied is True
         assert "0644" in result.content
 
-    def test_decimal_int_to_octal_string(self):
+    def test_decimal_int_to_octal_string(self) -> None:
         """Bare 644 is decimal in YAML; digits are all valid octal, treated as intended octal."""
         content = textwrap.dedent("""\
         - name: Set perms
@@ -683,7 +685,7 @@ class TestL020OctalMode:
         assert result.applied is True
         assert "0644" in result.content
 
-    def test_no_change_when_already_string(self):
+    def test_no_change_when_already_string(self) -> None:
         content = textwrap.dedent("""\
         - name: Set perms
           ansible.builtin.file:
@@ -693,7 +695,7 @@ class TestL020OctalMode:
         result = fix_octal_mode(content, {"rule_id": "L020", "line": 1})
         assert result.applied is False
 
-    def test_string_without_leading_zero(self):
+    def test_string_without_leading_zero(self) -> None:
         content = textwrap.dedent("""\
         - name: Set perms
           ansible.builtin.file:
@@ -711,7 +713,7 @@ class TestL020OctalMode:
 
 
 class TestL025NameCasing:
-    def test_capitalizes_task_name(self):
+    def test_capitalizes_task_name(self) -> None:
         content = textwrap.dedent("""\
         - name: install packages
           ansible.builtin.debug:
@@ -721,7 +723,7 @@ class TestL025NameCasing:
         assert result.applied is True
         assert "Install packages" in result.content
 
-    def test_no_change_when_already_uppercase(self):
+    def test_no_change_when_already_uppercase(self) -> None:
         content = textwrap.dedent("""\
         - name: Install packages
           ansible.builtin.debug:
@@ -730,7 +732,7 @@ class TestL025NameCasing:
         result = fix_name_casing(content, {"rule_id": "L025", "line": 1})
         assert result.applied is False
 
-    def test_idempotent(self):
+    def test_idempotent(self) -> None:
         content = textwrap.dedent("""\
         - name: setup network
           ansible.builtin.debug:
@@ -747,7 +749,7 @@ class TestL025NameCasing:
 
 
 class TestL046FreeForm:
-    def test_converts_string_to_dict(self):
+    def test_converts_string_to_dict(self) -> None:
         content = textwrap.dedent("""\
         - name: Run it
           ansible.builtin.command: echo hello
@@ -757,7 +759,7 @@ class TestL046FreeForm:
         assert "cmd:" in result.content
         assert "echo hello" in result.content
 
-    def test_no_change_when_already_dict(self):
+    def test_no_change_when_already_dict(self) -> None:
         content = textwrap.dedent("""\
         - name: Run it
           ansible.builtin.command:
@@ -766,7 +768,7 @@ class TestL046FreeForm:
         result = fix_free_form(content, {"rule_id": "L046", "line": 1})
         assert result.applied is False
 
-    def test_no_change_for_non_command_module(self):
+    def test_no_change_for_non_command_module(self) -> None:
         content = textwrap.dedent("""\
         - name: Debug
           ansible.builtin.debug:
@@ -775,7 +777,7 @@ class TestL046FreeForm:
         result = fix_free_form(content, {"rule_id": "L046", "line": 1})
         assert result.applied is False
 
-    def test_shell_module(self):
+    def test_shell_module(self) -> None:
         content = textwrap.dedent("""\
         - name: Run shell
           ansible.builtin.shell: cat /etc/hosts | grep localhost
@@ -791,7 +793,7 @@ class TestL046FreeForm:
 
 
 class TestL043BareVars:
-    def test_wraps_bare_var_in_with_items(self):
+    def test_wraps_bare_var_in_with_items(self) -> None:
         content = textwrap.dedent("""\
         - name: Loop
           ansible.builtin.debug:
@@ -802,7 +804,7 @@ class TestL043BareVars:
         assert result.applied is True
         assert "{{ packages }}" in result.content
 
-    def test_no_change_when_already_jinja(self):
+    def test_no_change_when_already_jinja(self) -> None:
         content = textwrap.dedent("""\
         - name: Loop
           ansible.builtin.debug:
@@ -812,7 +814,7 @@ class TestL043BareVars:
         result = fix_bare_vars(content, {"rule_id": "L043", "line": 1})
         assert result.applied is False
 
-    def test_no_change_without_loop(self):
+    def test_no_change_without_loop(self) -> None:
         content = textwrap.dedent("""\
         - name: Simple
           ansible.builtin.debug:
@@ -828,7 +830,7 @@ class TestL043BareVars:
 
 
 class TestL013ChangedWhen:
-    def test_adds_changed_when(self):
+    def test_adds_changed_when(self) -> None:
         content = textwrap.dedent("""\
         - name: Check version
           ansible.builtin.command: python --version
@@ -837,7 +839,7 @@ class TestL013ChangedWhen:
         assert result.applied is True
         assert "changed_when:" in result.content
 
-    def test_no_change_when_creates_present(self):
+    def test_no_change_when_creates_present(self) -> None:
         content = textwrap.dedent("""\
         - name: Create file
           ansible.builtin.command:
@@ -847,7 +849,7 @@ class TestL013ChangedWhen:
         result = fix_changed_when(content, {"rule_id": "L013", "line": 1})
         assert result.applied is False
 
-    def test_no_change_when_already_set(self):
+    def test_no_change_when_already_set(self) -> None:
         content = textwrap.dedent("""\
         - name: Check
           ansible.builtin.command: echo test
@@ -856,7 +858,7 @@ class TestL013ChangedWhen:
         result = fix_changed_when(content, {"rule_id": "L013", "line": 1})
         assert result.applied is False
 
-    def test_no_change_for_non_command_module(self):
+    def test_no_change_for_non_command_module(self) -> None:
         content = textwrap.dedent("""\
         - name: Debug
           ansible.builtin.debug:
@@ -872,7 +874,7 @@ class TestL013ChangedWhen:
 
 
 class TestL018Become:
-    def test_adds_become(self):
+    def test_adds_become(self) -> None:
         content = textwrap.dedent("""\
         - name: Switch user
           ansible.builtin.command: whoami
@@ -882,7 +884,7 @@ class TestL018Become:
         assert result.applied is True
         assert "become: true" in result.content or "become: True" in result.content
 
-    def test_no_change_when_become_present(self):
+    def test_no_change_when_become_present(self) -> None:
         content = textwrap.dedent("""\
         - name: Switch user
           ansible.builtin.command: whoami
@@ -892,7 +894,7 @@ class TestL018Become:
         result = fix_become(content, {"rule_id": "L018", "line": 1})
         assert result.applied is False
 
-    def test_no_change_without_become_user(self):
+    def test_no_change_without_become_user(self) -> None:
         content = textwrap.dedent("""\
         - name: Normal
           ansible.builtin.debug:
@@ -901,7 +903,7 @@ class TestL018Become:
         result = fix_become(content, {"rule_id": "L018", "line": 1})
         assert result.applied is False
 
-    def test_become_inserted_after_become_user(self):
+    def test_become_inserted_after_become_user(self) -> None:
         content = textwrap.dedent("""\
         - name: Switch user
           ansible.builtin.command: whoami
@@ -921,7 +923,7 @@ class TestL018Become:
 
 
 class TestL022Pipefail:
-    def test_prepends_pipefail_string_form(self):
+    def test_prepends_pipefail_string_form(self) -> None:
         content = textwrap.dedent("""\
         - name: Grep logs
           ansible.builtin.shell: cat /var/log/syslog | grep error
@@ -930,7 +932,7 @@ class TestL022Pipefail:
         assert result.applied is True
         assert "set -o pipefail &&" in result.content
 
-    def test_prepends_pipefail_dict_form(self):
+    def test_prepends_pipefail_dict_form(self) -> None:
         content = textwrap.dedent("""\
         - name: Grep logs
           ansible.builtin.shell:
@@ -940,7 +942,7 @@ class TestL022Pipefail:
         assert result.applied is True
         assert "set -o pipefail &&" in result.content
 
-    def test_no_change_without_pipe(self):
+    def test_no_change_without_pipe(self) -> None:
         content = textwrap.dedent("""\
         - name: Simple
           ansible.builtin.shell: echo hello
@@ -948,7 +950,7 @@ class TestL022Pipefail:
         result = fix_pipefail(content, {"rule_id": "L022", "line": 1})
         assert result.applied is False
 
-    def test_no_change_when_already_set(self):
+    def test_no_change_when_already_set(self) -> None:
         content = textwrap.dedent("""\
         - name: Grep logs
           ansible.builtin.shell: set -o pipefail && cat /var/log/syslog | grep error
@@ -956,7 +958,7 @@ class TestL022Pipefail:
         result = fix_pipefail(content, {"rule_id": "L022", "line": 1})
         assert result.applied is False
 
-    def test_idempotent(self):
+    def test_idempotent(self) -> None:
         content = textwrap.dedent("""\
         - name: Grep
           ansible.builtin.shell: cat log | grep err
@@ -972,7 +974,7 @@ class TestL022Pipefail:
 
 
 class TestL012Latest:
-    def test_replaces_latest_with_present(self):
+    def test_replaces_latest_with_present(self) -> None:
         content = textwrap.dedent("""\
         - name: Install httpd
           ansible.builtin.yum:
@@ -984,7 +986,7 @@ class TestL012Latest:
         assert "state: present" in result.content
         assert "state: latest" not in result.content
 
-    def test_no_change_when_present(self):
+    def test_no_change_when_present(self) -> None:
         content = textwrap.dedent("""\
         - name: Install httpd
           ansible.builtin.yum:
@@ -994,7 +996,7 @@ class TestL012Latest:
         result = fix_latest(content, {"rule_id": "L012", "line": 1})
         assert result.applied is False
 
-    def test_no_change_for_absent(self):
+    def test_no_change_for_absent(self) -> None:
         content = textwrap.dedent("""\
         - name: Remove httpd
           ansible.builtin.yum:
@@ -1004,7 +1006,7 @@ class TestL012Latest:
         result = fix_latest(content, {"rule_id": "L012", "line": 1})
         assert result.applied is False
 
-    def test_idempotent(self):
+    def test_idempotent(self) -> None:
         content = textwrap.dedent("""\
         - name: Install
           ansible.builtin.apt:
@@ -1022,7 +1024,7 @@ class TestL012Latest:
 
 
 class TestM006BecomeUnreachable:
-    def test_adds_ignore_unreachable(self):
+    def test_adds_ignore_unreachable(self) -> None:
         content = textwrap.dedent("""\
         - name: Risky task
           ansible.builtin.command: whoami
@@ -1033,7 +1035,7 @@ class TestM006BecomeUnreachable:
         assert result.applied is True
         assert "ignore_unreachable: true" in result.content or "ignore_unreachable: True" in result.content
 
-    def test_no_change_when_already_set(self):
+    def test_no_change_when_already_set(self) -> None:
         content = textwrap.dedent("""\
         - name: Safe task
           ansible.builtin.command: whoami
@@ -1044,7 +1046,7 @@ class TestM006BecomeUnreachable:
         result = fix_become_unreachable(content, {"rule_id": "M006", "line": 1})
         assert result.applied is False
 
-    def test_no_change_without_become(self):
+    def test_no_change_without_become(self) -> None:
         content = textwrap.dedent("""\
         - name: Normal task
           ansible.builtin.command: whoami
@@ -1053,7 +1055,7 @@ class TestM006BecomeUnreachable:
         result = fix_become_unreachable(content, {"rule_id": "M006", "line": 1})
         assert result.applied is False
 
-    def test_inserted_after_ignore_errors(self):
+    def test_inserted_after_ignore_errors(self) -> None:
         content = textwrap.dedent("""\
         - name: Risky task
           ansible.builtin.command: whoami
@@ -1073,7 +1075,7 @@ class TestM006BecomeUnreachable:
 
 
 class TestM008BareInclude:
-    def test_replaces_include(self):
+    def test_replaces_include(self) -> None:
         content = textwrap.dedent("""\
         - include: tasks/setup.yml
         """)
@@ -1082,14 +1084,14 @@ class TestM008BareInclude:
         assert "ansible.builtin.include_tasks" in result.content
         assert "\n- include:" not in result.content
 
-    def test_no_change_for_include_tasks(self):
+    def test_no_change_for_include_tasks(self) -> None:
         content = textwrap.dedent("""\
         - ansible.builtin.include_tasks: tasks/setup.yml
         """)
         result = fix_bare_include(content, {"rule_id": "M008", "line": 1})
         assert result.applied is False
 
-    def test_idempotent(self):
+    def test_idempotent(self) -> None:
         content = textwrap.dedent("""\
         - include: tasks/setup.yml
         """)
@@ -1104,7 +1106,7 @@ class TestM008BareInclude:
 
 
 class TestM009WithToLoop:
-    def test_with_items_to_loop(self):
+    def test_with_items_to_loop(self) -> None:
         content = textwrap.dedent("""\
         - name: Install packages
           ansible.builtin.yum:
@@ -1119,7 +1121,7 @@ class TestM009WithToLoop:
         assert "loop:" in result.content
         assert "with_items" not in result.content
 
-    def test_no_change_for_loop(self):
+    def test_no_change_for_loop(self) -> None:
         content = textwrap.dedent("""\
         - name: Install packages
           ansible.builtin.yum:
@@ -1132,7 +1134,7 @@ class TestM009WithToLoop:
         result = fix_with_to_loop(content, {"rule_id": "M009", "line": 1, "with_key": "with_items"})
         assert result.applied is False
 
-    def test_with_dict_not_handled(self):
+    def test_with_dict_not_handled(self) -> None:
         content = textwrap.dedent("""\
         - name: Create users
           ansible.builtin.user:
@@ -1142,7 +1144,7 @@ class TestM009WithToLoop:
         result = fix_with_to_loop(content, {"rule_id": "M009", "line": 1, "with_key": "with_dict"})
         assert result.applied is False
 
-    def test_idempotent(self):
+    def test_idempotent(self) -> None:
         content = textwrap.dedent("""\
         - name: Install
           ansible.builtin.yum:

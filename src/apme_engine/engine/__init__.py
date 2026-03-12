@@ -1,10 +1,13 @@
+from __future__ import annotations
+
 import sys
+from typing import Any
 
 from .scanner import ARIScanner, Config
 
 # ARI CLI (ARICLI, RAMCLI) not imported by default to avoid pulling in heavy deps on scanner import.
-ARICLI = None
-RAMCLI = None
+ARICLI: type[Any] | None = None
+RAMCLI: type[Any] | None = None
 
 ari_actions = ["project", "playbook", "collection", "role", "taskfile"]
 ram_actions = ["ram"]
@@ -12,7 +15,7 @@ ram_actions = ["ram"]
 all_actions = ari_actions + ram_actions
 
 
-def main():
+def main() -> None:
     if len(sys.argv) == 1:
         print("Please specify one of the following operations of ari.")
         print("[operations]")
@@ -27,11 +30,15 @@ def main():
     action = sys.argv[1]
 
     if action in ari_actions:
-        cli = ARICLI()
-        cli.run()
+        from .cli import ARICLI as _ARICLI
+
+        ari_cli = _ARICLI()
+        ari_cli.run()
     elif action == "ram":
-        cli = RAMCLI()
-        cli.run()
+        from .cli.ram import RAMCLI as _RAMCLI
+
+        ram_cli = _RAMCLI()
+        ram_cli.run()
     else:
         print(f"The action {action} is not supported!", file=sys.stderr)
         sys.exit(1)

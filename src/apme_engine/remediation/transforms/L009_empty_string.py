@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from typing import Any
 
 from apme_engine.engine.yaml_utils import FormattedYAML
 from apme_engine.remediation.registry import TransformResult
@@ -16,7 +17,7 @@ _PATTERNS = [
 ]
 
 
-def fix_empty_string(content: str, violation: dict) -> TransformResult:
+def fix_empty_string(content: str, violation: dict[str, Any]) -> TransformResult:
     """Replace `var == ""` with `var | length == 0` and similar."""
     yaml = FormattedYAML(typ="rt", pure=True, version=(1, 1))
 
