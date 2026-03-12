@@ -9,18 +9,19 @@ from apme_engine.validators.native.rules._test_helpers import (
 from apme_engine.validators.native.rules.L034_unused_override import UnusedOverrideRule
 
 
-def test_L034_does_not_fire_when_no_defined_vars():
+def test_L034_does_not_fire_when_no_defined_vars() -> None:
     spec = make_task_spec(module="ansible.builtin.copy")
     task = make_task_call(spec)
     ctx = make_context(task)
     rule = UnusedOverrideRule()
     assert rule.match(ctx)
     result = rule.process(ctx)
+    assert result is not None
     assert result.verdict is False
-    assert result.rule.rule_id == "L034"
+    assert result.rule is not None and result.rule.rule_id == "L034"
 
 
-def test_L034_fires_when_new_definition_has_lower_precedence():
+def test_L034_fires_when_new_definition_has_lower_precedence() -> None:
     spec = make_task_spec(module="ansible.builtin.set_fact")
     spec.set_facts = {"my_var": "x"}
     task = make_task_call(spec)
@@ -32,12 +33,14 @@ def test_L034_fires_when_new_definition_has_lower_precedence():
     rule = UnusedOverrideRule()
     assert rule.match(ctx)
     result = rule.process(ctx)
+    assert result is not None
     assert result.verdict is True
+    assert result.detail is not None
     assert len(result.detail["variables"]) == 1
     assert result.detail["variables"][0]["new_precedence"] == VariableType.RoleDefaults
 
 
-def test_L034_does_not_fire_when_single_definition():
+def test_L034_does_not_fire_when_single_definition() -> None:
     spec = make_task_spec(module="ansible.builtin.set_fact")
     spec.set_facts = {"my_var": "x"}
     task = make_task_call(spec)
@@ -46,4 +49,5 @@ def test_L034_does_not_fire_when_single_definition():
     rule = UnusedOverrideRule()
     assert rule.match(ctx)
     result = rule.process(ctx)
+    assert result is not None
     assert result.verdict is False

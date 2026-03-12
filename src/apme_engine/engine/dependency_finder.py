@@ -1,7 +1,10 @@
+from __future__ import annotations
+
 import json
 import os
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -21,8 +24,13 @@ github_workflows_dir = ".github/workflows"
 ansible_home = os.getenv("ANSIBLE_HOME", "~/.ansible")
 
 
-def find_dependency(type, target, dependency_dir, use_ansible_path=False):
-    dependencies = {"dependencies": {}, "type": "", "file": ""}
+def find_dependency(
+    type: str,
+    target: str,
+    dependency_dir: str,
+    use_ansible_path: bool = False,
+) -> dict[str, Any]:
+    dependencies: dict[str, Any] = {"dependencies": {}, "type": "", "file": ""}
     logger.debug("search dependency")
     if dependency_dir:
         requirements, paths, metadata = load_existing_dependency_dir(dependency_dir)
@@ -53,27 +61,31 @@ def find_dependency(type, target, dependency_dir, use_ansible_path=False):
 
     if use_ansible_path and dependencies["dependencies"]:
         ansible_dir = Path(ansible_home).expanduser()
-        paths, metadata = search_ansible_dir(dependencies["dependencies"], str(ansible_dir))
-        if paths:
-            dependencies["paths"] = paths
-        if metadata:
-            dependencies["metadata"] = metadata
+        deps = dependencies["dependencies"]
+        if isinstance(deps, dict):
+            paths, metadata = search_ansible_dir(deps, str(ansible_dir))
+            if paths:
+                dependencies["paths"] = paths
+            if metadata:
+                dependencies["metadata"] = metadata
 
     return dependencies
 
 
-def search_ansible_dir(dependencies: dict, ansible_dir: str):
+def search_ansible_dir(
+    dependencies: dict[str, Any], ansible_dir: str
+) -> tuple[dict[str, dict[str, str]], dict[str, dict[str, Any]]]:
     if not dependencies:
         return {}, {}
     if not isinstance(dependencies, dict):
         return {}, {}
 
-    paths = {
+    paths: dict[str, dict[str, str]] = {
         "roles": {},
         "collections": {},
     }
 
-    metadata = {
+    metadata: dict[str, dict[str, Any]] = {
         "roles": {},
         "collections": {},
     }
@@ -128,7 +140,7 @@ def search_ansible_dir(dependencies: dict, ansible_dir: str):
     return paths, metadata
 
 
-def find_role_dependency(target):
+def find_role_dependency(target: str) -> tuple[dict[str, Any], str]:
     requirements = {}
     if not os.path.exists(target):
         raise ValueError(f"Invalid target dir: {target}")
@@ -187,7 +199,7 @@ def find_role_dependency(target):
     return requirements, main_yaml
 
 
-def find_collection_dependency(target):
+def find_collection_dependency(target: str) -> tuple[dict[str, Any], str]:
     requirements = {}
     # collection dir installed by ansible-galaxy command
     manifest_json_files = safe_glob(os.path.join(target, "**", collection_manifest_json), recursive=True)
@@ -208,7 +220,7 @@ def find_collection_dependency(target):
     return requirements, manifest_json
 
 
-def find_project_dependency(target):
+def find_project_dependency(target: str) -> tuple[dict[str, Any], str]:
     if os.path.exists(target):
         coll_req = os.path.join(target, collection_manifest_json)
         role_req1 = os.path.join(target, role_meta_main_yaml)
@@ -226,7 +238,7 @@ def find_project_dependency(target):
         raise ValueError(f"Invalid target dir: {target}")
 
 
-def load_requirements(path):
+def load_requirements(path: str) -> tuple[dict[str, Any], str]:
     requirements = {}
     yaml_path = ""
     # project dir
@@ -263,7 +275,7 @@ def load_requirements(path):
     return requirements, yaml_path
 
 
-def is_galaxy_yml(path):
+def is_galaxy_yml(path: str) -> bool:
     if not os.path.exists(path):
         return False
 
@@ -280,7 +292,7 @@ def is_galaxy_yml(path):
     return bool("name" in metadata and "namespace" in metadata)
 
 
-def load_dependency_from_galaxy(path):
+def load_dependency_from_galaxy(path: str) -> tuple[dict[str, Any], str]:
     requirements = {}
     yaml_path = ""
     galaxy_yml_files = safe_glob(os.path.join(path, "**", galaxy_yml), recursive=True)
@@ -300,7 +312,13 @@ def load_dependency_from_galaxy(path):
     return requirements, yaml_path
 
 
-def load_existing_dependency_dir(dependency_dir):
+def load_existing_dependency_dir(
+    dependency_dir: str,
+) -> tuple[
+    dict[str, list[str]],
+    dict[str, dict[str, str]],
+    dict[str, dict[str, Any]],
+]:
     # role_meta_files = safe_glob(
     #     [
     #         os.path.join(dependency_dir, "**", role_meta_main_yml),
@@ -310,15 +328,15 @@ def load_existing_dependency_dir(dependency_dir):
     # )
     collection_meta_files = safe_glob(os.path.join(dependency_dir, "**", collection_manifest_json), recursive=True)
     collection_meta_files = [fpath for fpath in collection_meta_files if github_workflows_dir not in fpath]
-    requirements = {
+    requirements: dict[str, list[str]] = {
         "roles": [],
         "collections": [],
     }
-    paths = {
+    paths: dict[str, dict[str, str]] = {
         "roles": {},
         "collections": {},
     }
-    metadata = {
+    metadata: dict[str, dict[str, Any]] = {
         "roles": {},
         "collections": {},
     }
@@ -351,7 +369,7 @@ def load_existing_dependency_dir(dependency_dir):
     return requirements, paths, metadata
 
 
-def install_github_target(target, output_dir):
+def install_github_target(target: str, output_dir: str) -> str:
     proc = subprocess.run(
         f"git clone {target} {output_dir}",
         shell=True,
@@ -364,7 +382,7 @@ def install_github_target(target, output_dir):
     return proc.stdout
 
 
-def format_dependency_info(dependencies):
+def format_dependency_info(dependencies: dict[str, Any]) -> list[dict[str, Any]]:
     results = []
     for k, v in dependencies.items():
         results.append({"name": k, "version": v})

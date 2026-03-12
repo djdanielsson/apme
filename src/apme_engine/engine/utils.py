@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import codecs
 import hashlib
 import json
@@ -7,6 +9,7 @@ import traceback
 from copy import deepcopy
 from importlib.util import module_from_spec, spec_from_file_location
 from inspect import isclass
+from typing import Any
 
 import requests
 import yaml
@@ -20,16 +23,20 @@ bool_values_false = frozenset(("n", "no", "off", "0", "false", "f", 0, 0.0, Fals
 bool_values = bool_values_true.union(bool_values_false)
 
 
-def lock_file(fpath, timeout=10):
+def get_lock_file_name(fpath: str) -> str:
+    return fpath + ".lock"
+
+
+def lock_file(fpath: str | None, timeout: int = 10) -> FileLock | None:
     if not fpath:
-        return
+        return None
     lockfile = get_lock_file_name(fpath)
     lock = FileLock(lockfile, timeout=timeout)
     lock.acquire()
     return lock
 
 
-def unlock_file(lock):
+def unlock_file(lock: Any) -> None:
     if not lock:
         return
     if not isinstance(lock, FileLock):
@@ -37,7 +44,7 @@ def unlock_file(lock):
     lock.release()
 
 
-def remove_lock_file(lock):
+def remove_lock_file(lock: FileLock | None) -> None:
     if not lock:
         return
     if not isinstance(lock, FileLock):
@@ -50,11 +57,13 @@ def remove_lock_file(lock):
     os.remove(lockfile)
 
 
-def get_lock_file_name(fpath):
-    return fpath + ".lock"
-
-
-def install_galaxy_target(target, target_type, output_dir, source_repository="", target_version=""):
+def install_galaxy_target(
+    target: str,
+    target_type: str,
+    output_dir: str,
+    source_repository: str = "",
+    target_version: str = "",
+) -> tuple[str, str]:
     server_option = ""
     if source_repository:
         server_option = f"--server {source_repository}"
@@ -75,7 +84,7 @@ def install_galaxy_target(target, target_type, output_dir, source_repository="",
     return proc.stdout, proc.stderr
 
 
-def install_github_target(target, output_dir):
+def install_github_target(target: str, output_dir: str) -> str:
     proc = subprocess.run(
         f"git clone {target} {output_dir}",
         shell=True,
@@ -86,7 +95,7 @@ def install_github_target(target, output_dir):
     return proc.stdout
 
 
-def get_download_metadata(typ: str, install_msg: str):
+def get_download_metadata(typ: str, install_msg: str) -> tuple[str, str, str]:
     download_url = ""
     version = ""
     if typ == "collection":
@@ -101,13 +110,15 @@ def get_download_metadata(typ: str, install_msg: str):
                 download_url = line.split(" ")[-1]
                 version = download_url.split("/")[-1].replace(".tar.gz", "")
                 break
-    hash = ""
+    hash_val = ""
     if download_url != "":
-        hash = get_hash_of_url(download_url)
-    return download_url, version, hash
+        hash_val = get_hash_of_url(download_url)
+    return download_url, version, hash_val
 
 
-def get_installed_metadata(type, name, path, dep_dir=None):
+def get_installed_metadata(type: str, name: str, path: str, dep_dir: str | None = None) -> tuple[str, str]:
+    download_url: str
+    version: str
     if dep_dir:
         dep_dir_alt = os.path.join(dep_dir, "ansible_collections")
         if os.path.exists(dep_dir_alt):
@@ -143,7 +154,7 @@ def get_installed_metadata(type, name, path, dep_dir=None):
     return download_url, version
 
 
-def get_collection_metadata(path: str):
+def get_collection_metadata(path: str) -> dict[str, Any] | None:
     if not os.path.exists(path):
         return None
     manifest_json_path = os.path.join(path, "MANIFEST.json")
@@ -154,7 +165,7 @@ def get_collection_metadata(path: str):
     return meta
 
 
-def get_role_metadata(path: str):
+def get_role_metadata(path: str) -> dict[str, Any] | None:
     if not os.path.exists(path):
         return None
     meta_main_yml_path = os.path.join(path, "meta", "main.yml")
@@ -165,24 +176,24 @@ def get_role_metadata(path: str):
     return meta
 
 
-def escape_url(url: str):
+def escape_url(url: str) -> str:
     base_url = url.split("?")[0]
     replaced = base_url.replace("://", "__").replace("/", "_")
     return replaced
 
 
-def escape_local_path(path: str):
+def escape_local_path(path: str) -> str:
     replaced = path.replace("/", "__")
     return replaced
 
 
-def get_hash_of_url(url: str):
+def get_hash_of_url(url: str) -> str:
     response = requests.get(url)
     hash = hashlib.sha256(response.content).hexdigest()
     return hash
 
 
-def split_name_and_version(target_name):
+def split_name_and_version(target_name: str) -> tuple[str, str]:
     name = target_name
     version = ""
     if ":" in target_name:
@@ -192,7 +203,7 @@ def split_name_and_version(target_name):
     return name, version
 
 
-def split_target_playbook_fullpath(fullpath: str):
+def split_target_playbook_fullpath(fullpath: str) -> tuple[str, str]:
     basedir = os.path.dirname(fullpath)
     if "/playbooks/" in fullpath:
         basedir = fullpath.split("/playbooks/")[0]
@@ -202,7 +213,7 @@ def split_target_playbook_fullpath(fullpath: str):
     return basedir, target_playbook_path
 
 
-def split_target_taskfile_fullpath(fullpath: str):
+def split_target_taskfile_fullpath(fullpath: str) -> tuple[str, str]:
     basedir = os.path.dirname(fullpath)
     if "/roles/" in fullpath:
         basedir = fullpath.split("/roles/")[0]
@@ -214,13 +225,13 @@ def split_target_taskfile_fullpath(fullpath: str):
     return basedir, target_taskfile_path
 
 
-def version_to_num(ver: str):
+def version_to_num(ver: str) -> float:
     if ver == "unknown":
-        return 0
+        return 0.0
     # version string can be 1.2.3-abcdxyz
     ver_num_part = ver.split("-")[0]
     parts = ver_num_part.split(".")
-    num = 0
+    num: float = 0.0
     if len(parts) >= 1 and parts[0].isnumeric():
         num += float(parts[0])
     if len(parts) >= 2 and parts[1].isnumeric():
@@ -230,26 +241,25 @@ def version_to_num(ver: str):
     return num
 
 
-def is_url(txt: str):
+def is_url(txt: str) -> bool:
     return "://" in txt
 
 
-def is_local_path(txt: str):
+def is_local_path(txt: str) -> bool:
     if is_url(txt):
         return False
     if "/" in txt:
         return True
-    if os.path.exists(txt):
-        return True
+    return bool(os.path.exists(txt))
 
 
-def indent(multi_line_txt, level=0):
+def indent(multi_line_txt: str, level: int = 0) -> str:
     lines = multi_line_txt.splitlines()
     lines = [" " * level + line for line in lines if line.replace(" ", "") != ""]
     return "\n".join(lines)
 
 
-def report_to_display(data_report: dict):
+def report_to_display(data_report: dict[str, Any]) -> str:
     playbook_num_total = data_report["summary"].get("playbooks", {}).get("total", 0)
     # playbook_num_risk_found = data_report["summary"].get("playbooks", {}).get("risk_found", 0)
     role_num_total = data_report["summary"].get("roles", {}).get("total", 0)
@@ -297,7 +307,7 @@ def report_to_display(data_report: dict):
     return output_txt
 
 
-def summarize_findings(findings, show_all: bool = False):
+def summarize_findings(findings: Any, show_all: bool = False) -> str:
     metadata = findings.metadata
     dependencies = findings.dependencies
     report = findings.report
@@ -307,8 +317,13 @@ def summarize_findings(findings, show_all: bool = False):
 
 
 def summarize_findings_data(
-    metadata, dependencies, report, resolve_failures, extra_requirements, show_all: bool = False
-):
+    metadata: dict[str, Any],
+    dependencies: list[Any],
+    report: dict[str, Any],
+    resolve_failures: dict[str, Any],
+    extra_requirements: list[Any],
+    show_all: bool = False,
+) -> str:
     target_name = metadata.get("name", "")
     output_lines = []
 
@@ -365,7 +380,7 @@ def summarize_findings_data(
     if len(extra_requirements) > 0:
         unresolved_modules = []
         unresolved_roles = []
-        suggestion = {}
+        suggestion: dict[str, dict[str, list[str]]] = {}
         for ext_req in extra_requirements:
             if ext_req.get("type", "") not in ["role", "module"]:
                 continue
@@ -465,14 +480,14 @@ def summarize_findings_data(
     return output
 
 
-def show_all_ram_metadata(ram_meta_list):
+def show_all_ram_metadata(ram_meta_list: list[dict[str, Any]]) -> None:
     table = [("NAME", "VERSION", "HASH")]
     for meta in ram_meta_list:
         table.append((meta["name"], meta["version"], meta["hash"]))
     print(tabulate(table))
 
 
-def diff_files_data(files1, files2):
+def diff_files_data(files1: dict[str, Any], files2: dict[str, Any]) -> list[dict[str, str]]:
     files_dict1 = {}
     for finfo in files1.get("files", []):
         ftype = finfo.get("ftype", "")
@@ -526,16 +541,22 @@ def diff_files_data(files1, files2):
     return diffs
 
 
-def show_diffs(diffs):
+def show_diffs(diffs: list[dict[str, str]]) -> None:
     table = [("NAME", "DIFF_TYPE")]
     for d in diffs:
         table.append((d["filepath"], d["type"]))
     print(tabulate(table))
 
 
-def get_module_specs_by_ansible_doc(module_files: str, fqcn_prefix: str, search_path: str):
+def get_module_specs_by_ansible_doc(
+    module_files: list[str] | str,
+    fqcn_prefix: str,
+    search_path: str,
+) -> dict[str, dict[str, Any]]:
     if not module_files:
         return {}
+    if isinstance(module_files, str):
+        module_files = [module_files]
 
     if search_path and fqcn_prefix:
         parent_path_pattern = "/" + fqcn_prefix.replace(".", "/")
@@ -569,7 +590,7 @@ def get_module_specs_by_ansible_doc(module_files: str, fqcn_prefix: str, search_
     )
     if proc.stderr and not proc.stdout:
         logger.debug(f"error while getting the documentation for modules `{fqcn_list_str}`: {proc.stderr}")
-        return ""
+        return {}
     wrapper_dict = json.loads(proc.stdout)
     specs = {}
     for fqcn in wrapper_dict:
@@ -583,7 +604,7 @@ def get_module_specs_by_ansible_doc(module_files: str, fqcn_prefix: str, search_
     return specs
 
 
-def get_documentation_in_module_file(fpath: str):
+def get_documentation_in_module_file(fpath: str) -> str:
     if not fpath:
         return ""
     if not os.path.exists(fpath):
@@ -620,7 +641,7 @@ def get_documentation_in_module_file(fpath: str):
     return "\n".join(doc_lines)
 
 
-def get_class_by_arg_type(arg_type: str):
+def get_class_by_arg_type(arg_type: str) -> type[Any] | None:
     if not isinstance(arg_type, str):
         return None
 
@@ -633,7 +654,7 @@ def get_class_by_arg_type(arg_type: str):
         "float": float,
         # ARI handles `path` as a string
         "path": str,
-        "raw": any,
+        "raw": Any,
         # TODO: check actual types of the following
         "jsonarg": str,
         "json": str,
@@ -648,8 +669,12 @@ def get_class_by_arg_type(arg_type: str):
 
 
 def load_classes_in_dir(
-    dir_path: str, target_class: type, base_dir: str = "", only_subclass: bool = True, fail_on_error: bool = False
-):
+    dir_path: str,
+    target_class: type[Any],
+    base_dir: str = "",
+    only_subclass: bool = True,
+    fail_on_error: bool = False,
+) -> tuple[list[type[Any]], list[str]]:
     search_path = dir_path
     found = False
     if os.path.exists(search_path):
@@ -671,6 +696,8 @@ def load_classes_in_dir(
         try:
             short_module_name = os.path.basename(s)[:-3]
             spec = spec_from_file_location(short_module_name, s)
+            if spec is None or spec.loader is None:
+                continue
             mod = module_from_spec(spec)
             spec.loader.exec_module(mod)
             for k in mod.__dict__:
@@ -694,19 +721,19 @@ def load_classes_in_dir(
     return classes, errors
 
 
-def equal(a: any, b: any):
+def equal(a: Any, b: Any) -> bool:
     type_a = type(a)
     type_b = type(b)
     if type_a != type_b:
         return False
-    if type_a is dict:
+    if type_a is dict and isinstance(a, dict) and isinstance(b, dict):
         all_keys = list(a.keys()) + list(b.keys())
         for key in all_keys:
             val_a = a.get(key, None)
             val_b = b.get(key, None)
             if not equal(val_a, val_b):
                 return False
-    elif type_a is list:
+    elif type_a is list and isinstance(a, list) and isinstance(b, list):
         if len(a) != len(b):
             return False
         for i in range(len(a)):
@@ -723,7 +750,7 @@ def equal(a: any, b: any):
     return True
 
 
-def recursive_copy_dict(src, dst):
+def recursive_copy_dict(src: dict[str, Any], dst: dict[str, Any]) -> None:
     if not isinstance(src, dict):
         raise ValueError(f"only dict input is allowed, but got {type(src)}")
 
@@ -739,12 +766,12 @@ def recursive_copy_dict(src, dst):
     return
 
 
-def is_test_object(path: str):
+def is_test_object(path: str) -> bool:
     return path.startswith("tests/integration/") or path.startswith("molecule/")
 
 
-def parse_bool(value: any):
-    value_str = None
+def parse_bool(value: Any) -> bool:
+    value_str: str | None = None
     use_value_str = False
     if isinstance(value, bool):
         return value

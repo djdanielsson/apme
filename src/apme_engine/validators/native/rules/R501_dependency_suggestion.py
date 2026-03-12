@@ -6,10 +6,9 @@ from apme_engine.engine.models import (
     RuleResult,
     RunTargetType,
     Severity,
+    Task,
 )
-from apme_engine.engine.models import (
-    RuleTag as Tag,
-)
+from apme_engine.engine.models import RuleTag as Tag
 
 
 @dataclass
@@ -19,25 +18,32 @@ class DependencySuggestionRule(Rule):
     enabled: bool = True
     name: str = "DependencySuggestion"
     version: str = "v0.0.1"
-    severity: Severity = Severity.NONE
-    tags: tuple = Tag.DEPENDENCY
+    severity: str = Severity.NONE
+    tags: tuple[str, ...] = (Tag.DEPENDENCY,)
 
     def match(self, ctx: AnsibleRunContext) -> bool:
-        return ctx.current.type == RunTargetType.Task
+        if ctx.current is None:
+            return False
+        return bool(ctx.current.type == RunTargetType.Task)
 
-    def process(self, ctx: AnsibleRunContext):
+    def process(self, ctx: AnsibleRunContext) -> RuleResult | None:
         task = ctx.current
+        if task is None:
+            return None
 
         verdict = False
-        detail = {}
-        if task.spec.possible_candidates:
+        detail: dict[str, object] = {}
+        spec = task.spec
+        if isinstance(spec, Task) and spec.possible_candidates:
             verdict = True
-            detail["type"] = task.spec.executable_type.lower()
-            detail["fqcn"] = task.spec.possible_candidates[0][0]
-            req_info = task.spec.possible_candidates[0][1]
-            detail["suggestion"] = {}
-            detail["suggestion"]["type"] = req_info.get("type", "")
-            detail["suggestion"]["name"] = req_info.get("name", "")
-            detail["suggestion"]["version"] = req_info.get("version", "")
+            detail["type"] = spec.executable_type.lower()
+            detail["fqcn"] = spec.possible_candidates[0][0]
+            req_info = spec.possible_candidates[0][1]
+            req_dict = req_info if isinstance(req_info, dict) else {}
+            detail["suggestion"] = {
+                "type": req_dict.get("type", ""),
+                "name": req_dict.get("name", ""),
+                "version": req_dict.get("version", ""),
+            }
 
         return RuleResult(verdict=verdict, detail=detail, file=task.file_info(), rule=self.get_metadata())

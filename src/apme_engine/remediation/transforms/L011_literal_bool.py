@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from typing import Any
 
 from apme_engine.engine.yaml_utils import FormattedYAML
 from apme_engine.remediation.registry import TransformResult
@@ -22,7 +23,7 @@ _REPLACEMENTS = [
 ]
 
 
-def fix_literal_bool(content: str, violation: dict) -> TransformResult:
+def fix_literal_bool(content: str, violation: dict[str, Any]) -> TransformResult:
     """Remove literal true/false comparisons from when clause."""
     yaml = FormattedYAML(typ="rt", pure=True, version=(1, 1))
 

@@ -5,12 +5,15 @@ import json
 import os
 import sys
 import time
+from typing import Any
 
 import grpc
 import grpc.aio
 import jsonpickle
 
-from apme.v1 import common_pb2, validate_pb2, validate_pb2_grpc
+from apme.v1 import validate_pb2, validate_pb2_grpc
+from apme.v1.common_pb2 import HealthResponse, RuleTiming, ValidatorDiagnostics
+from apme.v1.validate_pb2 import ValidateResponse
 from apme_engine.daemon.violation_convert import violation_dict_to_proto
 from apme_engine.validators.base import ScanContext
 from apme_engine.validators.native import NativeRunResult, NativeValidator
@@ -18,7 +21,7 @@ from apme_engine.validators.native import NativeRunResult, NativeValidator
 _MAX_CONCURRENT_RPCS = int(os.environ.get("APME_NATIVE_MAX_RPCS", "32"))
 
 
-def _run_native(hierarchy_payload: dict, scandata) -> NativeRunResult:
+def _run_native(hierarchy_payload: dict[str, Any], scandata: Any) -> NativeRunResult:
     """Blocking function: create ScanContext and run NativeValidator with timing."""
     scan_context = ScanContext(
         hierarchy_payload=hierarchy_payload,
@@ -31,11 +34,11 @@ def _run_native(hierarchy_payload: dict, scandata) -> NativeRunResult:
 class NativeValidatorServicer(validate_pb2_grpc.ValidatorServicer):
     """Async gRPC adapter: deserializes scandata, runs native rules in executor."""
 
-    async def Validate(self, request, context):
+    async def Validate(self, request: Any, context: Any) -> ValidateResponse:
         req_id = request.request_id or ""
         t0 = time.monotonic()
         try:
-            hierarchy_payload = {}
+            hierarchy_payload: dict[str, Any] = {}
             if request.hierarchy_payload:
                 try:
                     hierarchy_payload = json.loads(request.hierarchy_payload)
@@ -48,7 +51,7 @@ class NativeValidatorServicer(validate_pb2_grpc.ValidatorServicer):
                     scandata = jsonpickle.decode(request.scandata.decode("utf-8"))
                 except Exception as e:
                     sys.stderr.write(f"[req={req_id}] Native: failed to decode scandata: {e}\n")
-                    return validate_pb2.ValidateResponse(violations=[], request_id=req_id)
+                    return ValidateResponse(violations=[], request_id=req_id)
 
             result = await asyncio.get_event_loop().run_in_executor(
                 None,
@@ -61,14 +64,14 @@ class NativeValidatorServicer(validate_pb2_grpc.ValidatorServicer):
             sys.stderr.flush()
 
             rule_timings = [
-                common_pb2.RuleTiming(
+                RuleTiming(
                     rule_id=rt.rule_id,
                     elapsed_ms=rt.elapsed_ms,
                     violations=rt.violations,
                 )
                 for rt in result.rule_timings
             ]
-            diag = common_pb2.ValidatorDiagnostics(
+            diag = ValidatorDiagnostics(
                 validator_name="native",
                 request_id=req_id,
                 total_ms=total_ms,
@@ -88,16 +91,16 @@ class NativeValidatorServicer(validate_pb2_grpc.ValidatorServicer):
             sys.stderr.write(f"[req={req_id}] Native error: {e}\n")
             traceback.print_exc(file=sys.stderr)
             sys.stderr.flush()
-            return validate_pb2.ValidateResponse(violations=[], request_id=req_id)
+            return ValidateResponse(violations=[], request_id=req_id)
 
-    async def Health(self, request, context):
-        return common_pb2.HealthResponse(status="ok")
+    async def Health(self, request: Any, context: Any) -> HealthResponse:
+        return HealthResponse(status="ok")
 
 
-async def serve(listen: str = "0.0.0.0:50055"):
+async def serve(listen: str = "0.0.0.0:50055") -> Any:
     """Create, bind, and start async gRPC server with Native servicer."""
     server = grpc.aio.server(maximum_concurrent_rpcs=_MAX_CONCURRENT_RPCS)
-    validate_pb2_grpc.add_ValidatorServicer_to_server(NativeValidatorServicer(), server)
+    validate_pb2_grpc.add_ValidatorServicer_to_server(NativeValidatorServicer(), server)  # type: ignore[no-untyped-call]
     if ":" in listen:
         _, _, port = listen.rpartition(":")
         server.add_insecure_port(f"[::]:{port}")

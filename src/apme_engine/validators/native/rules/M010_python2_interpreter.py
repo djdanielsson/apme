@@ -24,14 +24,18 @@ class Python2InterpreterRule(Rule):
     enabled: bool = True
     name: str = "Python2Interpreter"
     version: str = "v0.0.1"
-    severity: Severity = Severity.HIGH
-    tags: tuple = Tag.CODING
+    severity: str = Severity.HIGH
+    tags: tuple[str, ...] = (Tag.CODING,)
 
     def match(self, ctx: AnsibleRunContext) -> bool:
-        return ctx.current.type == RunTargetType.Task
+        if ctx.current is None:
+            return False
+        return bool(ctx.current.type == RunTargetType.Task)
 
-    def process(self, ctx: AnsibleRunContext):
+    def process(self, ctx: AnsibleRunContext) -> RuleResult | None:
         task = ctx.current
+        if task is None:
+            return None
         options = getattr(task.spec, "options", None) or {}
         module_options = getattr(task.spec, "module_options", None) or {}
         task_vars = options.get("vars") or {}

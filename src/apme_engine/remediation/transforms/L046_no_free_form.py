@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from ruamel.yaml.comments import CommentedMap
 
 from apme_engine.engine.yaml_utils import FormattedYAML
@@ -25,7 +27,7 @@ _FREE_FORM_MODULES = frozenset(
 )
 
 
-def fix_free_form(content: str, violation: dict) -> TransformResult:
+def fix_free_form(content: str, violation: dict[str, Any]) -> TransformResult:
     """Convert ``command: echo hi`` to ``command: { cmd: echo hi }``."""
     yaml = FormattedYAML(typ="rt", pure=True, version=(1, 1))
 

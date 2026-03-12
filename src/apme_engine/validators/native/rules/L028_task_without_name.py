@@ -19,15 +19,19 @@ class TaskWithoutNameRule(Rule):
     enabled: bool = True
     name: str = "TaskWithoutName"
     version: str = "v0.0.1"
-    severity: Severity = Severity.LOW
-    tags: tuple = Tag.DEPENDENCY
+    severity: str = Severity.LOW
+    tags: tuple[str, ...] = (Tag.DEPENDENCY,)
 
     def match(self, ctx: AnsibleRunContext) -> bool:
-        return ctx.current.type == RunTargetType.Task
+        if ctx.current is None:
+            return False
+        return bool(ctx.current.type == RunTargetType.Task)
 
-    def process(self, ctx: AnsibleRunContext):
+    def process(self, ctx: AnsibleRunContext) -> RuleResult | None:
         task = ctx.current
+        if task is None:
+            return None
 
-        verdict = not task.spec.name
+        verdict = not getattr(task.spec, "name", None)
 
         return RuleResult(verdict=verdict, file=task.file_info(), rule=self.get_metadata())

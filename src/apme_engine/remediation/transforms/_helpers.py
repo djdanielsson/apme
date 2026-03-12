@@ -104,7 +104,7 @@ def get_module_key(task: CommentedMap) -> str | None:
     """
     for key in task:
         if key not in _TASK_META_KEYS:
-            return key
+            return str(key)
     return None
 
 

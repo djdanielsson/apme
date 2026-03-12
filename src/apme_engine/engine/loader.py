@@ -12,7 +12,7 @@ role_meta_main_yaml = "meta/main.yaml"
 
 
 # remove a dir which is a sub directory of another dir in the list
-def remove_subdirectories(dir_list):
+def remove_subdirectories(dir_list: list[str]) -> list[str]:
     sorted_dir_list = sorted(dir_list)
     new_dir_list = []
     for i, dir in enumerate(sorted_dir_list):
@@ -22,7 +22,7 @@ def remove_subdirectories(dir_list):
     return new_dir_list
 
 
-def trim_suffix(txt, suffix_patterns=None):
+def trim_suffix(txt: str, suffix_patterns: str | list[str] | None = None) -> str:
     if suffix_patterns is None:
         suffix_patterns = []
     if isinstance(suffix_patterns, str):
@@ -35,7 +35,7 @@ def trim_suffix(txt, suffix_patterns=None):
     return txt
 
 
-def get_loader_version():
+def get_loader_version() -> str:
     version = ""
     with contextlib.suppress(Exception):
         version = _pkg_version("apme-engine")
@@ -50,7 +50,7 @@ def get_loader_version():
     return version
 
 
-def get_target_name(target_type, target_path):
+def get_target_name(target_type: str, target_path: str) -> str:
     target_name = ""
     if target_type == LoadType.PROJECT:
         project_name = os.path.normpath(target_path).split("/")[-1]
@@ -71,8 +71,10 @@ def get_target_name(target_type, target_path):
     return target_name
 
 
-def filepath_to_target_name(filepath):
-    return filepath.translate(str.maketrans({" ": "___", "/": "---", ".": "_dot_"}))
+def filepath_to_target_name(filepath: str) -> str:
+    return filepath.translate(
+        str.maketrans({" ": "___", "/": "---", ".": "_dot_"})  # type: ignore[arg-type]
+    )
 
 
 # if __name__ == "__main__":

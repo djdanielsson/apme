@@ -5,20 +5,20 @@ from pathlib import Path
 import pytest
 
 
-@pytest.fixture
-def repo_root():
+@pytest.fixture  # type: ignore[untyped-decorator]
+def repo_root() -> Path:
     """Project root (ansible-forward)."""
     return Path(__file__).resolve().parent.parent
 
 
-@pytest.fixture
-def opa_bundle_path(repo_root):
+@pytest.fixture  # type: ignore[untyped-decorator]
+def opa_bundle_path(repo_root: Path) -> Path:
     """Path to OPA bundle directory (built-in validator bundle)."""
     return repo_root / "src" / "apme_engine" / "validators" / "opa" / "bundle"
 
 
-@pytest.fixture
-def sample_hierarchy_payload():
+@pytest.fixture  # type: ignore[untyped-decorator]
+def sample_hierarchy_payload() -> dict[str, object]:
     """Minimal valid OPA input (hierarchy payload)."""
     return {
         "scan_id": "test-scan-1",
@@ -56,8 +56,8 @@ def sample_hierarchy_payload():
     }
 
 
-@pytest.fixture
-def opa_eval_result_with_violations():
+@pytest.fixture  # type: ignore[untyped-decorator]
+def opa_eval_result_with_violations() -> dict[str, object]:
     """OPA eval JSON output format with a list of violations."""
     return {
         "result": [
@@ -81,7 +81,7 @@ def opa_eval_result_with_violations():
     }
 
 
-@pytest.fixture
-def opa_eval_result_empty():
+@pytest.fixture  # type: ignore[untyped-decorator]
+def opa_eval_result_empty() -> dict[str, object]:
     """OPA eval JSON with empty violations."""
     return {"result": [{"expressions": [{"value": []}]}]}

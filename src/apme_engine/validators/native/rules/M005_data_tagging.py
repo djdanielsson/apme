@@ -29,14 +29,18 @@ class DataTaggingRule(Rule):
     enabled: bool = True
     name: str = "DataTagging"
     version: str = "v0.0.1"
-    severity: Severity = Severity.HIGH
-    tags: tuple = Tag.CODING
+    severity: str = Severity.HIGH
+    tags: tuple[str, ...] = (Tag.CODING,)
 
     def match(self, ctx: AnsibleRunContext) -> bool:
-        return ctx.current.type == RunTargetType.Task
+        if ctx.current is None:
+            return False
+        return bool(ctx.current.type == RunTargetType.Task)
 
-    def process(self, ctx: AnsibleRunContext):
+    def process(self, ctx: AnsibleRunContext) -> RuleResult | None:
         task = ctx.current
+        if task is None:
+            return None
         options = getattr(task.spec, "options", None) or {}
         module_options = getattr(task.spec, "module_options", None) or {}
 
@@ -66,7 +70,7 @@ class DataTaggingRule(Rule):
                     flagged.append(var_name)
 
         verdict = len(flagged) > 0
-        detail = {}
+        detail: dict[str, object] = {}
         if flagged:
             detail["message"] = (
                 f"Registered variable(s) {', '.join(set(flagged))} used in Jinja template; may be untrusted in 2.19+"

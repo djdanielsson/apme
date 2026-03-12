@@ -16,13 +16,13 @@ from apme_engine.engine.models import (
 BARE_VAR_PATTERN = re.compile(r"\{\{\s*[\w.]+\s*\}\}")
 
 
-def _find_bare_vars(text):
+def _find_bare_vars(text: str | None) -> list[str]:
     if not text or not isinstance(text, str):
         return []
     return BARE_VAR_PATTERN.findall(text)
 
 
-def _collect_strings_from_dict(d, out):
+def _collect_strings_from_dict(d: object, out: list[str]) -> None:
     if not isinstance(d, dict):
         if isinstance(d, str):
             out.append(d)
@@ -47,14 +47,18 @@ class DeprecatedBareVarsRule(Rule):
     enabled: bool = True
     name: str = "DeprecatedBareVars"
     version: str = "v0.0.1"
-    severity: Severity = Severity.LOW
-    tags: tuple = Tag.VARIABLE
+    severity: str = Severity.LOW
+    tags: tuple[str, ...] = (Tag.VARIABLE,)
 
     def match(self, ctx: AnsibleRunContext) -> bool:
-        return ctx.current.type == RunTargetType.Task
+        if ctx.current is None:
+            return False
+        return bool(ctx.current.type == RunTargetType.Task)
 
-    def process(self, ctx: AnsibleRunContext):
+    def process(self, ctx: AnsibleRunContext) -> RuleResult | None:
         task = ctx.current
+        if task is None:
+            return None
         spec = task.spec
         sources = []
         yaml_lines = getattr(spec, "yaml_lines", "") or ""
@@ -64,7 +68,7 @@ class DeprecatedBareVarsRule(Rule):
         module_options = getattr(spec, "module_options", None) or {}
         _collect_strings_from_dict(options, sources)
         _collect_strings_from_dict(module_options, sources)
-        raw = getattr(task.args, "raw", None)
+        raw = getattr(getattr(task, "args", None), "raw", None)
         if isinstance(raw, str):
             sources.append(raw)
         elif isinstance(raw, dict):

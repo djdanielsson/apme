@@ -1,5 +1,6 @@
 import re
 from dataclasses import dataclass
+from typing import Any
 
 from apme_engine.engine.models import (
     AnsibleRunContext,
@@ -20,7 +21,7 @@ TASK_TOP_KEYS_ORDER = ["name", "block", "include", "import", "set_fact", "debug"
 PREFERRED_BEFORE_ACTION = {"name"}
 
 
-def _top_level_keys_from_yaml(yaml_lines: str):
+def _top_level_keys_from_yaml(yaml_lines: str) -> list[str]:
     """Return list of top-level task keys in source order (as they appear in yaml_lines)."""
     keys = []
     for line in yaml_lines.splitlines():
@@ -35,7 +36,7 @@ def _top_level_keys_from_yaml(yaml_lines: str):
     return keys
 
 
-def _first_action_key(keys, module_name: str):
+def _first_action_key(keys: list[str], module_name: str) -> str | None:
     """First key that looks like an action (module name or 'local_action', 'action')."""
     action_like = {"local_action", "action"}
     for k in keys:
@@ -51,14 +52,18 @@ class KeyOrderRule(Rule):
     enabled: bool = True
     name: str = "KeyOrder"
     version: str = "v0.0.1"
-    severity: Severity = Severity.VERY_LOW
-    tags: tuple = Tag.QUALITY
+    severity: str = Severity.VERY_LOW
+    tags: tuple[str, ...] = (Tag.QUALITY,)
 
     def match(self, ctx: AnsibleRunContext) -> bool:
-        return ctx.current.type == RunTargetType.Task
+        if ctx.current is None:
+            return False
+        return bool(ctx.current.type == RunTargetType.Task)
 
-    def process(self, ctx: AnsibleRunContext):
+    def process(self, ctx: AnsibleRunContext) -> RuleResult | None:
         task = ctx.current
+        if task is None:
+            return None
         spec = task.spec
         yaml_lines = getattr(spec, "yaml_lines", "") or ""
         if not yaml_lines.strip():
@@ -77,7 +82,7 @@ class KeyOrderRule(Rule):
         action_index = keys.index(first_action) if first_action in keys else -1
         name_index = keys.index("name") if "name" in keys else -1
         verdict = name_index > action_index if (name_index >= 0 and action_index >= 0) else False
-        detail = {}
+        detail: dict[str, Any] = {}
         if verdict:
             detail["keys_order"] = keys
             detail["message"] = "name should appear before the action/module key"

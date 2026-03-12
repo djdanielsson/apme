@@ -4,6 +4,7 @@ import os
 import re
 import subprocess
 from pathlib import Path
+from typing import Any
 
 RULE_ID = "L057"
 
@@ -27,12 +28,12 @@ def _find_playbooks(root: Path) -> list[Path]:
 def run(
     venv_root: Path,
     root_dir: Path,
-    env_extra: dict | None = None,
-    **_kwargs,
-) -> list[dict]:
+    env_extra: dict[str, str] | None = None,
+    **_kwargs: Any,
+) -> list[dict[str, Any]]:
     """Run ansible-playbook --syntax-check on all playbooks under root_dir."""
     ansible_playbook = venv_root / "bin" / "ansible-playbook"
-    violations: list[dict] = []
+    violations: list[dict[str, Any]] = []
 
     if not ansible_playbook.exists():
         violations.append(

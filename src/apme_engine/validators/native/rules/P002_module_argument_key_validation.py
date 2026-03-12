@@ -5,19 +5,19 @@ from apme_engine.engine.models import (
     AnsibleRunContext,
     ExecutableType,
     Rule,
+    RuleResult,
     RunTargetType,
     Severity,
+    TaskCall,
 )
-from apme_engine.engine.models import (
-    RuleTag as Tag,
-)
+from apme_engine.engine.models import RuleTag as Tag
 
 
-def is_set_fact(module_fqcn):
+def is_set_fact(module_fqcn: str) -> bool:
     return module_fqcn == "ansible.builtin.set_fact"
 
 
-def is_meta(module_fqcn):
+def is_meta(module_fqcn: str) -> bool:
     return module_fqcn == "ansible.builtin.meta"
 
 
@@ -28,18 +28,26 @@ class ModuleArgumentKeyValidationRule(Rule):
     enabled: bool = True
     name: str = "ModuleArgumentKeyValidation"
     version: str = "v0.0.1"
-    severity: Severity = Severity.NONE
-    tags: tuple = Tag.QUALITY
+    severity: str = Severity.NONE
+    tags: tuple[str, ...] = (Tag.QUALITY,)
     precedence: int = 0
 
     def match(self, ctx: AnsibleRunContext) -> bool:
-        return ctx.current.type == RunTargetType.Task
+        if ctx.current is None:
+            return False
+        return bool(ctx.current.type == RunTargetType.Task)
 
-    def process(self, ctx: AnsibleRunContext):
+    def process(self, ctx: AnsibleRunContext) -> RuleResult | None:
         task = ctx.current
+        if task is None or not isinstance(task, TaskCall):
+            return None
 
-        if task.spec.executable_type == ExecutableType.MODULE_TYPE and task.module and task.module.arguments:
-            mo = task.spec.module_options
+        if (
+            getattr(task.spec, "executable_type", "") == ExecutableType.MODULE_TYPE
+            and task.module
+            and task.module.arguments
+        ):
+            mo = getattr(task.spec, "module_options", {})
             module_fqcn = task.get_annotation(key="module.correct_fqcn")
             module_short = ""
             if module_fqcn:

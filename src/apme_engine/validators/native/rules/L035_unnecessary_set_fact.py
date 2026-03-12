@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Any
 
 from apme_engine.engine.models import (
     AnsibleRunContext,
@@ -22,18 +23,23 @@ class UnnecessarySetFactRule(Rule):
     enabled: bool = True
     name: str = "UnnecessarySetFact"
     version: str = "v0.0.1"
-    severity: Severity = Severity.VERY_LOW
-    tags: tuple = Tag.VARIABLE
+    severity: str = Severity.VERY_LOW
+    tags: tuple[str, ...] = (Tag.VARIABLE,)
 
     def match(self, ctx: AnsibleRunContext) -> bool:
-        return ctx.current.type == RunTargetType.Task
+        if ctx.current is None:
+            return False
+        return bool(ctx.current.type == RunTargetType.Task)
 
-    def process(self, ctx: AnsibleRunContext):
+    def process(self, ctx: AnsibleRunContext) -> RuleResult | None:
         task = ctx.current
+        if task is None:
+            return None
 
-        args = task.args.raw
+        args_obj = getattr(task, "args", None)
+        args = getattr(args_obj, "raw", None) if args_obj is not None else None
         is_impure = False
-        detail = {}
+        detail: dict[str, Any] = {}
         if isinstance(args, str):
             is_impure = "random" in args
             detail["impure_args"] = args
@@ -42,14 +48,18 @@ class UnnecessarySetFactRule(Rule):
                 if isinstance(v, str) and "random" in v:
                     is_impure = True
                     current = detail.get("impure_args", [])
-                    if not current:
+                    if not isinstance(current, list):
                         current = []
-                    detail["impure_args"] = current.append(v)
+                    current = list(current)
+                    current.append(v)
+                    detail["impure_args"] = current
 
-        verdict = (
-            task.action_type == ActionType.MODULE_TYPE
-            and task.resolved_action
-            and task.resolved_action == "ansible.builtin.set_fact"
+        action_type = getattr(task, "action_type", "")
+        resolved_action = getattr(task, "resolved_action", "")
+        verdict = bool(
+            action_type == ActionType.MODULE_TYPE
+            and resolved_action
+            and resolved_action == "ansible.builtin.set_fact"
             and is_impure
         )
 

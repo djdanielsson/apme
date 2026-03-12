@@ -2,6 +2,7 @@
 
 import os
 import time
+from collections.abc import Callable
 from typing import Any
 
 import grpc
@@ -24,7 +25,7 @@ def _derive_addresses(primary_addr: str) -> dict[str, str]:
     }
 
 
-def check_grpc_health(addr: str, stub_factory, timeout: float = 5.0) -> dict[str, Any]:
+def check_grpc_health(addr: str, stub_factory: Callable[..., Any], timeout: float = 5.0) -> dict[str, Any]:
     """Call Health RPC on a gRPC service; return {ok, status, error, latency_ms}."""
     start = time.perf_counter()
     try:

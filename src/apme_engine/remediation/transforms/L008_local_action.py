@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from ruamel.yaml.comments import CommentedMap
 
 from apme_engine.engine.yaml_utils import FormattedYAML
@@ -9,7 +11,7 @@ from apme_engine.remediation.registry import TransformResult
 from apme_engine.remediation.transforms._helpers import find_task_at_line
 
 
-def fix_local_action(content: str, violation: dict) -> TransformResult:
+def fix_local_action(content: str, violation: dict[str, Any]) -> TransformResult:
     """Convert local_action to the module key + delegate_to: localhost."""
     yaml = FormattedYAML(typ="rt", pure=True, version=(1, 1))
 

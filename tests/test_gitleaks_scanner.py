@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from apme_engine.validators.gitleaks.scanner import (
@@ -16,41 +17,41 @@ from apme_engine.validators.gitleaks.scanner import (
 
 
 class TestVaultDetection:
-    def test_vault_header_detected(self):
+    def test_vault_header_detected(self) -> None:
         assert _is_vault_encrypted("  $ANSIBLE_VAULT;1.1;AES256\ndeadbeef")
 
-    def test_plain_content_not_vault(self):
+    def test_plain_content_not_vault(self) -> None:
         assert not _is_vault_encrypted("password: s3cret")
 
-    def test_empty_string(self):
+    def test_empty_string(self) -> None:
         assert not _is_vault_encrypted("")
 
 
 class TestJinjaFiltering:
-    def test_jinja_expression(self):
+    def test_jinja_expression(self) -> None:
         assert _value_is_jinja("{{ vault_password }}")
 
-    def test_quoted_jinja(self):
+    def test_quoted_jinja(self) -> None:
         assert _value_is_jinja('\'{{ lookup("env", "SECRET") }}\'')
 
-    def test_literal_value(self):
+    def test_literal_value(self) -> None:
         assert not _value_is_jinja("hardcoded_secret_123")
 
-    def test_mixed_not_full_jinja(self):
+    def test_mixed_not_full_jinja(self) -> None:
         assert not _value_is_jinja("prefix-{{ var }}-suffix")
 
 
 class TestRuleIdMapping:
-    def test_unmapped_rule(self):
+    def test_unmapped_rule(self) -> None:
         assert _build_rule_id("aws-access-key-id") == f"{RULE_PREFIX}:aws-access-key-id"
 
-    def test_mapped_rule(self):
+    def test_mapped_rule(self) -> None:
         with patch.dict("apme_engine.validators.gitleaks.scanner.RULE_ID_MAP", {"generic-api-key": "SEC001"}):
             assert _build_rule_id("generic-api-key") == "SEC001"
 
 
 class TestConvertFindings:
-    def test_basic_finding(self, tmp_path):
+    def test_basic_finding(self, tmp_path: Path) -> None:
         secret_file = tmp_path / "vars.yml"
         secret_file.write_text("password: s3cret123\n")
 
@@ -71,7 +72,7 @@ class TestConvertFindings:
         assert violations[0]["file"] == "vars.yml"
         assert violations[0]["line"] == 1
 
-    def test_jinja_value_filtered(self, tmp_path):
+    def test_jinja_value_filtered(self, tmp_path: Path) -> None:
         jinja_file = tmp_path / "vars.yml"
         jinja_file.write_text("password: '{{ vault_pw }}'\n")
 
@@ -88,7 +89,7 @@ class TestConvertFindings:
         violations = _convert_findings(findings, tmp_path)
         assert len(violations) == 0
 
-    def test_vault_encrypted_filtered(self, tmp_path):
+    def test_vault_encrypted_filtered(self, tmp_path: Path) -> None:
         vault_file = tmp_path / "secrets.yml"
         vault_file.write_text("$ANSIBLE_VAULT;1.1;AES256\ndeadbeef\n")
 
@@ -105,7 +106,7 @@ class TestConvertFindings:
         violations = _convert_findings(findings, tmp_path)
         assert len(violations) == 0
 
-    def test_multiline_range(self, tmp_path):
+    def test_multiline_range(self, tmp_path: Path) -> None:
         f = tmp_path / "key.pem"
         f.write_text("-----BEGIN RSA PRIVATE KEY-----\ndata\n-----END RSA PRIVATE KEY-----\n")
 
@@ -125,12 +126,12 @@ class TestConvertFindings:
 
 
 class TestRunGitleaks:
-    def test_binary_not_found(self, tmp_path):
+    def test_binary_not_found(self, tmp_path: Path) -> None:
         with patch("apme_engine.validators.gitleaks.scanner.GITLEAKS_BIN", "/nonexistent/gitleaks"):
             result = run_gitleaks(tmp_path)
         assert result == []
 
-    def test_successful_scan_no_findings(self, tmp_path):
+    def test_successful_scan_no_findings(self, tmp_path: Path) -> None:
         clean = tmp_path / "clean.yml"
         clean.write_text("---\n- name: Clean play\n  hosts: all\n  tasks: []\n")
 
@@ -152,7 +153,7 @@ class TestRunGitleaks:
 
         assert result == []
 
-    def test_successful_scan_with_findings(self, tmp_path):
+    def test_successful_scan_with_findings(self, tmp_path: Path) -> None:
         secret_file = tmp_path / "vars.yml"
         secret_file.write_text("api_key: AKIAIOSFODNN7EXAMPLE\n")
 
@@ -189,7 +190,7 @@ class TestRunGitleaks:
         assert result[0]["rule_id"] == f"{RULE_PREFIX}:aws-access-key-id"
         assert result[0]["file"] == "vars.yml"
 
-    def test_timeout_handled(self, tmp_path):
+    def test_timeout_handled(self, tmp_path: Path) -> None:
         import subprocess as sp
 
         with patch(
@@ -202,17 +203,17 @@ class TestRunGitleaks:
 class TestGitleaksServicer:
     """Test the async gRPC servicer layer."""
 
-    async def test_validate_no_files(self):
+    async def test_validate_no_files(self) -> None:
         from apme.v1 import validate_pb2
         from apme_engine.daemon.gitleaks_validator_server import GitleaksValidatorServicer
 
         servicer = GitleaksValidatorServicer()
         request = validate_pb2.ValidateRequest(files=[], request_id="gl-1")
         resp = await servicer.Validate(request, None)
-        assert len(resp.violations) == 0
-        assert resp.request_id == "gl-1"
+        assert len(resp.violations) == 0  # type: ignore[attr-defined]
+        assert resp.request_id == "gl-1"  # type: ignore[attr-defined]
 
-    async def test_validate_with_files(self):
+    async def test_validate_with_files(self) -> None:
         from apme.v1 import common_pb2, validate_pb2
         from apme_engine.daemon.gitleaks_validator_server import GitleaksValidatorServicer
 
@@ -236,11 +237,11 @@ class TestGitleaksServicer:
         with patch("apme_engine.daemon.gitleaks_validator_server.run_gitleaks", return_value=fake_violations):
             resp = await servicer.Validate(request, None)
 
-        assert len(resp.violations) == 1
-        assert resp.violations[0].rule_id == "SEC:aws-access-key-id"
-        assert resp.request_id == "gl-2"
+        assert len(resp.violations) == 1  # type: ignore[attr-defined]
+        assert resp.violations[0].rule_id == "SEC:aws-access-key-id"  # type: ignore[attr-defined]
+        assert resp.request_id == "gl-2"  # type: ignore[attr-defined]
 
-    async def test_health_binary_present(self):
+    async def test_health_binary_present(self) -> None:
         from apme.v1 import common_pb2
         from apme_engine.daemon.gitleaks_validator_server import GitleaksValidatorServicer
 
@@ -255,7 +256,7 @@ class TestGitleaksServicer:
         assert "ok" in resp.status
         assert "8.18.0" in resp.status
 
-    async def test_health_binary_missing(self):
+    async def test_health_binary_missing(self) -> None:
         from apme.v1 import common_pb2
         from apme_engine.daemon.gitleaks_validator_server import GitleaksValidatorServicer
 

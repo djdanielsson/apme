@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 
 from apme_engine.engine.annotators.annotator_base import Annotator, AnnotatorResult
@@ -11,15 +13,15 @@ class RiskAnnotator(Annotator):
     name: str = ""
     enabled: bool = False
 
-    module_annotator_cache: dict = {}
+    module_annotator_cache: dict[str, list[ModuleAnnotator]] = {}
 
     def match(self, task: TaskCall) -> bool:
         raise ValueError("this is a base class method")
 
-    def run(self, task: TaskCall):
+    def run(self, task: TaskCall) -> ModuleAnnotatorResult:
         raise ValueError("this is a base class method")
 
-    def load_module_annotators(self, dir_path: str):
+    def load_module_annotators(self, dir_path: str) -> list[ModuleAnnotator]:
         if dir_path in self.module_annotator_cache:
             return self.module_annotator_cache[dir_path]
 
@@ -34,14 +36,14 @@ class RiskAnnotator(Annotator):
 
     def run_module_annotators(self, dir_path: str, task: TaskCall) -> ModuleAnnotatorResult:
         if not dir_path:
-            return []
+            return ModuleAnnotatorResult(annotations=[])
 
-        resolved_name = task.spec.resolved_name
+        resolved_name = getattr(task.spec, "resolved_name", "") if task.spec else ""
         module_annotators = self.load_module_annotators(dir_path)
 
         # TODO: need to consider annotator precedence
 
-        annotations = []
+        annotations: list[RiskAnnotation] = []
 
         for annotator in module_annotators:
             if not isinstance(annotator, ModuleAnnotator):
@@ -56,10 +58,10 @@ class RiskAnnotator(Annotator):
                 continue
 
             if result.annotations:
-                annotations.extend(result.annotations)
+                annotations.extend(result.annotations)  # type: ignore[arg-type]
         if annotations:
             return ModuleAnnotatorResult(annotations=annotations)
-        return None
+        return ModuleAnnotatorResult(annotations=[])
 
 
 @dataclass

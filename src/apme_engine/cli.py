@@ -5,10 +5,12 @@ import json
 import os
 import sys
 from pathlib import Path
+from typing import Any
 
 import grpc
 
-from apme.v1 import primary_pb2, primary_pb2_grpc
+from apme.v1 import primary_pb2_grpc
+from apme.v1.primary_pb2 import ScanDiagnostics
 from apme_engine.collection_cache import (
     get_cache_root,
     pull_galaxy_collection,
@@ -27,10 +29,10 @@ from apme_engine.validators.native import NativeValidator
 from apme_engine.validators.opa import OpaValidator
 
 
-def _sort_violations(violations: list[dict]) -> list[dict]:
+def _sort_violations(violations: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Sort by file, then line for stable output."""
 
-    def key(v):
+    def key(v: dict[str, Any]) -> tuple[str, int | float]:
         f = v.get("file") or ""
         line = v.get("line")
         if isinstance(line, (list, tuple)) and line:
@@ -40,10 +42,10 @@ def _sort_violations(violations: list[dict]) -> list[dict]:
     return sorted(violations, key=key)
 
 
-def _deduplicate_violations(violations: list[dict]) -> list[dict]:
+def _deduplicate_violations(violations: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Remove duplicate violations sharing the same (rule_id, file, line)."""
-    seen: set[tuple] = set()
-    out: list[dict] = []
+    seen: set[tuple[str, str, Any]] = set()
+    out: list[dict[str, Any]] = []
     for v in violations:
         line = v.get("line")
         if isinstance(line, (list, tuple)):
@@ -64,7 +66,7 @@ def _fmt_ms(ms: float) -> str:
     return f"{ms / 1000:.1f}s"
 
 
-def _print_diagnostics_v(diag: "primary_pb2.ScanDiagnostics"):
+def _print_diagnostics_v(diag: ScanDiagnostics) -> None:
     """Print -v level diagnostics: validator summaries + top 10 slowest rules."""
     w = sys.stderr.write
 
@@ -113,7 +115,7 @@ def _print_diagnostics_v(diag: "primary_pb2.ScanDiagnostics"):
     w("\n")
 
 
-def _print_diagnostics_vv(diag: "primary_pb2.ScanDiagnostics"):
+def _print_diagnostics_vv(diag: ScanDiagnostics) -> None:
     """Print -vv level diagnostics: full per-rule breakdown for every validator."""
     w = sys.stderr.write
 
@@ -146,7 +148,7 @@ def _print_diagnostics_vv(diag: "primary_pb2.ScanDiagnostics"):
     w(f"  Total:        {_fmt_ms(diag.total_ms)}\n\n")
 
 
-def _diag_to_dict(diag: "primary_pb2.ScanDiagnostics") -> dict:
+def _diag_to_dict(diag: ScanDiagnostics) -> dict[str, Any]:
     """Convert ScanDiagnostics proto to a JSON-serializable dict."""
     validators = []
     for vd in diag.validators:
@@ -176,7 +178,7 @@ def _diag_to_dict(diag: "primary_pb2.ScanDiagnostics") -> dict:
     }
 
 
-def _run_scan(args):
+def _run_scan(args: argparse.Namespace) -> None:
     """Run scan: engine + validators on target path, or call Primary daemon over gRPC."""
     primary_addr = getattr(args, "primary_addr", None) or os.environ.get("APME_PRIMARY_ADDRESS")
     if primary_addr:
@@ -197,13 +199,13 @@ def _run_scan(args):
             print(json.dumps({"violations": [], "hierarchy_payload": context.hierarchy_payload}))
         sys.exit(0)
 
-    validators = []
+    validators: list[tuple[str, OpaValidator | NativeValidator]] = []
     if not args.no_opa:
         validators.append(("OPA", OpaValidator(args.opa_bundle)))
     if not args.no_native:
         validators.append(("Native", NativeValidator()))
 
-    violations = []
+    violations: list[dict[str, Any]] = []
     for name, v in validators:
         result = v.run(context)
         sys.stderr.write(f"{name}: {len(result)} violation(s)\n")
@@ -221,17 +223,20 @@ def _run_scan(args):
         print(json.dumps({"violations": violations, "count": len(violations)}, indent=2))
         return
 
-    payload = context.hierarchy_payload
+    payload: dict[str, Any] = context.hierarchy_payload or {}
     print(f"Scan: {payload.get('scan_id', '')} | Violations: {len(violations)}")
-    for v in violations:
-        line = v.get("line")
+    for violation in violations:
+        line = violation.get("line")
         line_str = str(line) if line is not None else "?"
-        print(f"  [{v.get('rule_id', '')}] {v.get('file', '')}:{line_str} - {v.get('message', '')}")
+        rule_id = violation.get("rule_id", "")
+        fpath = violation.get("file", "")
+        msg = violation.get("message", "")
+        print(f"  [{rule_id}] {fpath}:{line_str} - {msg}")
     if not violations:
         print("No violations.")
 
 
-def _run_scan_grpc(args, primary_addr: str):
+def _run_scan_grpc(args: argparse.Namespace, primary_addr: str) -> None:
     """Send chunked fs to Primary daemon and print violations."""
     verbosity = getattr(args, "verbose", 0) or 0
 
@@ -247,7 +252,7 @@ def _run_scan_grpc(args, primary_addr: str):
         sys.exit(1)
 
     channel = grpc.insecure_channel(primary_addr)
-    stub = primary_pb2_grpc.PrimaryStub(channel)
+    stub = primary_pb2_grpc.PrimaryStub(channel)  # type: ignore[no-untyped-call]
     try:
         resp = stub.Scan(req, timeout=120)
     except grpc.RpcError as e:
@@ -283,7 +288,7 @@ def _run_scan_grpc(args, primary_addr: str):
         print("No violations.")
 
 
-def _run_cache(args):
+def _run_cache(args: argparse.Namespace) -> None:
     """Run a collection cache command (pull-galaxy, pull-requirements, clone-org)."""
     cache_root = get_cache_root() if args.cache_root is None else Path(args.cache_root)
 
@@ -322,7 +327,7 @@ def _run_cache(args):
         sys.exit(1)
 
 
-def _run_format(args):
+def _run_format(args: argparse.Namespace) -> None:
     """Format YAML files: normalize indentation, key order, jinja spacing, tabs."""
     target = Path(args.target).resolve()
     exclude = getattr(args, "exclude", None) or []
@@ -364,7 +369,7 @@ def _run_format(args):
         sys.stderr.write(f"\n{len(changed)} file(s) would be reformatted (use --apply to write)\n")
 
 
-def _scan_files_local(file_paths: list[str], repo_root: str, opa_bundle: str | None) -> list[dict]:
+def _scan_files_local(file_paths: list[str], repo_root: str, opa_bundle: str | None) -> list[dict[str, Any]]:
     """In-process scan: engine + OPA + native validators. Returns violation dicts."""
     from apme_engine.runner import run_scan as _run_scan
 
@@ -372,7 +377,7 @@ def _scan_files_local(file_paths: list[str], repo_root: str, opa_bundle: str | N
     if not yaml_files:
         return []
 
-    all_violations: list[dict] = []
+    all_violations: list[dict[str, Any]] = []
     for fpath in yaml_files:
         try:
             context = _run_scan(fpath, repo_root, include_scandata=True)
@@ -382,7 +387,7 @@ def _scan_files_local(file_paths: list[str], repo_root: str, opa_bundle: str | N
         if not context.hierarchy_payload:
             continue
 
-        validators = [
+        validators: list[tuple[str, OpaValidator | NativeValidator]] = [
             ("OPA", OpaValidator(opa_bundle)),
             ("Native", NativeValidator()),
         ]
@@ -392,7 +397,7 @@ def _scan_files_local(file_paths: list[str], repo_root: str, opa_bundle: str | N
     return _deduplicate_violations(_sort_violations(all_violations))
 
 
-def _run_fix(args):
+def _run_fix(args: argparse.Namespace) -> None:
     """Format → idempotency check → scan → remediate (convergence loop)."""
     target = Path(args.target).resolve()
     exclude = getattr(args, "exclude", None) or []
@@ -461,7 +466,7 @@ def _run_fix(args):
     repo_root = str(Path(__file__).resolve().parent.parent)
     opa_bundle = getattr(args, "opa_bundle", None)
 
-    def scan_fn(paths: list[str]) -> list[dict]:
+    def scan_fn(paths: list[str]) -> list[dict[str, Any]]:
         return _scan_files_local(paths, repo_root, opa_bundle)
 
     registry = build_default_registry()
@@ -493,7 +498,7 @@ def _run_fix(args):
             sys.stdout.write(p.diff)
 
 
-def _run_health_check(args):
+def _run_health_check(args: argparse.Namespace) -> None:
     """Check health of all services (Primary, Native, OPA, Ansible, Cache maintainer) via gRPC."""
     primary_addr = getattr(args, "primary_addr", None) or os.environ.get("APME_PRIMARY_ADDRESS")
     if not primary_addr:
@@ -510,7 +515,9 @@ def _run_health_check(args):
     )
 
     if getattr(args, "json", False):
-        out = {name: {k: v for k, v in r.items() if v is not None} for name, r in results.items()}
+        out: dict[str, dict[str, Any]] = {
+            name: {k: v for k, v in r.items() if v is not None} for name, r in results.items()
+        }
         print(json.dumps(out, indent=2))
         sys.exit(0 if all(r["ok"] for r in results.values()) else 1)
 
@@ -529,7 +536,7 @@ def _run_health_check(args):
     sys.exit(0 if all_ok else 1)
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Run APME scan: engine + OPA and native validators; or manage collection cache.",
     )

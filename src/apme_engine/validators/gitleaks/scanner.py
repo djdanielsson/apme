@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from typing import Any, cast
 
 GITLEAKS_BIN = "gitleaks"
 
@@ -35,7 +36,7 @@ def _build_rule_id(gitleaks_rule_id: str) -> str:
     return f"{RULE_PREFIX}:{gitleaks_rule_id}"
 
 
-def run_gitleaks(scan_dir: str | Path, *, timeout: int = 120) -> list[dict]:
+def run_gitleaks(scan_dir: str | Path, *, timeout: int = 120) -> list[dict[str, str | int | list[int] | None]]:
     """Run gitleaks detect on *scan_dir* (no git required) and return violation dicts."""
     scan_dir = Path(scan_dir)
     with tempfile.NamedTemporaryFile(suffix=".json", delete=False, mode="w") as tmp:
@@ -74,7 +75,7 @@ def run_gitleaks(scan_dir: str | Path, *, timeout: int = 120) -> list[dict]:
         raw = Path(report_path).read_text()
         if not raw.strip():
             return []
-        findings = json.loads(raw)
+        findings = cast(list[dict[str, Any]], json.loads(raw))
     except (json.JSONDecodeError, OSError) as exc:
         sys.stderr.write(f"gitleaks report parse error: {exc}\n")
         sys.stderr.flush()
@@ -86,18 +87,18 @@ def run_gitleaks(scan_dir: str | Path, *, timeout: int = 120) -> list[dict]:
     return _convert_findings(findings, scan_dir)
 
 
-def _convert_findings(findings: list[dict], scan_dir: Path) -> list[dict]:
+def _convert_findings(findings: list[dict[str, Any]], scan_dir: Path) -> list[dict[str, str | int | list[int] | None]]:
     """Convert gitleaks JSON findings to APME violation dicts, filtering false positives."""
-    violations: list[dict] = []
+    violations: list[dict[str, str | int | list[int] | None]] = []
     for f in findings:
-        file_path = f.get("File", "")
+        file_path = str(f.get("File", ""))
+        match_text = str(f.get("Match", ""))
 
         try:
             rel = str(Path(file_path).relative_to(scan_dir))
         except ValueError:
             rel = file_path
 
-        match_text = f.get("Match", "")
         if _value_is_jinja(match_text):
             continue
 
@@ -108,15 +109,18 @@ def _convert_findings(findings: list[dict], scan_dir: Path) -> list[dict]:
         except OSError:
             pass
 
-        line = f.get("StartLine", 0)
-        end_line = f.get("EndLine", line)
-        gitleaks_rule = f.get("RuleID", "unknown")
+        line_val = f.get("StartLine", 0)
+        end_val = f.get("EndLine", line_val)
+        line = int(line_val) if line_val is not None else 0
+        end_line = int(end_val) if end_val is not None else line
+        gitleaks_rule = str(f.get("RuleID", "unknown"))
+        desc = str(f.get("Description", f"Secret detected: {gitleaks_rule}"))
 
         violations.append(
             {
                 "rule_id": _build_rule_id(gitleaks_rule),
                 "level": "error",
-                "message": f.get("Description", f"Secret detected: {gitleaks_rule}"),
+                "message": desc,
                 "file": rel,
                 "line": line if line == end_line else [line, end_line],
                 "path": "",

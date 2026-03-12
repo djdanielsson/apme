@@ -1,12 +1,12 @@
 from apme_engine.engine.annotators.module_annotator_base import ModuleAnnotator, ModuleAnnotatorResult
-from apme_engine.engine.models import Annotation, DefaultRiskType, KeyConfigChangeDetail, RiskAnnotation, TaskCall
+from apme_engine.engine.models import DefaultRiskType, KeyConfigChangeDetail, RiskAnnotation, TaskCall
 
 
 class RpmKeyAnnotator(ModuleAnnotator):
     fqcn: str = "ansible.builtin.rpm_key"
     enabled: bool = True
 
-    def run(self, task: TaskCall) -> list[Annotation]:
+    def run(self, task: TaskCall) -> ModuleAnnotatorResult:
         key = task.args.get("key")
         state = task.args.get("state")
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from typing import Any
 
 from apme_engine.engine.yaml_utils import FormattedYAML
 from apme_engine.remediation.registry import TransformResult
@@ -21,7 +22,7 @@ _LOOP_KEYS = (
 )
 
 
-def fix_bare_vars(content: str, violation: dict) -> TransformResult:
+def fix_bare_vars(content: str, violation: dict[str, Any]) -> TransformResult:
     """Wrap bare variable references in Jinja delimiters: ``foo`` -> ``{{ foo }}``."""
     yaml = FormattedYAML(typ="rt", pure=True, version=(1, 1))
 

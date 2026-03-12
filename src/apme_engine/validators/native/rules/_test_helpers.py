@@ -1,28 +1,31 @@
 # Test helpers for colocated native rule tests. Build minimal Python context/task objects.
 
+from typing import Any, cast
+
 from apme_engine.engine.models import (
     AnsibleRunContext,
     ExecutableType,
     Role,
     RoleCall,
+    RunTarget,
     Task,
     TaskCall,
 )
 
 
 def make_task_spec(
-    name=None,
-    module="",
-    executable="",
-    executable_type=ExecutableType.MODULE_TYPE,
-    resolved_name="",
-    options=None,
-    module_options=None,
-    defined_in="tasks/main.yml",
-    line_num_in_file=None,
-    key=None,
-    possible_candidates=None,
-):
+    name: str | None = None,
+    module: str = "",
+    executable: str = "",
+    executable_type: str = ExecutableType.MODULE_TYPE,
+    resolved_name: str = "",
+    options: dict[str, Any] | None = None,
+    module_options: dict[str, Any] | None = None,
+    defined_in: str = "tasks/main.yml",
+    line_num_in_file: list[int] | None = None,
+    key: str | None = None,
+    possible_candidates: list[Any] | None = None,
+) -> Task:
     """Build a minimal Task spec for rule tests."""
     # Key must be "type rest" (space-separated) for set_call_object_key.
     if key is None:
@@ -44,12 +47,17 @@ def make_task_spec(
     return spec
 
 
-def make_task_call(spec):
+def make_task_call(spec: Task) -> TaskCall:
     """Build a TaskCall from a Task spec."""
-    return TaskCall.from_spec(spec, None, 0)
+    return cast(TaskCall, TaskCall.from_spec(spec, None, 0))
 
 
-def make_role_spec(name="", defined_in="roles/foo/meta/main.yml", key=None, metadata=None):
+def make_role_spec(
+    name: str = "",
+    defined_in: str = "roles/foo/meta/main.yml",
+    key: str | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> Role:
     """Build a minimal Role spec for rule tests."""
     # Key must be "type rest" (space-separated) for set_call_object_key.
     if key is None:
@@ -62,12 +70,15 @@ def make_role_spec(name="", defined_in="roles/foo/meta/main.yml", key=None, meta
     )
 
 
-def make_role_call(spec):
+def make_role_call(spec: Role) -> RoleCall:
     """Build a RoleCall from a Role spec."""
-    return RoleCall.from_spec(spec, None, 0)
+    return cast(RoleCall, RoleCall.from_spec(spec, None, 0))
 
 
-def make_context(current, sequence=None):
+def make_context(
+    current: RunTarget | None,
+    sequence: list[RunTarget] | None = None,
+) -> AnsibleRunContext:
     """Build an AnsibleRunContext with current set (task or role). Optionally set sequence for is_begin/is_end."""
     ctx = AnsibleRunContext(root_key="playbook.yml")
     ctx.current = current

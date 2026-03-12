@@ -23,14 +23,18 @@ class FilePermissionRule(Rule):
     enabled: bool = False
     name: str = "FilePermissionRule"
     version: str = "v0.0.1"
-    severity: Severity = Severity.MEDIUM
-    tags: tuple = Tag.SYSTEM
+    severity: str = Severity.MEDIUM
+    tags: tuple[str, ...] = (Tag.SYSTEM,)
 
     def match(self, ctx: AnsibleRunContext) -> bool:
-        return ctx.current.type == RunTargetType.Task
+        if ctx.current is None:
+            return False
+        return bool(ctx.current.type == RunTargetType.Task)
 
-    def process(self, ctx: AnsibleRunContext):
+    def process(self, ctx: AnsibleRunContext) -> RuleResult | None:
         task = ctx.current
+        if task is None:
+            return None
 
         # define a condition for this rule here
         ac = AnnotationCondition().risk_type(RiskType.FILE_CHANGE).attr("is_insecure_permissions", True)

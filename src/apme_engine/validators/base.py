@@ -21,7 +21,7 @@ class EngineDiagnostics:
 class ScanContext:
     """What validators receive. Extensible so different backends get what they need."""
 
-    hierarchy_payload: dict
+    hierarchy_payload: dict[str, Any]
     scandata: Any = None
     root_dir: str = ""
     engine_diagnostics: EngineDiagnostics = field(default_factory=EngineDiagnostics)

@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+import builtins
 import contextlib
 import json
 import os
@@ -5,6 +8,7 @@ from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any, cast
 
 import jsonpickle
 from rapidfuzz.distance import Levenshtein
@@ -48,22 +52,23 @@ class FatalRuleResultError(Exception):
 
 
 class JSONSerializable:
-    def dump(self):
+    def dump(self) -> str:
         return self.to_json()
 
-    def to_json(self):
-        return jsonpickle.encode(self, make_refs=False)
+    def to_json(self) -> str:
+        return str(jsonpickle.encode(self, make_refs=False))
 
     @classmethod
-    def from_json(cls, json_str):
+    def from_json(cls: type[JSONSerializable], json_str: str) -> JSONSerializable:
         instance = cls()
-        loaded = jsonpickle.decode(json_str)
-        instance.__dict__.update(loaded.__dict__)
+        loaded: Any = jsonpickle.decode(json_str)
+        if hasattr(loaded, "__dict__"):
+            instance.__dict__.update(loaded.__dict__)
         return instance
 
 
 class Resolvable:
-    def resolve(self, resolver):
+    def resolve(self, resolver: Any) -> None:
         if not hasattr(resolver, "apply"):
             raise ValueError("this resolver does not have apply() method")
         if not callable(resolver.apply):
@@ -87,7 +92,7 @@ class Resolvable:
         return
 
     @property
-    def resolver_targets(self):
+    def resolver_targets(self) -> list[Any] | None:
         raise NotImplementedError
 
 
@@ -112,15 +117,15 @@ class Load(JSONSerializable):
     taskfile_only: bool = False
     base_dir: str = ""
     include_test_contents: bool = False
-    yaml_label_list: list = field(default_factory=list)
+    yaml_label_list: list[str] = field(default_factory=list)
     timestamp: str = ""
 
     # the following variables are list of paths; not object
-    roles: list = field(default_factory=list)
-    playbooks: list = field(default_factory=list)
-    taskfiles: list = field(default_factory=list)
-    modules: list = field(default_factory=list)
-    files: list = field(default_factory=list)
+    roles: list[str] = field(default_factory=list)
+    playbooks: list[str] = field(default_factory=list)
+    taskfiles: list[str] = field(default_factory=list)
+    modules: list[str] = field(default_factory=list)
+    files: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -131,74 +136,73 @@ class Object(JSONSerializable):
 
 @dataclass
 class ObjectList(JSONSerializable):
-    items: list = field(default_factory=list)
-    _dict: dict = field(default_factory=dict)
+    items: list[Object | CallObject] = field(default_factory=list)
+    _dict: dict[str, Object | CallObject] = field(default_factory=dict)
 
-    def dump(self, fpath=""):
+    def dump(self, fpath: str = "") -> str:
         return self.to_json(fpath=fpath)
 
-    def to_json(self, fpath=""):
-        lines = [jsonpickle.encode(obj, make_refs=False) for obj in self.items]
+    def to_json(self, fpath: str = "") -> str:
+        lines: list[str] = [jsonpickle.encode(obj, make_refs=False) for obj in self.items]
         json_str = "\n".join(lines)
         if fpath != "":
             Path(fpath).write_text(json_str)
         return json_str
 
-    def to_one_line_json(self):
-        return jsonpickle.encode(self.items, make_refs=False)
+    def to_one_line_json(self) -> str:
+        return str(jsonpickle.encode(self.items, make_refs=False))
 
     @classmethod
-    def from_json(cls, json_str="", fpath=""):
+    def from_json(cls: type[ObjectList], json_str: str = "", fpath: str = "") -> ObjectList:
         instance = cls()
         if fpath != "":
             json_str = Path(fpath).read_text()
-        lines = json_str.splitlines()
-        items = [jsonpickle.decode(obj_str) for obj_str in lines]
-        instance.items = items
+        lines: list[str] = json_str.splitlines()
+        items: list[Any] = [jsonpickle.decode(obj_str) for obj_str in lines]
+        instance.items = [cast(Object, obj) for obj in items]
         instance._update_dict()
         return instance
 
-    def add(self, obj, update_dict=True):
+    def add(self, obj: Object | CallObject, update_dict: bool = True) -> None:
         self.items.append(obj)
         if update_dict:
             self._add_dict_item(obj)
         return
 
-    def merge(self, obj_list):
+    def merge(self, obj_list: ObjectList) -> None:
         if not isinstance(obj_list, ObjectList):
             raise ValueError(f"obj_list must be an instance of ObjectList, but got {type(obj_list).__name__}")
         self.items.extend(obj_list.items)
         self._update_dict()
         return
 
-    def find_by_attr(self, key, val):
+    def find_by_attr(self, key: str, val: Any) -> list[Object | CallObject]:
         found = [obj for obj in self.items if obj.__dict__.get(key, None) == val]
         return found
 
-    def find_by_type(self, type):
-        return [obj for obj in self.items if hasattr(obj, "type") and obj.type == type]
+    def find_by_type(self, type_name: str) -> list[Object | CallObject]:
+        return [obj for obj in self.items if hasattr(obj, "type") and obj.type == type_name]
 
-    def find_by_key(self, key):
+    def find_by_key(self, key: str) -> Object | CallObject | None:
         return self._dict.get(key, None)
 
-    def contains(self, key="", obj=None):
+    def contains(self, key: str = "", obj: Object | None = None) -> bool:
         if obj is not None:
             key = obj.key
         return self.find_by_key(key) is not None
 
-    def update_dict(self):
+    def update_dict(self) -> None:
         self._update_dict()
 
-    def _update_dict(self):
+    def _update_dict(self) -> None:
         for obj in self.items:
             self._dict[obj.key] = obj
-        return
 
-    def _add_dict_item(self, obj):
+    def _add_dict_item(self, obj: Object | CallObject) -> None:
         self._dict[obj.key] = obj
 
     @property
-    def resolver_targets(self):
+    def resolver_targets(self) -> list[Object | CallObject]:
         return self.items
 
 
@@ -212,7 +216,7 @@ class CallObject(JSONSerializable):
     node_id: str = ""
 
     @classmethod
-    def from_spec(cls, spec, caller, index):
+    def from_spec(cls: builtins.type[CallObject], spec: Object, caller: CallObject | None, index: int) -> CallObject:
         instance = cls()
         instance.spec = spec
         caller_key = "None"
@@ -243,11 +247,20 @@ class RunTargetType:
 @dataclass
 class RunTarget:
     type: str = ""
+    spec: Object = field(default_factory=Object)  # from CallObject in subclasses
+    key: str = ""
+    annotations: list[Annotation] = field(default_factory=list)
 
-    def file_info(self):
-        file = self.spec.defined_in
-        lines = None
+    def file_info(self) -> tuple[str, str | None]:
+        file = getattr(self.spec, "defined_in", "") if self.spec else ""
+        lines: str | None = None
         return file, lines
+
+    def has_annotation_by_condition(self, cond: AnnotationCondition) -> bool:
+        return False
+
+    def get_annotation_by_condition(self, cond: AnnotationCondition) -> Annotation | RiskAnnotation | None:
+        return None
 
 
 @dataclass
@@ -256,13 +269,13 @@ class RunTargetList:
 
     _i: int = 0
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.items)
 
-    def __iter__(self):
+    def __iter__(self) -> RunTargetList:
         return self
 
-    def __next__(self):
+    def __next__(self) -> RunTarget:
         if self._i == len(self.items):
             self._i = 0
             raise StopIteration()
@@ -270,7 +283,7 @@ class RunTargetList:
         self._i += 1
         return item
 
-    def __getitem__(self, i):
+    def __getitem__(self, i: int) -> RunTarget:
         return self.items[i]
 
 
@@ -284,37 +297,37 @@ class File:
     collection: str = ""
 
     body: str = ""
-    data: any = None
+    data: Any = None
     encrypted: bool = False
     error: str = ""
     label: str = ""
     defined_in: str = ""
 
-    annotations: dict = field(default_factory=dict)
+    annotations: dict[str, Any] = field(default_factory=dict)
 
-    def set_key(self):
+    def set_key(self) -> None:
         set_file_key(self)
 
-    def children_to_key(self):
+    def children_to_key(self) -> File:
         return self
 
     @property
-    def resolver_targets(self):
+    def resolver_targets(self) -> None:
         return None
 
 
 @dataclass
 class ModuleArgument:
     name: str = ""
-    type: str = None
-    elements: str = None
-    default: any = None
+    type: str | None = None
+    elements: str | None = None
+    default: Any = None
     required: bool = False
     description: str = ""
-    choices: list = field(default_factory=list)
-    aliases: list = field(default_factory=list)
+    choices: list[Any] = field(default_factory=list)
+    aliases: list[str] = field(default_factory=list)
 
-    def available_keys(self):
+    def available_keys(self) -> list[str]:
         keys = [self.name]
         if self.aliases:
             keys.extend(self.aliases)
@@ -332,21 +345,21 @@ class Module(Object, Resolvable):
     role: str = ""
     documentation: str = ""
     examples: str = ""
-    arguments: list = field(default_factory=list)
+    arguments: list[Any] = field(default_factory=list)
     defined_in: str = ""
     builtin: bool = False
-    used_in: list = field(default_factory=list)  # resolved later
+    used_in: list[Any] = field(default_factory=list)  # resolved later
 
-    annotations: dict = field(default_factory=dict)
+    annotations: dict[str, Any] = field(default_factory=dict)
 
-    def set_key(self):
+    def set_key(self) -> None:
         set_module_key(self)
 
-    def children_to_key(self):
+    def children_to_key(self) -> Module:
         return self
 
     @property
-    def resolver_targets(self):
+    def resolver_targets(self) -> None:
         return None
 
 
@@ -362,25 +375,25 @@ class Collection(Object, Resolvable):
     path: str = ""
     key: str = ""
     local_key: str = ""
-    metadata: dict = field(default_factory=dict)
-    meta_runtime: dict = field(default_factory=dict)
-    files: dict = field(default_factory=dict)
-    playbooks: list = field(default_factory=list)
-    taskfiles: list = field(default_factory=list)
-    roles: list = field(default_factory=list)
-    modules: list = field(default_factory=list)
-    dependency: dict = field(default_factory=dict)
-    requirements: dict = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
+    meta_runtime: dict[str, Any] = field(default_factory=dict)
+    files: dict[str, Any] = field(default_factory=dict)
+    playbooks: list[Any] = field(default_factory=list)
+    taskfiles: list[Any] = field(default_factory=list)
+    roles: list[Any] = field(default_factory=list)
+    modules: list[Any] = field(default_factory=list)
+    dependency: dict[str, Any] = field(default_factory=dict)
+    requirements: dict[str, Any] = field(default_factory=dict)
 
-    annotations: dict = field(default_factory=dict)
+    annotations: dict[str, Any] = field(default_factory=dict)
 
-    variables: dict = field(default_factory=dict)
-    options: dict = field(default_factory=dict)
+    variables: dict[str, Any] = field(default_factory=dict)
+    options: dict[str, Any] = field(default_factory=dict)
 
-    def set_key(self):
+    def set_key(self) -> None:
         set_collection_key(self)
 
-    def children_to_key(self):
+    def children_to_key(self) -> Collection:
         module_keys = [m.key if isinstance(m, Module) else m for m in self.modules]
         self.modules = sorted(module_keys)
 
@@ -395,7 +408,7 @@ class Collection(Object, Resolvable):
         return self
 
     @property
-    def resolver_targets(self):
+    def resolver_targets(self) -> list[Any]:
         return self.playbooks + self.taskfiles + self.roles + self.modules
 
 
@@ -407,7 +420,7 @@ class CollectionCall(CallObject, Resolvable):
 @dataclass
 class TaskCallsInTree(JSONSerializable):
     root_key: str = ""
-    taskcalls: list = field(default_factory=list)
+    taskcalls: list[Any] = field(default_factory=list)
 
 
 @dataclass
@@ -415,28 +428,34 @@ class VariablePrecedence:
     name: str = ""
     order: int = -1
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.name
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return self.name
 
     def __eq__(self, __o: object) -> bool:
+        if not isinstance(__o, VariablePrecedence):
+            return NotImplemented
         return self.order == __o.order
 
     def __ne__(self, __o: object) -> bool:
         return not self.__eq__(__o)
 
-    def __lt__(self, __o: object):
+    def __lt__(self, __o: object) -> bool:
+        if not isinstance(__o, VariablePrecedence):
+            return NotImplemented
         return self.order < __o.order
 
-    def __le__(self, __o: object):
+    def __le__(self, __o: object) -> bool:
+        if not isinstance(__o, VariablePrecedence):
+            return NotImplemented
         return self.__lt__(__o) or self.__eq__(__o)
 
-    def __gt__(self, __o: object):
+    def __gt__(self, __o: object) -> bool:
         return not self.__le__(__o)
 
-    def __ge__(self, __o: object):
+    def __ge__(self, __o: object) -> bool:
         return not self.__lt__(__o)
 
 
@@ -483,30 +502,30 @@ immutable_var_types = [VariableType.LoopVars]
 @dataclass
 class Variable:
     name: str = ""
-    value: any = None
-    type: VariableType = None
-    elements: list = field(default_factory=list)
-    setter: any = None
-    used_in: any = None
+    value: Any = None
+    type: VariablePrecedence | None = None
+    elements: list[Any] = field(default_factory=list)
+    setter: Any = None
+    used_in: Any = None
 
     @property
-    def is_mutable(self):
-        return self.type not in immutable_var_types
+    def is_mutable(self) -> bool:
+        return self.type not in immutable_var_types if self.type else True
 
 
 @dataclass
 class VariableDict:
-    _dict: dict = field(default_factory=dict)
+    _dict: dict[str, list[Variable]] = field(default_factory=dict)
 
     @staticmethod
-    def print_table(data: dict):
+    def print_table(data: dict[str, list[Variable]]) -> str:
         d = VariableDict(_dict=data)
         table = []
         type_labels = []
         found_type_label_names = []
         for v_list in d._dict.values():
             for v in v_list:
-                if v.type.name in found_type_label_names:
+                if not v.type or v.type.name in found_type_label_names:
                     continue
                 type_labels.append(v.type)
                 found_type_label_names.append(v.type.name)
@@ -526,7 +545,7 @@ class VariableDict:
                 type_label = t.name.upper()
                 row[type_label] = value
             table.append(row)
-        return tabulate(table, headers="keys")
+        return str(tabulate(table, headers="keys"))
 
 
 class ArgumentsType:
@@ -537,31 +556,32 @@ class ArgumentsType:
 
 @dataclass
 class Arguments:
-    type: ArgumentsType = ""
-    raw: any = None
+    type: str = ArgumentsType.SIMPLE
+    raw: Any = None
     vars: list[Variable] = field(default_factory=list)
     resolved: bool = False
-    templated: any = None
+    templated: Any = None
     is_mutable: bool = False
 
-    def get(self, key: str = ""):
-        sub_raw = None
-        sub_templated = None
+    def get(self, key: str = "") -> Arguments | None:
+        sub_raw: Any = None
+        sub_templated: Any = None
         if key == "":
             sub_raw = self.raw
             sub_templated = self.templated
         else:
             if isinstance(self.raw, dict):
                 sub_raw = self.raw.get(key, None)
-                if self.templated:
-                    sub_templated = self.templated[0].get(key, None)
+                if self.templated and isinstance(self.templated, (list, tuple)):
+                    first: Any = self.templated[0]
+                    sub_templated = first.get(key, None) if isinstance(first, dict) else self.templated
             else:
                 sub_raw = self.raw
                 sub_templated = self.templated
         if not sub_raw:
             return None
 
-        _vars = []
+        _vars: list[Variable] = []
         sub_type = ArgumentsType.SIMPLE
         if isinstance(sub_raw, str):
             for v in self.vars:
@@ -599,31 +619,31 @@ class Location:
     value: str = ""
     vars: list[Variable] = field(default_factory=list)
 
-    _args: Arguments = None
+    _args: Arguments | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self._args:
-            self.value = self._args.raw
+            self.value = str(self._args.raw) if self._args.raw is not None else ""
             self.vars = self._args.vars
 
     @property
-    def is_mutable(self):
+    def is_mutable(self) -> bool:
         return len(self.vars) > 0
 
     @property
-    def is_empty(self):
+    def is_empty(self) -> bool:
         return not self.type and not self.value
 
-    def is_inside(self, loc):
+    def is_inside(self, loc: Location) -> bool:
         if not isinstance(loc, Location):
             raise ValueError(f"is_inside() expect Location but given {type(loc)}")
         return loc.contains(self)
 
-    def contains(self, target, any=False, all=True):
+    def contains(self, target: Location | list[Location], any_mode: bool = False, all_mode: bool = True) -> bool:
         if isinstance(target, list):
-            if any:
+            if any_mode:
                 return self.contains_any(target_list=target)
-            elif all:
+            elif all_mode:
                 return self.contains_all(target_list=target)
             else:
                 raise ValueError('contains() must be run in either "any" or "all" mode')
@@ -636,10 +656,10 @@ class Location:
         target_path = target.value
         return bool(target_path.startswith(my_path))
 
-    def contains_any(self, target_list):
+    def contains_any(self, target_list: list[Location]) -> bool:
         return any(self.contains(target) for target in target_list)
 
-    def contains_all(self, target_list):
+    def contains_all(self, target_list: list[Location]) -> bool:
         count = 0
         for target in target_list:
             if self.contains(target):
@@ -653,15 +673,15 @@ class AnnotationDetail:
 
 @dataclass
 class NetworkTransferDetail(AnnotationDetail):
-    src: Location = None
-    dest: Location = None
+    src: Location | None = None
+    dest: Location | None = None
     is_mutable_src: bool = False
     is_mutable_dest: bool = False
 
-    _src_arg: Arguments = None
-    _dest_arg: Arguments = None
+    _src_arg: Arguments | None = None
+    _dest_arg: Arguments | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self._src_arg:
             self.src = Location(_args=self._src_arg)
             if self._src_arg.is_mutable:
@@ -675,30 +695,30 @@ class NetworkTransferDetail(AnnotationDetail):
 
 @dataclass
 class InboundTransferDetail(NetworkTransferDetail):
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         super().__post_init__()
 
 
 @dataclass
 class OutboundTransferDetail(NetworkTransferDetail):
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         super().__post_init__()
 
 
 @dataclass
 class PackageInstallDetail(AnnotationDetail):
-    pkg: any = ""
-    version: any = ""
+    pkg: Any = ""
+    version: Any = ""
     is_mutable_pkg: bool = False
     disable_validate_certs: bool = False
     allow_downgrade: bool = False
 
-    _pkg_arg: Arguments = None
-    _version_arg: Arguments = None
-    _allow_downgrade_arg: Arguments = None
-    _validate_certs_arg: Arguments = None
+    _pkg_arg: Arguments | None = None
+    _version_arg: Arguments | None = None
+    _allow_downgrade_arg: Arguments | None = None
+    _validate_certs_arg: Arguments | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self._pkg_arg:
             self.pkg = self._pkg_arg.raw
             if self._pkg_arg.is_mutable:
@@ -715,12 +735,12 @@ class PackageInstallDetail(AnnotationDetail):
 class KeyConfigChangeDetail(AnnotationDetail):
     is_deletion: bool = False
     is_mutable_key: bool = False
-    key: str = ""
+    key: Any = ""
 
-    _key_arg: Arguments = None
-    _state_arg: Arguments = None
+    _key_arg: Arguments | None = None
+    _state_arg: Arguments | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self._key_arg:
             self.key = self._key_arg.vars
             if self._key_arg and self._key_arg.is_mutable:
@@ -731,21 +751,21 @@ class KeyConfigChangeDetail(AnnotationDetail):
 
 @dataclass
 class FileChangeDetail(AnnotationDetail):
-    path: Location = None
-    src: Location = None
+    path: Location | None = None
+    src: Location | None = None
     is_mutable_path: bool = False
     is_mutable_src: bool = False
     is_unsafe_write: bool = False
     is_deletion: bool = False
     is_insecure_permissions: bool = False
 
-    _path_arg: Arguments = None
-    _src_arg: Arguments = None
-    _mode_arg: Arguments = None
-    _state_arg: Arguments = None
-    _unsafe_write_arg: Arguments = None
+    _path_arg: Arguments | None = None
+    _src_arg: Arguments | None = None
+    _mode_arg: Arguments | None = None
+    _state_arg: Arguments | None = None
+    _unsafe_write_arg: Arguments | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self._mode_arg and self._mode_arg.raw in ["1777", "0777"]:
             self.is_insecure_permissions = True
         if self._state_arg and self._state_arg.raw == "absent":
@@ -762,27 +782,29 @@ class FileChangeDetail(AnnotationDetail):
             self.is_unsafe_write = True
 
 
-execution_programs: list = ["sh", "bash", "zsh", "fish", "ash", "python*", "java*", "node*"]
-non_execution_programs: list = ["tar", "gunzip", "unzip", "mv", "cp"]
+execution_programs: list[str] = ["sh", "bash", "zsh", "fish", "ash", "python*", "java*", "node*"]
+non_execution_programs: list[str] = ["tar", "gunzip", "unzip", "mv", "cp"]
 
 
 @dataclass
 class CommandExecDetail(AnnotationDetail):
-    command: Arguments = None
+    command: Arguments | None = None
     exec_files: list[Location] = field(default_factory=list)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         self.exec_files = self.extract_exec_files()
 
-    def extract_exec_files(self):
-        cmd_str = ""
+    def extract_exec_files(self) -> list[Location]:
+        cmd_str: str | list[str] | dict[str, Any] = ""
         if self.command:
-            cmd_str = self.command.raw
+            cmd_str = self.command.raw or ""
         if isinstance(cmd_str, list):
-            cmd_str = " ".join(cmd_str)
-        if isinstance(cmd_str, dict):
-            cmd_str = cmd_str.get("cmd", "")
-        lines = cmd_str.splitlines()
+            cmd_str = " ".join(str(x) for x in cmd_str)
+        elif isinstance(cmd_str, dict):
+            cmd_str = str(cmd_str.get("cmd", ""))
+        elif not isinstance(cmd_str, str):
+            cmd_str = str(cmd_str) if cmd_str else ""
+        lines: list[str] = cmd_str.splitlines()
         exec_files = []
         for line in lines:
             parts = []
@@ -817,7 +839,7 @@ class CommandExecDetail(AnnotationDetail):
                 if found_program is None:
                     found_program = p
                     break
-            if found_program:
+            if found_program and self.command:
                 exec_file_name = found_program
                 related_vars = [v for v in self.command.vars if v.name in exec_file_name]
                 location_type = LocationType.FILE
@@ -830,7 +852,7 @@ class CommandExecDetail(AnnotationDetail):
         return exec_files
 
 
-def _convert_to_bool(a: any):
+def _convert_to_bool(a: Any) -> bool | None:
     if type(a) is bool:
         return bool(a)
     if type(a) is str:
@@ -841,7 +863,7 @@ def _convert_to_bool(a: any):
 @dataclass
 class Annotation(JSONSerializable):
     key: str = ""
-    value: any = None
+    value: Any = None
 
     rule_id: str = ""
 
@@ -852,7 +874,7 @@ class Annotation(JSONSerializable):
 @dataclass
 class VariableAnnotation(Annotation):
     type: str = "variable_annotation"
-    option_value: Arguments = field(default_factory=Arguments)
+    option_value: Arguments = field(default_factory=lambda: Arguments())
 
 
 class RiskType:
@@ -875,14 +897,18 @@ class DefaultRiskType(RiskType):
 @dataclass
 class RiskAnnotation(Annotation, NetworkTransferDetail, CommandExecDetail):
     type: str = "risk_annotation"
-    risk_type: RiskType = ""
+    risk_type: str | RiskType = ""
 
     @classmethod
-    def init(cls, risk_type: RiskType, detail: AnnotationDetail):
+    def init(
+        cls: builtins.type[RiskAnnotation],
+        risk_type: str | RiskType,
+        detail: AnnotationDetail,
+    ) -> RiskAnnotation:
         anno = cls()
         anno.risk_type = risk_type
         # Walk MRO to collect annotations from all parent classes of the detail
-        all_attrs: dict = {}
+        all_attrs: dict[str, Any] = {}
         for klass in reversed(type(detail).__mro__):
             all_attrs.update(getattr(klass, "__annotations__", {}))
         for attr_name in all_attrs:
@@ -892,44 +918,44 @@ class RiskAnnotation(Annotation, NetworkTransferDetail, CommandExecDetail):
             setattr(anno, attr_name, val)
         return anno
 
-    def equal_to(self, anno):
+    def equal_to(self, anno: RiskAnnotation) -> bool:
         if self.type != anno.type:
             return False
         if self.risk_type != anno.risk_type:
             return False
         self_dict = self.__dict__
         anno_dict = anno.__dict__
-        return equal(self_dict, anno_dict)
+        return bool(equal(self_dict, anno_dict))
 
 
 @dataclass
 class FindCondition:
-    def check(self, anno: RiskAnnotation):
+    def check(self, anno: RiskAnnotation) -> bool:
         raise NotImplementedError
 
 
 @dataclass
 class AnnotationCondition:
-    type: RiskType = ""
-    attr_conditions: list = field(default_factory=list)
+    type: str | RiskType = ""
+    attr_conditions: list[tuple[str, Any]] = field(default_factory=list)
 
-    def risk_type(self, risk_type: RiskType):
+    def risk_type(self, risk_type: str | RiskType) -> AnnotationCondition:
         self.type = risk_type
         return self
 
-    def attr(self, key: str, val: any):
+    def attr(self, key: str, val: Any) -> AnnotationCondition:
         self.attr_conditions.append((key, val))
         return self
 
 
 @dataclass
 class AttributeCondition(FindCondition):
-    attr: str = None
-    result: any = None
+    attr: str | None = None
+    result: Any = None
 
-    def check(self, anno: RiskAnnotation):
-        if self.attr and hasattr(anno.detail, self.attr):
-            anno_value = getattr(anno.detail, self.attr)
+    def check(self, anno: RiskAnnotation) -> bool:
+        if self.attr and hasattr(anno, self.attr):
+            anno_value = getattr(anno, self.attr, None)
             if anno_value == self.result:
                 return True
             if self.result is None and isinstance(anno_value, bool) and anno_value:
@@ -939,13 +965,14 @@ class AttributeCondition(FindCondition):
 
 @dataclass
 class FunctionCondition(FindCondition):
-    func: Callable = None
-    args: list[any] = None
-    result: any = None
+    func: Callable[..., Any] | None = None
+    args: dict[str, Any] | list[Any] | None = None
+    result: Any = None
 
-    def check(self, anno: RiskAnnotation):
-        if self.func and callable(self.func):
-            result = self.func(anno, **self.args)
+    def check(self, anno: RiskAnnotation) -> bool:
+        if self.func is not None and callable(self.func):
+            kwargs: dict[str, Any] = self.args if isinstance(self.args, dict) else {}
+            result = self.func(anno, **kwargs)
             if result == self.result:
                 return True
         return False
@@ -957,10 +984,10 @@ class RiskAnnotationList:
 
     _i: int = 0
 
-    def __iter__(self):
+    def __iter__(self) -> RiskAnnotationList:
         return self
 
-    def __next__(self):
+    def __next__(self) -> RiskAnnotation:
         if self._i == len(self.items):
             self._i = 0
             raise StopIteration()
@@ -968,20 +995,24 @@ class RiskAnnotationList:
         self._i += 1
         return anno
 
-    def after(self, anno: RiskAnnotation):
+    def after(self, anno: RiskAnnotation) -> RiskAnnotationList:
         return get_annotations_after(self, anno)
 
-    def filter(self, risk_type: RiskType = ""):
+    def filter(self, risk_type: str | RiskType = "") -> RiskAnnotationList:
         current = self
         if risk_type:
             current = filter_annotations_by_type(current, risk_type)
         return current
 
-    def find(self, risk_type: RiskType = "", condition: FindCondition | list[FindCondition] = None):
+    def find(
+        self,
+        risk_type: str | RiskType = "",
+        condition: FindCondition | list[FindCondition] | None = None,
+    ) -> RiskAnnotationList:
         return search_risk_annotations(self, risk_type, condition)
 
 
-def get_annotations_after(anno_list: RiskAnnotationList, anno: RiskAnnotation):
+def get_annotations_after(anno_list: RiskAnnotationList, anno: RiskAnnotation) -> RiskAnnotationList:
     sub_list = []
     found = False
     for anno_i in anno_list:
@@ -994,17 +1025,19 @@ def get_annotations_after(anno_list: RiskAnnotationList, anno: RiskAnnotation):
     return RiskAnnotationList(sub_list)
 
 
-def filter_annotations_by_type(anno_list: RiskAnnotationList, risk_type: RiskType):
-    sub_list = []
+def filter_annotations_by_type(anno_list: RiskAnnotationList, risk_type: str | RiskType) -> RiskAnnotationList:
+    sub_list: list[RiskAnnotation] = []
     for anno_i in anno_list:
         if anno_i.risk_type == risk_type:
             sub_list.append(anno_i)
-    return sub_list
+    return RiskAnnotationList(sub_list)
 
 
 def search_risk_annotations(
-    anno_list: RiskAnnotationList, risk_type: RiskType = "", condition: FindCondition | list[FindCondition] = None
-):
+    anno_list: RiskAnnotationList,
+    risk_type: str | RiskType = "",
+    condition: FindCondition | list[FindCondition] | None = None,
+) -> RiskAnnotationList:
     matched = []
     for risk_anno in anno_list:
         if not isinstance(risk_anno, RiskAnnotation):
@@ -1036,7 +1069,7 @@ class BecomeInfo:
     flags: str = ""
 
     @staticmethod
-    def from_options(options: dict):
+    def from_options(options: dict[str, Any]) -> BecomeInfo | None:
         if "become" in options:
             become = options.get("become", "")
             enabled = False
@@ -1052,7 +1085,7 @@ class BecomeInfo:
 @dataclass
 class Task(Object, Resolvable):
     type: str = "task"
-    name: str = ""
+    name: str | None = ""
     module: str = ""
     index: int = -1
     play_index: int = -1
@@ -1061,46 +1094,46 @@ class Task(Object, Resolvable):
     local_key: str = ""
     role: str = ""
     collection: str = ""
-    become: BecomeInfo = None
-    variables: dict = field(default_factory=dict)
-    module_defaults: dict = field(default_factory=dict)
-    registered_variables: dict = field(default_factory=dict)
-    set_facts: dict = field(default_factory=dict)
-    loop: dict = field(default_factory=dict)
-    options: dict = field(default_factory=dict)
-    module_options: dict = field(default_factory=dict)
+    become: BecomeInfo | None = None
+    variables: dict[str, Any] = field(default_factory=dict)
+    module_defaults: dict[str, Any] = field(default_factory=dict)
+    registered_variables: dict[str, Any] = field(default_factory=dict)
+    set_facts: dict[str, Any] = field(default_factory=dict)
+    loop: dict[str, Any] = field(default_factory=dict)
+    options: dict[str, Any] = field(default_factory=dict)
+    module_options: dict[str, Any] = field(default_factory=dict)
     executable: str = ""
     executable_type: str = ""
-    collections_in_play: list = field(default_factory=list)
+    collections_in_play: list[str] = field(default_factory=list)
 
     yaml_lines: str = ""
-    line_num_in_file: list = field(default_factory=list)  # [begin, end]
+    line_num_in_file: list[int] = field(default_factory=list)  # [begin, end]
     jsonpath: str = ""
 
     # FQCN for Module and Role. Or a file path for TaskFile.  resolved later
     resolved_name: str = ""
     # candidates of resovled_name
-    possible_candidates: list = field(default_factory=list)
+    possible_candidates: list[Any] = field(default_factory=list)
 
     # embed these data when module/role/taskfile are resolved
-    module_info: dict = field(default_factory=dict)
-    include_info: dict = field(default_factory=dict)
+    module_info: dict[str, Any] = field(default_factory=dict)
+    include_info: dict[str, Any] = field(default_factory=dict)
 
     def set_yaml_lines(
         self,
-        fullpath="",
-        yaml_lines="",
-        task_name="",
-        module_name="",
-        module_options=None,
-        task_options=None,
-        previous_task_line=-1,
-        jsonpath="",
-    ):
+        fullpath: str = "",
+        yaml_lines: str = "",
+        task_name: str = "",
+        module_name: str = "",
+        module_options: Any = None,
+        task_options: Any = None,
+        previous_task_line: int = -1,
+        jsonpath: str = "",
+    ) -> None:
         if not task_name and not module_options:
             return
 
-        lines = []
+        lines: list[str] = []
         lines = yaml_lines.splitlines() if yaml_lines else Path(fullpath).read_text().splitlines()
 
         if jsonpath:
@@ -1158,7 +1191,7 @@ class Task(Object, Resolvable):
             best_line_num_in_file = candidate_blocks[0][1]
         else:
             # reconstruct yaml from the task data to calculate similarity (edit distance) later
-            reconstructed_data = [{}]
+            reconstructed_data: list[dict[str, Any]] = [{}]
             if task_name:
                 reconstructed_data[0]["name"] = task_name
             reconstructed_data[0][module_name] = module_options
@@ -1173,7 +1206,7 @@ class Task(Object, Resolvable):
             # find best match by edit distance
             if reconstructed_yaml:
 
-                def remove_comment_lines(s):
+                def remove_comment_lines(s: str) -> str:
                     lines = s.splitlines()
                     updated = []
                     for line in lines:
@@ -1182,10 +1215,10 @@ class Task(Object, Resolvable):
                         updated.append(line)
                     return "\n".join(updated)
 
-                def calc_dist(s1, s2):
+                def calc_dist(s1: str, s2: str) -> int:
                     us1 = remove_comment_lines(s1)
                     us2 = remove_comment_lines(s2)
-                    dist = Levenshtein.distance(us1, us2)
+                    dist = int(Levenshtein.distance(us1, us2))
                     return dist
 
                 r = reconstructed_yaml
@@ -1202,7 +1235,7 @@ class Task(Object, Resolvable):
         self.line_num_in_file = best_line_num_in_file
         return
 
-    def _find_task_block(self, yaml_lines: list, start_line_num: int):
+    def _find_task_block(self, yaml_lines: list[str], start_line_num: int) -> tuple[str | None, list[int] | None]:
         if not yaml_lines:
             return None, None
 
@@ -1276,15 +1309,15 @@ class Task(Object, Resolvable):
         if begin_line_num < 0 or end_line_num > len(lines) or begin_line_num > end_line_num:
             return None, None
 
-        yaml_lines = "\n".join(lines[begin_line_num : end_line_num + 1])
+        result_yaml = "\n".join(lines[begin_line_num : end_line_num + 1])
         line_num_in_file = [begin_line_num + 1, end_line_num + 1]
-        return yaml_lines, line_num_in_file
+        return result_yaml, line_num_in_file
 
     # this keeps original contents like comments, indentation
     # and quotes for string as much as possible
-    def yaml(self, original_module="", use_yaml_lines=True):
-        task_data_wrapper = None
-        task_data = None
+    def yaml(self, original_module: str = "", use_yaml_lines: bool = True) -> str:
+        task_data_wrapper: list[dict[str, Any]] | None = None
+        task_data: dict[str, Any] | None = None
         if use_yaml_lines:
             try:
                 task_data_wrapper = ariyaml.load(self.yaml_lines)
@@ -1346,18 +1379,19 @@ class Task(Object, Resolvable):
                 recursive_copy_dict(self.module_options, new_la_opt)
                 options_without_name["local_action"] = new_la_opt
             recursive_copy_dict(options_without_name, current_to)
-        if len(task_data_wrapper) == 0:
-            task_data_wrapper.append(current_to)
+        wrapper = task_data_wrapper if task_data_wrapper is not None else []
+        if len(wrapper) == 0:
+            wrapper.append(current_to)
         else:
-            task_data_wrapper[0] = current_to
-        new_yaml = ariyaml.dump(task_data_wrapper)
+            wrapper[0] = current_to
+        new_yaml = str(ariyaml.dump(wrapper))
         return new_yaml
 
     # this makes a yaml from task contents such as spec.module,
     # spec.options, spec.module_options in a fixed format
     # NOTE: this will lose comments and indentations in the original YAML
-    def formatted_yaml(self):
-        task_data = {}
+    def formatted_yaml(self) -> str:
+        task_data: dict[str, Any] = {}
         if self.name:
             task_data["name"] = self.name
         if self.module:
@@ -1366,11 +1400,11 @@ class Task(Object, Resolvable):
             if key == "name":
                 continue
             task_data[key] = val
-        task_data = self.str2double_quoted_scalar(task_data)
+        task_data = cast(dict[str, Any], self.str2double_quoted_scalar(task_data))
         data = [task_data]
-        return ariyaml.dump(data)
+        return str(ariyaml.dump(data))
 
-    def str2double_quoted_scalar(self, v):
+    def str2double_quoted_scalar(self, v: Any) -> Any:
         if isinstance(v, dict):
             for key, val in v.items():
                 new_val = self.str2double_quoted_scalar(val)
@@ -1385,41 +1419,41 @@ class Task(Object, Resolvable):
             pass
         return v
 
-    def set_key(self, parent_key="", parent_local_key=""):
+    def set_key(self, parent_key: str = "", parent_local_key: str = "") -> None:
         set_task_key(self, parent_key, parent_local_key)
 
-    def children_to_key(self):
+    def children_to_key(self) -> Task:
         return self
 
     @property
-    def defined_vars(self):
+    def defined_vars(self) -> dict[str, Any]:
         d_vars = self.variables
         d_vars.update(self.registered_variables)
         d_vars.update(self.set_facts)
         return d_vars
 
     @property
-    def tags(self):
+    def tags(self) -> Any:
         return self.options.get("tags", None)
 
     @property
-    def when(self):
+    def when(self) -> Any:
         return self.options.get("when", None)
 
     @property
-    def action(self):
+    def action(self) -> str:
         return self.executable
 
     @property
-    def resolved_action(self):
+    def resolved_action(self) -> str:
         return self.resolved_name
 
     @property
-    def line_number(self):
+    def line_number(self) -> list[int]:
         return self.line_num_in_file
 
     @property
-    def id(self):
+    def id(self) -> str:
         return json.dumps(
             {
                 "path": self.defined_in,
@@ -1429,172 +1463,188 @@ class Task(Object, Resolvable):
         )
 
     @property
-    def resolver_targets(self):
+    def resolver_targets(self) -> None:
         return None
 
 
 @dataclass
 class MutableContent:
     _yaml: str = ""
-    _task_spec: Task = None
+    _task_spec: Task | None = None
+
+    def _require_task_spec(self) -> Task:
+        if self._task_spec is None:
+            raise ValueError("MutableContent has no task spec")
+        return self._task_spec
 
     @staticmethod
-    def from_task_spec(task_spec):
+    def from_task_spec(task_spec: Task) -> MutableContent:
         mc = MutableContent(
             _yaml=task_spec.yaml_lines,
             _task_spec=deepcopy(task_spec),
         )
         return mc
 
-    def set_task_name(self, task_name: str):
+    def set_task_name(self, task_name: str) -> MutableContent:
         # if `name` is None or empty string, Task.yaml() won't output the field
-        self._task_spec.name = task_name
-        self._yaml = self._task_spec.yaml()
-        self._task_spec.yaml_lines = self._yaml
+        spec = self._require_task_spec()
+        spec.name = task_name
+        self._yaml = spec.yaml()
+        spec.yaml_lines = self._yaml
         return self
 
-    def get_task_name(self):
-        return self._task_spec.name
+    def get_task_name(self) -> str | None:
+        return self._task_spec.name if self._task_spec else None
 
-    def omit_task_name(self):
+    def omit_task_name(self) -> MutableContent:
         # if `name` is None or empty string, Task.yaml() won't output the field
-        self._task_spec.name = None
-        self._yaml = self._task_spec.yaml()
-        self._task_spec.yaml_lines = self._yaml
+        spec = self._require_task_spec()
+        spec.name = None
+        self._yaml = spec.yaml()
+        spec.yaml_lines = self._yaml
         return self
 
-    def set_module_name(self, module_name):
-        original_module = deepcopy(self._task_spec.module)
-        self._task_spec.module = module_name
-        self._yaml = self._task_spec.yaml(original_module=original_module)
-        self._task_spec.yaml_lines = self._yaml
+    def set_module_name(self, module_name: str) -> MutableContent:
+        spec = self._require_task_spec()
+        original_module = deepcopy(spec.module)
+        spec.module = module_name
+        self._yaml = spec.yaml(original_module=original_module)
+        spec.yaml_lines = self._yaml
         return self
 
-    def replace_key(self, old_key: str, new_key: str):
-        if old_key in self._task_spec.options:
-            value = self._task_spec.options[old_key]
-            self._task_spec.options.pop(old_key)
-            self._task_spec.options[new_key] = value
-        self._yaml = self._task_spec.yaml()
-        self._task_spec.yaml_lines = self._yaml
+    def replace_key(self, old_key: str, new_key: str) -> MutableContent:
+        spec = self._require_task_spec()
+        if old_key in spec.options:
+            value = spec.options[old_key]
+            spec.options.pop(old_key)
+            spec.options[new_key] = value
+        self._yaml = spec.yaml()
+        spec.yaml_lines = self._yaml
         return self
 
-    def replace_value(self, old_value: str, new_value: str):
+    def replace_value(self, old_value: str, new_value: str) -> MutableContent:
+        spec = self._require_task_spec()
         original_new_value = deepcopy(new_value)
         need_restore = False
         keys_to_be_restored = []
         if isinstance(new_value, str):
             new_value = DoubleQuotedScalarString(new_value)
             need_restore = True
-        for k, v in self._task_spec.options.items():
+        for k, v in spec.options.items():
             if type(v).__name__ != type(old_value).__name__:
                 continue
             if v != old_value:
                 continue
-            self._task_spec.options[k] = new_value
+            spec.options[k] = new_value
             keys_to_be_restored.append(k)
-        self._yaml = self._task_spec.yaml()
-        self._task_spec.yaml_lines = self._yaml
+        self._yaml = spec.yaml()
+        spec.yaml_lines = self._yaml
         if need_restore:
-            for k, _ in self._task_spec.options.items():
+            for k, _ in spec.options.items():
                 if k in keys_to_be_restored:
-                    self._task_spec.options[k] = original_new_value
+                    spec.options[k] = original_new_value
         return self
 
-    def remove_key(self, key):
-        if key in self._task_spec.options:
-            self._task_spec.options.pop(key)
-        self._yaml = self._task_spec.yaml()
-        self._task_spec.yaml_lines = self._yaml
+    def remove_key(self, key: str) -> MutableContent:
+        spec = self._require_task_spec()
+        if key in spec.options:
+            spec.options.pop(key)
+        self._yaml = spec.yaml()
+        spec.yaml_lines = self._yaml
         return self
 
-    def set_new_module_arg_key(self, key, value):
+    def set_new_module_arg_key(self, key: str, value: Any) -> MutableContent:
+        spec = self._require_task_spec()
         original_value = deepcopy(value)
         need_restore = False
         if isinstance(value, str):
             value = DoubleQuotedScalarString(value)
             need_restore = True
-        self._task_spec.module_options[key] = value
-        self._yaml = self._task_spec.yaml()
-        self._task_spec.yaml_lines = self._yaml
+        spec.module_options[key] = value
+        self._yaml = spec.yaml()
+        spec.yaml_lines = self._yaml
         if need_restore:
-            self._task_spec.module_options[key] = original_value
+            spec.module_options[key] = original_value
         return self
 
-    def remove_module_arg_key(self, key):
-        if key in self._task_spec.module_options:
-            self._task_spec.module_options.pop(key)
-        self._yaml = self._task_spec.yaml()
-        self._task_spec.yaml_lines = self._yaml
+    def remove_module_arg_key(self, key: str) -> MutableContent:
+        spec = self._require_task_spec()
+        if key in spec.module_options:
+            spec.module_options.pop(key)
+        self._yaml = spec.yaml()
+        spec.yaml_lines = self._yaml
         return self
 
-    def replace_module_arg_key(self, old_key: str, new_key: str):
-        if old_key in self._task_spec.module_options:
-            value = self._task_spec.module_options[old_key]
-            self._task_spec.module_options.pop(old_key)
-            self._task_spec.module_options[new_key] = value
-        self._yaml = self._task_spec.yaml()
-        self._task_spec.yaml_lines = self._yaml
+    def replace_module_arg_key(self, old_key: str, new_key: str) -> MutableContent:
+        spec = self._require_task_spec()
+        if old_key in spec.module_options:
+            value = spec.module_options[old_key]
+            spec.module_options.pop(old_key)
+            spec.module_options[new_key] = value
+        self._yaml = spec.yaml()
+        spec.yaml_lines = self._yaml
         return self
 
-    def replace_module_arg_value(self, key: str = "", old_value: any = None, new_value: any = None):
+    def replace_module_arg_value(self, key: str = "", old_value: Any = None, new_value: Any = None) -> MutableContent:
+        spec = self._require_task_spec()
         original_new_value = deepcopy(new_value)
         need_restore = False
         keys_to_be_restored = []
         if isinstance(new_value, str):
             new_value = DoubleQuotedScalarString(new_value)
             need_restore = True
-        for k in self._task_spec.module_options:
+        for k in spec.module_options:
             # if `key` is specified, skip other keys
             if key and k != key:
                 continue
-            value = self._task_spec.module_options[k]
+            value = spec.module_options[k]
             if type(value).__name__ == type(old_value).__name__ and value == old_value:
-                self._task_spec.module_options[k] = new_value
+                spec.module_options[k] = new_value
                 keys_to_be_restored.append(k)
-        self._yaml = self._task_spec.yaml()
-        self._task_spec.yaml_lines = self._yaml
+        self._yaml = spec.yaml()
+        spec.yaml_lines = self._yaml
         if need_restore:
-            for k in self._task_spec.module_options:
+            for k in spec.module_options:
                 if k in keys_to_be_restored:
-                    self._task_spec.module_options[k] = original_new_value
+                    spec.module_options[k] = original_new_value
         return self
 
-    def replace_with_dict(self, new_dict: dict):
-        # import this here to avoid circular import
+    def replace_with_dict(self, new_dict: dict[str, Any]) -> MutableContent:
+        spec = self._require_task_spec()
         from .model_loader import load_task
 
         yaml_lines = ariyaml.dump([new_dict])
         new_task = load_task(
-            path=self._task_spec.defined_in,
-            index=self._task_spec.index,
+            path=spec.defined_in,
+            index=spec.index,
             task_block_dict=new_dict,
-            task_jsonpath=self._task_spec.jsonpath,
-            role_name=self._task_spec.role,
-            collection_name=self._task_spec.collection,
-            collections_in_play=self._task_spec.collections_in_play,
-            play_index=self._task_spec.play_index,
+            task_jsonpath=spec.jsonpath,
+            role_name=spec.role,
+            collection_name=spec.collection,
+            collections_in_play=spec.collections_in_play,
+            play_index=spec.play_index,
             yaml_lines=yaml_lines,
         )
         self._yaml = yaml_lines
         self._task_spec = new_task
         return self
 
-    def replace_module_arg_with_dict(self, new_dict: dict):
-        self._task_spec.module_options = new_dict
-        self._yaml = self._task_spec.yaml()
+    def replace_module_arg_with_dict(self, new_dict: dict[str, Any]) -> MutableContent:
+        spec = self._require_task_spec()
+        spec.module_options = new_dict
+        self._yaml = spec.yaml()
         return self
 
     # this keeps original contents like comments, indentation
     # and quotes for string as much as possible
-    def yaml(self):
+    def yaml(self) -> str:
         return self._yaml
 
     # this makes a yaml from task contents such as spec.module,
     # spec.options, spec.module_options in a fixed format
     # NOTE: this will lose comments and indentations in the original YAML
-    def formatted_yaml(self):
-        return self._task_spec.formatted_yaml()
+    def formatted_yaml(self) -> str:
+        return self._require_task_spec().formatted_yaml()
 
 
 @dataclass
@@ -1604,19 +1654,19 @@ class TaskCall(CallObject, RunTarget):
     # any Annotators in "annotators" dir can add them to this object
     annotations: list[Annotation] = field(default_factory=list)
     args: Arguments = field(default_factory=Arguments)
-    variable_set: dict = field(default_factory=dict)
-    variable_use: dict = field(default_factory=dict)
-    become: BecomeInfo = None
-    module_defaults: dict = field(default_factory=dict)
+    variable_set: dict[str, Any] = field(default_factory=dict)
+    variable_use: dict[str, Any] = field(default_factory=dict)
+    become: BecomeInfo | None = None
+    module_defaults: dict[str, Any] = field(default_factory=dict)
 
-    module: Module = None
-    content: MutableContent = None
+    module: Module | None = None
+    content: MutableContent | None = None
 
-    def get_annotation_by_type(self, type_str=""):
+    def get_annotation_by_type(self, type_str: str = "") -> list[Annotation]:
         matched = [an for an in self.annotations if an.type == type_str]
         return matched
 
-    def get_annotation_by_type_and_attr(self, type_str="", key="", val=None):
+    def get_annotation_by_type_and_attr(self, type_str: str = "", key: str = "", val: Any = None) -> list[Annotation]:
         matched = [
             an
             for an in self.annotations
@@ -1624,7 +1674,7 @@ class TaskCall(CallObject, RunTarget):
         ]
         return matched
 
-    def set_annotation(self, key: str, value: any, rule_id: str):
+    def set_annotation(self, key: str, value: Any, rule_id: str) -> None:
         end_to_set = False
         for an in self.annotations:
             if not hasattr(an, "key"):
@@ -1637,7 +1687,7 @@ class TaskCall(CallObject, RunTarget):
             self.annotations.append(Annotation(key=key, value=value, rule_id=rule_id))
         return
 
-    def get_annotation(self, key: str, __default: any = None, rule_id: str = ""):
+    def get_annotation(self, key: str, __default: Any = None, rule_id: str = "") -> Any:
         value = __default
         for an in self.annotations:
             if not hasattr(an, "key"):
@@ -1649,14 +1699,14 @@ class TaskCall(CallObject, RunTarget):
                 break
         return value
 
-    def has_annotation_by_condition(self, cond: AnnotationCondition):
+    def has_annotation_by_condition(self, cond: AnnotationCondition) -> bool:
         anno = self.get_annotation_by_condition(cond)
         return bool(anno)
 
-    def get_annotation_by_condition(self, cond: AnnotationCondition):
-        _annotations = self.annotations
+    def get_annotation_by_condition(self, cond: AnnotationCondition) -> Annotation | RiskAnnotation | None:
+        _annotations: list[Annotation] = list(self.annotations)
         if cond.type:
-            _annotations = [an for an in _annotations if an.type == RiskAnnotation.type and an.risk_type == cond.type]
+            _annotations = [an for an in _annotations if isinstance(an, RiskAnnotation) and an.risk_type == cond.type]
         if cond.attr_conditions:
             for key, val in cond.attr_conditions:
                 _annotations = [an for an in _annotations if hasattr(an, key) and getattr(an, key) == val]
@@ -1664,53 +1714,53 @@ class TaskCall(CallObject, RunTarget):
             return _annotations[0]
         return None
 
-    def file_info(self):
-        file = self.spec.defined_in
+    def file_info(self) -> tuple[str, str]:
+        file = self.spec.defined_in  # type: ignore[attr-defined]
         lines = "?"
-        if len(self.spec.line_number) == 2:
-            l_num = self.spec.line_number
+        if len(self.spec.line_number) == 2:  # type: ignore[attr-defined]
+            l_num = self.spec.line_number  # type: ignore[attr-defined]
             lines = f"L{l_num[0]}-{l_num[1]}"
         return file, lines
 
     @property
-    def resolved_name(self):
-        return self.spec.resolved_name
+    def resolved_name(self) -> str:
+        return getattr(self.spec, "resolved_name", "") if self.spec else ""
 
     @property
-    def resolved_action(self):
+    def resolved_action(self) -> str:
         return self.resolved_name
 
     @property
-    def action_type(self):
-        return self.spec.executable_type
+    def action_type(self) -> str:
+        return getattr(self.spec, "executable_type", "") if self.spec else ""
 
 
 @dataclass
 class AnsibleRunContext:
     sequence: RunTargetList = field(default_factory=RunTargetList)
     root_key: str = ""
-    parent: Object = None
-    ram_client: any = None
-    scan_metadata: dict = field(default_factory=dict)
+    parent: Object | None = None
+    ram_client: Any = None
+    scan_metadata: dict[str, Any] = field(default_factory=dict)
 
     # used by rule check
-    current: RunTarget = None
+    current: RunTarget | None = None
     _i: int = 0
 
     # used if ram generate / other data generation by loop
     last_item: bool = False
 
     # TODO: implement the following attributes
-    vars: any = None
-    host_info: any = None
+    vars: Any = None
+    host_info: Any = None
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.sequence)
 
-    def __iter__(self):
+    def __iter__(self) -> AnsibleRunContext:
         return self
 
-    def __next__(self):
+    def __next__(self) -> RunTarget:
         if self._i == len(self.sequence):
             self._i = 0
             self.current = None
@@ -1720,24 +1770,29 @@ class AnsibleRunContext:
         self._i += 1
         return t
 
-    def __getitem__(self, i):
+    def __getitem__(self, i: int) -> RunTarget:
         return self.sequence[i]
 
     @staticmethod
     def from_tree(
-        tree: ObjectList, parent: Object = None, last_item: bool = False, ram_client=None, scan_metadata=None
-    ):
+        tree: ObjectList,
+        parent: Object | None = None,
+        last_item: bool = False,
+        ram_client: Any = None,
+        scan_metadata: dict[str, Any] | None = None,
+    ) -> AnsibleRunContext:
         if not tree:
-            return AnsibleRunContext(parent=parent, last_item=last_item)
+            return AnsibleRunContext(parent=parent, last_item=last_item, scan_metadata=scan_metadata or {})
         if len(tree.items) == 0:
-            return AnsibleRunContext(parent=parent, last_item=last_item)
-
-        root_key = tree.items[0].spec.key
-        sequence_items = []
+            return AnsibleRunContext(parent=parent, last_item=last_item, scan_metadata=scan_metadata or {})
+        scan_metadata = scan_metadata or {}
+        first_item = tree.items[0]
+        spec = getattr(first_item, "spec", None)
+        root_key = getattr(spec, "key", getattr(first_item, "key", "")) if spec else getattr(first_item, "key", "")
+        sequence_items: list[RunTarget] = []
         for item in tree.items:
-            if not isinstance(item, RunTarget):
-                continue
-            sequence_items.append(item)
+            if isinstance(item, RunTarget):
+                sequence_items.append(cast(RunTarget, item))
         tl = RunTargetList(items=sequence_items)
         return AnsibleRunContext(
             sequence=tl,
@@ -1752,13 +1807,16 @@ class AnsibleRunContext:
     def from_targets(
         targets: list[RunTarget],
         root_key: str = "",
-        parent: Object = None,
+        parent: Object | None = None,
         last_item: bool = False,
-        ram_client=None,
-        scan_metadata=None,
-    ):
+        ram_client: Any = None,
+        scan_metadata: dict[str, Any] | None = None,
+    ) -> AnsibleRunContext:
         if not root_key and len(targets) > 0:
-            root_key = targets[0].spec.key
+            root_key = (
+                getattr(targets[0].spec, "key", "") if hasattr(targets[0], "spec") else getattr(targets[0], "key", "")
+            )
+        scan_metadata = scan_metadata or {}
         tl = RunTargetList(items=targets)
         return AnsibleRunContext(
             sequence=tl,
@@ -1769,13 +1827,13 @@ class AnsibleRunContext:
             scan_metadata=scan_metadata,
         )
 
-    def find(self, target: RunTarget):
+    def find(self, target: RunTarget) -> RunTarget | None:
         for t in self.sequence:
             if t.key == target.key:
                 return t
         return None
 
-    def before(self, target: RunTarget):
+    def before(self, target: RunTarget) -> AnsibleRunContext:
         targets = []
         for rt in self.sequence:
             if rt.key == target.key:
@@ -1790,7 +1848,7 @@ class AnsibleRunContext:
             scan_metadata=self.scan_metadata,
         )
 
-    def search(self, cond: AnnotationCondition):
+    def search(self, cond: AnnotationCondition) -> AnsibleRunContext:
         targets = [t for t in self.sequence if t.type == RunTargetType.Task and t.has_annotation_by_condition(cond)]
         return AnsibleRunContext.from_targets(
             targets,
@@ -1801,12 +1859,12 @@ class AnsibleRunContext:
             scan_metadata=self.scan_metadata,
         )
 
-    def is_end(self, target: RunTarget):
+    def is_end(self, target: RunTarget) -> bool:
         if len(self) == 0:
             return False
         return target.key == self.sequence[-1].key
 
-    def is_last_task(self, target: RunTarget):
+    def is_last_task(self, target: RunTarget) -> bool:
         if len(self) == 0:
             return False
         taskcalls = self.taskcalls
@@ -1814,12 +1872,12 @@ class AnsibleRunContext:
             return False
         return target.key == taskcalls[-1].key
 
-    def is_begin(self, target: RunTarget):
+    def is_begin(self, target: RunTarget) -> bool:
         if len(self) == 0:
             return False
         return target.key == self.sequence[0].key
 
-    def copy(self):
+    def copy(self) -> AnsibleRunContext:
         return AnsibleRunContext.from_targets(
             targets=self.sequence.items,
             root_key=self.root_key,
@@ -1830,24 +1888,27 @@ class AnsibleRunContext:
         )
 
     @property
-    def info(self):
+    def info(self) -> dict[str, Any]:
         if not self.root_key:
             return {}
-        return get_obj_info_by_key(self.root_key)
+        info: dict[str, Any] = dict(get_obj_info_by_key(self.root_key))
+        return info
 
     @property
-    def taskcalls(self):
+    def taskcalls(self) -> list[RunTarget]:
         return [t for t in self.sequence if t.type == RunTargetType.Task]
 
     @property
-    def tasks(self):
+    def tasks(self) -> list[RunTarget]:
         return self.taskcalls
 
     @property
-    def annotations(self):
-        anno_list = []
+    def annotations(self) -> RiskAnnotationList:
+        anno_list: list[RiskAnnotation] = []
         for tc in self.taskcalls:
-            anno_list.extend(tc.annotations)
+            for a in tc.annotations:
+                if isinstance(a, RiskAnnotation):
+                    anno_list.append(a)
         return RiskAnnotationList(anno_list)
 
 
@@ -1858,7 +1919,7 @@ class TaskFile(Object, Resolvable):
     defined_in: str = ""
     key: str = ""
     local_key: str = ""
-    tasks: list = field(default_factory=list)
+    tasks: list[Any] = field(default_factory=list)
     # role name of this task file
     # this might be empty because a task file can be defined out of roles
     role: str = ""
@@ -1866,26 +1927,26 @@ class TaskFile(Object, Resolvable):
 
     yaml_lines: str = ""
 
-    used_in: list = field(default_factory=list)  # resolved later
+    used_in: list[Any] = field(default_factory=list)  # resolved later
 
-    annotations: dict = field(default_factory=dict)
+    annotations: dict[str, Any] = field(default_factory=dict)
 
-    variables: dict = field(default_factory=dict)
-    module_defaults: dict = field(default_factory=dict)
-    options: dict = field(default_factory=dict)
+    variables: dict[str, Any] = field(default_factory=dict)
+    module_defaults: dict[str, Any] = field(default_factory=dict)
+    options: dict[str, Any] = field(default_factory=dict)
 
-    task_loading: dict = field(default_factory=dict)
+    task_loading: dict[str, Any] = field(default_factory=dict)
 
-    def set_key(self):
+    def set_key(self) -> None:
         set_taskfile_key(self)
 
-    def children_to_key(self):
+    def children_to_key(self) -> TaskFile:
         task_keys = [t.key if isinstance(t, Task) else t for t in self.tasks]
         self.tasks = task_keys
         return self
 
     @property
-    def resolver_targets(self):
+    def resolver_targets(self) -> list[Any]:
         return self.tasks
 
 
@@ -1902,31 +1963,31 @@ class Role(Object, Resolvable):
     key: str = ""
     local_key: str = ""
     fqcn: str = ""
-    metadata: dict = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
     collection: str = ""
-    playbooks: list = field(default_factory=list)
+    playbooks: list[Any] = field(default_factory=list)
     # 1 role can have multiple task yamls
-    taskfiles: list = field(default_factory=list)
-    handlers: list = field(default_factory=list)
+    taskfiles: list[Any] = field(default_factory=list)
+    handlers: list[Any] = field(default_factory=list)
     # roles/xxxx/library/zzzz.py can be called as module zzzz
-    modules: list = field(default_factory=list)
-    dependency: dict = field(default_factory=dict)
-    requirements: dict = field(default_factory=dict)
+    modules: list[Any] = field(default_factory=list)
+    dependency: dict[str, Any] = field(default_factory=dict)
+    requirements: dict[str, Any] = field(default_factory=dict)
 
     source: str = ""  # collection/scm repo/galaxy
 
-    annotations: dict = field(default_factory=dict)
+    annotations: dict[str, Any] = field(default_factory=dict)
 
-    default_variables: dict = field(default_factory=dict)
-    variables: dict = field(default_factory=dict)
+    default_variables: dict[str, Any] = field(default_factory=dict)
+    variables: dict[str, Any] = field(default_factory=dict)
     # key: loop_var (default "item"), value: list/dict of item value
-    loop: dict = field(default_factory=dict)
-    options: dict = field(default_factory=dict)
+    loop: dict[str, Any] = field(default_factory=dict)
+    options: dict[str, Any] = field(default_factory=dict)
 
-    def set_key(self):
+    def set_key(self) -> None:
         set_role_key(self)
 
-    def children_to_key(self):
+    def children_to_key(self) -> Role:
         module_keys = [m.key if isinstance(m, Module) else m for m in self.modules]
         self.modules = sorted(module_keys)
 
@@ -1938,7 +1999,7 @@ class Role(Object, Resolvable):
         return self
 
     @property
-    def resolver_targets(self):
+    def resolver_targets(self) -> list[Any]:
         return self.taskfiles + self.modules
 
 
@@ -1951,7 +2012,7 @@ class RoleCall(CallObject, RunTarget):
 class RoleInPlay(Object, Resolvable):
     type: str = "roleinplay"
     name: str = ""
-    options: dict = field(default_factory=dict)
+    options: dict[str, Any] = field(default_factory=dict)
     defined_in: str = ""
     role_index: int = -1
     play_index: int = -1
@@ -1961,16 +2022,16 @@ class RoleInPlay(Object, Resolvable):
 
     resolved_name: str = ""  # resolved later
     # candidates of resovled_name
-    possible_candidates: list = field(default_factory=list)
+    possible_candidates: list[Any] = field(default_factory=list)
 
-    annotations: dict = field(default_factory=dict)
-    collections_in_play: list = field(default_factory=list)
+    annotations: dict[str, Any] = field(default_factory=dict)
+    collections_in_play: list[Any] = field(default_factory=list)
 
     # embed this data when role is resolved
-    role_info: dict = field(default_factory=dict)
+    role_info: dict[str, Any] = field(default_factory=dict)
 
     @property
-    def resolver_targets(self):
+    def resolver_targets(self) -> None:
         return None
 
 
@@ -1992,27 +2053,27 @@ class Play(Object, Resolvable):
     collection: str = ""
     import_module: str = ""
     import_playbook: str = ""
-    pre_tasks: list = field(default_factory=list)
-    tasks: list = field(default_factory=list)
-    post_tasks: list = field(default_factory=list)
-    handlers: list = field(default_factory=list)
+    pre_tasks: list[Any] = field(default_factory=list)
+    tasks: list[Any] = field(default_factory=list)
+    post_tasks: list[Any] = field(default_factory=list)
+    handlers: list[Any] = field(default_factory=list)
     # not actual Role, but RoleInPlay defined in this playbook
-    roles: list = field(default_factory=list)
-    module_defaults: dict = field(default_factory=dict)
-    options: dict = field(default_factory=dict)
-    collections_in_play: list = field(default_factory=list)
-    become: BecomeInfo = None
-    variables: dict = field(default_factory=dict)
-    vars_files: list = field(default_factory=list)
+    roles: list[Any] = field(default_factory=list)
+    module_defaults: dict[str, Any] = field(default_factory=dict)
+    options: dict[str, Any] = field(default_factory=dict)
+    collections_in_play: list[Any] = field(default_factory=list)
+    become: BecomeInfo | None = None
+    variables: dict[str, Any] = field(default_factory=dict)
+    vars_files: list[Any] = field(default_factory=list)
 
     jsonpath: str = ""
 
-    task_loading: dict = field(default_factory=dict)
+    task_loading: dict[str, Any] = field(default_factory=dict)
 
-    def set_key(self, parent_key="", parent_local_key=""):
+    def set_key(self, parent_key: str = "", parent_local_key: str = "") -> None:
         set_play_key(self, parent_key, parent_local_key)
 
-    def children_to_key(self):
+    def children_to_key(self) -> Play:
         pre_task_keys = [t.key if isinstance(t, Task) else t for t in self.pre_tasks]
         self.pre_tasks = pre_task_keys
 
@@ -2027,11 +2088,11 @@ class Play(Object, Resolvable):
         return self
 
     @property
-    def id(self):
+    def id(self) -> str:
         return json.dumps({"path": self.defined_in, "index": self.index})
 
     @property
-    def resolver_targets(self):
+    def resolver_targets(self) -> list[Any]:
         return self.pre_tasks + self.tasks + self.roles
 
 
@@ -2053,29 +2114,28 @@ class Playbook(Object, Resolvable):
     role: str = ""
     collection: str = ""
 
-    plays: list = field(default_factory=list)
+    plays: list[Any] = field(default_factory=list)
 
-    used_in: list = field(default_factory=list)  # resolved later
+    used_in: list[Any] = field(default_factory=list)  # resolved later
 
-    annotations: dict = field(default_factory=dict)
+    annotations: dict[str, Any] = field(default_factory=dict)
 
-    variables: dict = field(default_factory=dict)
-    options: dict = field(default_factory=dict)
+    variables: dict[str, Any] = field(default_factory=dict)
+    options: dict[str, Any] = field(default_factory=dict)
 
-    def set_key(self):
+    def set_key(self) -> None:
         set_playbook_key(self)
 
-    def children_to_key(self):
+    def children_to_key(self) -> Playbook:
         play_keys = [play.key if isinstance(play, Play) else play for play in self.plays]
         self.plays = play_keys
         return self
 
     @property
-    def resolver_targets(self):
+    def resolver_targets(self) -> list[Any]:
         if "plays" in self.__dict__:
             return self.plays
-        else:
-            return self.roles + self.tasks
+        return getattr(self, "roles", []) + getattr(self, "tasks", [])
 
 
 @dataclass
@@ -2097,7 +2157,7 @@ class Inventory(JSONSerializable):
     inventory_type: str = ""
     group_name: str = ""
     host_name: str = ""
-    variables: dict = field(default_factory=dict)
+    variables: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -2111,8 +2171,8 @@ class Repository(Object, Resolvable):
     # if set, this repository is a collection repository
     my_collection_name: str = ""
 
-    playbooks: list = field(default_factory=list)
-    roles: list = field(default_factory=list)
+    playbooks: list[Any] = field(default_factory=list)
+    roles: list[Any] = field(default_factory=list)
 
     # for playbook scan
     target_playbook_path: str = ""
@@ -2120,28 +2180,28 @@ class Repository(Object, Resolvable):
     # for taskfile scan
     target_taskfile_path: str = ""
 
-    requirements: dict = field(default_factory=dict)
+    requirements: dict[str, Any] = field(default_factory=dict)
 
     installed_collections_path: str = ""
-    installed_collections: list = field(default_factory=list)
+    installed_collections: list[Any] = field(default_factory=list)
 
     installed_roles_path: str = ""
-    installed_roles: list = field(default_factory=list)
-    modules: list = field(default_factory=list)
-    taskfiles: list = field(default_factory=list)
+    installed_roles: list[Any] = field(default_factory=list)
+    modules: list[Any] = field(default_factory=list)
+    taskfiles: list[Any] = field(default_factory=list)
 
-    inventories: list = field(default_factory=list)
+    inventories: list[Any] = field(default_factory=list)
 
-    files: list = field(default_factory=list)
+    files: list[Any] = field(default_factory=list)
 
     version: str = ""
 
-    annotations: dict = field(default_factory=dict)
+    annotations: dict[str, Any] = field(default_factory=dict)
 
-    def set_key(self):
+    def set_key(self) -> None:
         set_repository_key(self)
 
-    def children_to_key(self):
+    def children_to_key(self) -> Repository:
         module_keys = [m.key if isinstance(m, Module) else m for m in self.modules]
         self.modules = sorted(module_keys)
 
@@ -2156,7 +2216,7 @@ class Repository(Object, Resolvable):
         return self
 
     @property
-    def resolver_targets(self):
+    def resolver_targets(self) -> list[Any]:
         return self.playbooks + self.roles + self.modules + self.installed_roles + self.installed_collections
 
 
@@ -2165,7 +2225,7 @@ class RepositoryCall(CallObject):
     type: str = "repositorycall"
 
 
-def call_obj_from_spec(spec: Object, caller: CallObject, index: int = 0):
+def call_obj_from_spec(spec: Object, caller: CallObject | None, index: int = 0) -> CallObject | None:
     if isinstance(spec, Repository):
         return RepositoryCall.from_spec(spec, caller, index)
     elif isinstance(spec, Playbook):
@@ -2179,7 +2239,7 @@ def call_obj_from_spec(spec: Object, caller: CallObject, index: int = 0):
     elif isinstance(spec, TaskFile):
         return TaskFileCall.from_spec(spec, caller, index)
     elif isinstance(spec, Task):
-        taskcall = TaskCall.from_spec(spec, caller, index)
+        taskcall = cast(TaskCall, TaskCall.from_spec(spec, caller, index))
         taskcall.content = MutableContent.from_task_spec(task_spec=spec)
         return taskcall
     elif isinstance(spec, Module):
@@ -2194,17 +2254,17 @@ class GalaxyArtifact(Repository):
     type: str = ""  # Role or Collection
 
     # make it easier to search a module
-    module_dict: dict = field(default_factory=dict)
+    module_dict: dict[str, Any] = field(default_factory=dict)
     # make it easier to search a task
-    task_dict: dict = field(default_factory=dict)
+    task_dict: dict[str, Any] = field(default_factory=dict)
     # make it easier to search a taskfile
-    taskfile_dict: dict = field(default_factory=dict)
+    taskfile_dict: dict[str, Any] = field(default_factory=dict)
     # make it easier to search a role
-    role_dict: dict = field(default_factory=dict)
+    role_dict: dict[str, Any] = field(default_factory=dict)
     # make it easier to search a playbook
-    playbook_dict: dict = field(default_factory=dict)
+    playbook_dict: dict[str, Any] = field(default_factory=dict)
     # make it easier to search a collection
-    collection_dict: dict = field(default_factory=dict)
+    collection_dict: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -2218,7 +2278,7 @@ class ModuleMetadata:
     deprecated: bool = False
 
     @staticmethod
-    def from_module(m: Module, metadata: dict):
+    def from_module(m: Module, metadata: dict[str, Any]) -> ModuleMetadata:
         mm = ModuleMetadata()
         for key in mm.__dict__:
             if hasattr(m, key):
@@ -2232,7 +2292,7 @@ class ModuleMetadata:
         return mm
 
     @staticmethod
-    def from_routing(dst: str, metadata: dict):
+    def from_routing(dst: str, metadata: dict[str, Any]) -> ModuleMetadata:
         mm = ModuleMetadata()
         mm.fqcn = dst
         mm.type = metadata.get("type", "")
@@ -2243,7 +2303,7 @@ class ModuleMetadata:
         return mm
 
     @staticmethod
-    def from_dict(d: dict):
+    def from_dict(d: dict[str, Any]) -> ModuleMetadata:
         mm = ModuleMetadata()
         mm.fqcn = d.get("fqcn", "")
         mm.type = d.get("type", "")
@@ -2252,7 +2312,7 @@ class ModuleMetadata:
         mm.hash = d.get("hash", "")
         return mm
 
-    def __eq__(self, mm):
+    def __eq__(self, mm: object) -> bool:
         if not isinstance(mm, ModuleMetadata):
             return False
         return (
@@ -2273,7 +2333,7 @@ class RoleMetadata:
     hash: str = ""
 
     @staticmethod
-    def from_role(r: Role, metadata: dict):
+    def from_role(r: Role, metadata: dict[str, Any]) -> RoleMetadata:
         rm = RoleMetadata()
         for key in rm.__dict__:
             if hasattr(r, key):
@@ -2287,7 +2347,7 @@ class RoleMetadata:
         return rm
 
     @staticmethod
-    def from_dict(d: dict):
+    def from_dict(d: dict[str, Any]) -> RoleMetadata:
         rm = RoleMetadata()
         rm.fqcn = d.get("fqcn", "")
         rm.type = d.get("type", "")
@@ -2296,8 +2356,8 @@ class RoleMetadata:
         rm.hash = d.get("hash", "")
         return rm
 
-    def __eq__(self, rm):
-        if not isinstance(rm, ModuleMetadata):
+    def __eq__(self, rm: object) -> bool:
+        if not isinstance(rm, RoleMetadata):
             return False
         return (
             self.fqcn == rm.fqcn
@@ -2317,7 +2377,7 @@ class TaskFileMetadata:
     hash: str = ""
 
     @staticmethod
-    def from_taskfile(tf: TaskFile, metadata: dict):
+    def from_taskfile(tf: TaskFile, metadata: dict[str, Any]) -> TaskFileMetadata:
         tfm = TaskFileMetadata()
         for key in tfm.__dict__:
             if hasattr(tf, key):
@@ -2331,8 +2391,8 @@ class TaskFileMetadata:
         return tfm
 
     @staticmethod
-    def from_dict(d: dict):
-        tfm = RoleMetadata()
+    def from_dict(d: dict[str, Any]) -> TaskFileMetadata:
+        tfm = TaskFileMetadata()
         tfm.key = d.get("key", "")
         tfm.type = d.get("type", "")
         tfm.name = d.get("name", "")
@@ -2340,7 +2400,7 @@ class TaskFileMetadata:
         tfm.hash = d.get("hash", "")
         return tfm
 
-    def __eq__(self, tfm):
+    def __eq__(self, tfm: object) -> bool:
         if not isinstance(tfm, TaskFileMetadata):
             return False
         return (
@@ -2355,14 +2415,16 @@ class TaskFileMetadata:
 @dataclass
 class ActionGroupMetadata:
     group_name: str = ""
-    group_modules: list = field(default_factory=list)
+    group_modules: list[Any] = field(default_factory=list)
     type: str = ""
     name: str = ""
     version: str = ""
     hash: str = ""
 
     @staticmethod
-    def from_action_group(group_name: str, group_modules: list, metadata: dict):
+    def from_action_group(
+        group_name: str, group_modules: list[Any], metadata: dict[str, Any]
+    ) -> ActionGroupMetadata | None:
         if not group_name:
             return None
 
@@ -2379,17 +2441,17 @@ class ActionGroupMetadata:
         return agm
 
     @staticmethod
-    def from_dict(d: dict):
+    def from_dict(d: dict[str, Any]) -> ActionGroupMetadata:
         agm = ActionGroupMetadata()
         agm.group_name = d.get("group_name", "")
-        agm.group_modules = d.get("group_modules", "")
+        agm.group_modules = d.get("group_modules", [])
         agm.type = d.get("type", "")
         agm.name = d.get("name", "")
         agm.version = d.get("version", "")
         agm.hash = d.get("hash", "")
         return agm
 
-    def __eq__(self, agm):
+    def __eq__(self, agm: object) -> bool:
         if not isinstance(agm, ActionGroupMetadata):
             return False
         return (
@@ -2442,39 +2504,40 @@ class RuleMetadata:
     version: str = ""
     commit_id: str = ""
     severity: str = ""
-    tags: tuple = ()
+    tags: tuple[str, ...] = ()
 
 
 @dataclass
 class SpecMutation:
-    key: str = None
-    changes: list = field(default_factory=list)
+    key: str | None = None
+    changes: list[Any] = field(default_factory=list)
     object: Object = field(default_factory=Object)
     rule: RuleMetadata = field(default_factory=RuleMetadata)
 
 
 @dataclass
 class RuleResult:
-    rule: RuleMetadata = None
+    rule: RuleMetadata | None = None
 
     verdict: bool = False
-    detail: dict = None
-    file: tuple = None
-    error: str = None
+    detail: dict[str, Any] | None = None
+    file: tuple[Any, ...] | None = None
+    error: str | None = None
 
     matched: bool = False
-    duration: float = None
+    duration: float | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.verdict:
             self.verdict = True
         else:
             self.verdict = False
 
-    def set_value(self, key: str, value: any):
-        self.detail[key] = value
+    def set_value(self, key: str, value: Any) -> None:
+        if self.detail is not None:
+            self.detail[key] = value
 
-    def get_detail(self):
+    def get_detail(self) -> dict[str, Any] | None:
         return self.detail
 
 
@@ -2491,7 +2554,7 @@ class Rule(RuleMetadata):
     # if there are any spec mutations, re-run the scan later with the mutated spec
     spec_mutation: bool = False
 
-    def __post_init__(self, rule_id: str = "", description: str = ""):
+    def __post_init__(self, rule_id: str = "", description: str = "") -> None:
         if rule_id:
             self.rule_id = rule_id
         if description:
@@ -2506,10 +2569,10 @@ class Rule(RuleMetadata):
     def match(self, ctx: AnsibleRunContext) -> bool:
         raise ValueError("this is a base class method")
 
-    def process(self, ctx: AnsibleRunContext):
+    def process(self, ctx: AnsibleRunContext) -> RuleResult | None:
         raise ValueError("this is a base class method")
 
-    def print(self, result: RuleResult):
+    def print(self, result: RuleResult) -> str:
         output = (
             f"ruleID={self.rule_id}, severity={self.severity}, description={self.description}, result={result.verdict}"
         )
@@ -2520,15 +2583,15 @@ class Rule(RuleMetadata):
             output += f", detail={result.detail}"
         return output
 
-    def to_json(self, result: RuleResult):
-        return json.dumps(result.detail)
+    def to_json(self, result: RuleResult) -> str:
+        return str(json.dumps(result.detail))
 
-    def error(self, result: RuleResult):
+    def error(self, result: RuleResult) -> str | None:
         if result.error:
             return result.error
         return None
 
-    def get_metadata(self):
+    def get_metadata(self) -> RuleMetadata:
         return RuleMetadata(
             rule_id=self.rule_id,
             description=self.description,
@@ -2542,25 +2605,25 @@ class Rule(RuleMetadata):
 
 @dataclass
 class NodeResult(JSONSerializable):
-    node: RunTarget = None
+    node: RunTarget | dict[str, Any] | None = None
     rules: list[RuleResult] = field(default_factory=list)
 
-    def results(self):
+    def results(self) -> list[RuleResult]:
         return self.rules
 
-    def find_result(self, rule_id: str):
-        filtered = [r for r in self.rules if r.rule.rule_id == rule_id]
+    def find_result(self, rule_id: str) -> RuleResult | None:
+        filtered = [r for r in self.rules if r.rule and r.rule.rule_id == rule_id]
         if not filtered:
             return None
         return filtered[0]
 
     def search_results(
         self,
-        rule_id: str | list = None,
-        tag: str | list = None,
-        matched: bool = None,
-        verdict: bool = None,
-    ):
+        rule_id: str | list[Any] | None = None,
+        tag: str | list[Any] | None = None,
+        matched: bool | None = None,
+        verdict: bool | None = None,
+    ) -> list[RuleResult]:
         if not rule_id and not tag:
             return self.rules
 
@@ -2571,15 +2634,15 @@ class NodeResult(JSONSerializable):
                 target_rule_ids = [rule_id]
             elif isinstance(rule_id, list):
                 target_rule_ids = rule_id
-            filtered = [r for r in filtered if r.rule.rule_id in target_rule_ids]
+            filtered = [r for r in filtered if r.rule and r.rule.rule_id in target_rule_ids]
 
         if tag:
-            target_tags = []
+            target_tags: list[Any] = []
             if isinstance(tag, str):
                 target_tags = [tag]
             elif isinstance(tag, list):
                 target_tags = tag
-            filtered = [r for r in filtered for t in r.rule.tags if t in target_tags]
+            filtered = [r for r in filtered if r.rule is not None and any(t in target_tags for t in r.rule.tags)]
 
         if matched is not None:
             filtered = [r for r in filtered if r.matched == matched]
@@ -2596,66 +2659,66 @@ class TargetResult(JSONSerializable):
     target_name: str = ""
     nodes: list[NodeResult] = field(default_factory=list)
 
-    def applied_rules(self):
-        results = []
+    def applied_rules(self) -> list[RuleResult]:
+        results: list[RuleResult] = []
         for n in self.nodes:
             matched_rules = n.search_results(matched=True)
             if matched_rules:
-                results.extend()
+                results.extend(matched_rules)
         return results
 
-    def matched_rules(self):
-        results = []
+    def matched_rules(self) -> list[RuleResult]:
+        results: list[RuleResult] = []
         for n in self.nodes:
             matched_rules = n.search_results(verdict=True)
             if matched_rules:
-                results.extend()
+                results.extend(matched_rules)
         return results
 
-    def tasks(self):
+    def tasks(self) -> TargetResult:
         return self._filter(TaskCall)
 
-    def task(self, name):
-        return self._find_by_name(name=name, type=TaskCall)
+    def task(self, name: str) -> NodeResult | None:
+        return self._find_by_name(name=name, target_type=TaskCall)
 
-    def roles(self):
+    def roles(self) -> TargetResult:
         return self._filter(RoleCall)
 
-    def role(self, name):
-        return self._find_by_name(name=name, type=RoleCall)
+    def role(self, name: str) -> NodeResult | None:
+        return self._find_by_name(name=name, target_type=RoleCall)
 
-    def playbooks(self):
+    def playbooks(self) -> TargetResult:
         return self._filter(PlaybookCall)
 
-    def playbook(self, name):
-        return self._find_by_name(name=name, type=PlaybookCall)
+    def playbook(self, name: str) -> NodeResult | None:
+        return self._find_by_name(name=name, target_type=PlaybookCall)
 
-    def plays(self):
+    def plays(self) -> TargetResult:
         return self._filter(PlayCall)
 
-    def play(self, name):
-        return self._find_by_name(name=name, type=PlayCall)
+    def play(self, name: str) -> NodeResult | None:
+        return self._find_by_name(name=name, target_type=PlayCall)
 
-    def taskfiles(self):
+    def taskfiles(self) -> TargetResult:
         return self._filter(TaskFileCall)
 
-    def taskfile(self, name):
-        return self._find_by_name(name=name, type=TaskFileCall)
+    def taskfile(self, name: str) -> NodeResult | None:
+        return self._find_by_name(name=name, target_type=TaskFileCall)
 
-    def _find_by_name(self, name, type: type = None):
+    def _find_by_name(self, name: str, target_type: type[RunTarget] | None = None) -> NodeResult | None:
         nodes = deepcopy(self.nodes)
-        if type:
-            type_only_result = self._filter(type)
+        if target_type:
+            type_only_result = self._filter(target_type)
             if not type_only_result:
                 return None
             nodes = type_only_result.nodes
-        filtered_nodes = [nr for nr in nodes if nr.node.spec.name == name]
+        filtered_nodes = [nr for nr in nodes if nr.node and getattr(getattr(nr.node, "spec", None), "name", "") == name]
         if not filtered_nodes:
             return None
         return filtered_nodes[0]
 
-    def _filter(self, type):
-        filtered_nodes = [nr for nr in self.nodes if isinstance(nr.node, type)]
+    def _filter(self, target_type: type[RunTarget]) -> TargetResult:
+        filtered_nodes = [nr for nr in self.nodes if isinstance(nr.node, target_type)]
         return TargetResult(target_type=self.target_type, target_name=self.target_name, nodes=filtered_nodes)
 
 
@@ -2663,10 +2726,10 @@ class TargetResult(JSONSerializable):
 class ARIResult(JSONSerializable):
     targets: list[TargetResult] = field(default_factory=list)
 
-    def playbooks(self):
+    def playbooks(self) -> ARIResult:
         return self._filter("playbook")
 
-    def playbook(self, name="", path="", yaml_str=""):
+    def playbook(self, name: str = "", path: str = "", yaml_str: str = "") -> TargetResult | None:
         if name:
             return self._find_by_name(name)
 
@@ -2680,16 +2743,16 @@ class ARIResult(JSONSerializable):
 
         return None
 
-    def roles(self):
+    def roles(self) -> ARIResult:
         return self._filter("role")
 
-    def role(self, name):
+    def role(self, name: str) -> TargetResult | None:
         return self._find_by_name(name=name, type_str="role")
 
-    def taskfiles(self):
+    def taskfiles(self) -> ARIResult:
         return self._filter("taskfile")
 
-    def taskfile(self, name="", path="", yaml_str=""):
+    def taskfile(self, name: str = "", path: str = "", yaml_str: str = "") -> TargetResult | None:
         if name:
             return self._find_by_name(name=name, type_str="taskfile")
 
@@ -2703,7 +2766,9 @@ class ARIResult(JSONSerializable):
 
         return None
 
-    def find_target(self, name="", path="", yaml_str="", target_type=""):
+    def find_target(
+        self, name: str = "", path: str = "", yaml_str: str = "", target_type: str = ""
+    ) -> TargetResult | None:
         if name:
             return self._find_by_name(name=name, type_str=target_type)
 
@@ -2717,7 +2782,7 @@ class ARIResult(JSONSerializable):
 
         return None
 
-    def _find_by_name(self, name, type_str=""):
+    def _find_by_name(self, name: str, type_str: str = "") -> TargetResult | None:
         targets = deepcopy(self.targets)
         if type_str:
             type_only_result = self._filter(type_str)
@@ -2729,7 +2794,7 @@ class ARIResult(JSONSerializable):
             return None
         return filtered_targets[0]
 
-    def _find_by_yaml_str(self, yaml_str, type_str):
+    def _find_by_yaml_str(self, yaml_str: str, type_str: str) -> TargetResult | None:
         type_only_result = self._filter(type_str)
         if not type_only_result:
             return None
@@ -2737,13 +2802,13 @@ class ARIResult(JSONSerializable):
             tr
             for tr in type_only_result.targets
             if tr.nodes
-            and hasattr(tr.nodes[0].node.spec, "yaml_lines")
-            and tr.nodes[0].node.spec.yaml_lines == yaml_str
+            and tr.nodes[0].node
+            and getattr(getattr(tr.nodes[0].node, "spec", None), "yaml_lines", "") == yaml_str
         ]
         if not filtered_targets:
             return None
         return filtered_targets[0]
 
-    def _filter(self, type_str):
+    def _filter(self, type_str: str) -> ARIResult:
         filtered_targets = [tr for tr in self.targets if tr.target_type == type_str]
         return ARIResult(targets=filtered_targets)

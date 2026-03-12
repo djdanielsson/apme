@@ -22,14 +22,18 @@ class LoopVarPrefixRule(Rule):
     enabled: bool = True
     name: str = "LoopVarPrefix"
     version: str = "v0.0.1"
-    severity: Severity = Severity.VERY_LOW
-    tags: tuple = Tag.VARIABLE
+    severity: str = Severity.VERY_LOW
+    tags: tuple[str, ...] = (Tag.VARIABLE,)
 
     def match(self, ctx: AnsibleRunContext) -> bool:
-        return ctx.current.type == RunTargetType.Task
+        if ctx.current is None:
+            return False
+        return bool(ctx.current.type == RunTargetType.Task)
 
-    def process(self, ctx: AnsibleRunContext):
+    def process(self, ctx: AnsibleRunContext) -> RuleResult | None:
         task = ctx.current
+        if task is None:
+            return None
         options = getattr(task.spec, "options", None) or {}
         loop_control = options.get("loop_control") if isinstance(options.get("loop_control"), dict) else None
         loop_var = loop_control.get("loop_var") if loop_control else None

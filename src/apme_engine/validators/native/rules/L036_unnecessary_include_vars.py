@@ -22,21 +22,29 @@ class UnnecessaryIncludeVarsRule(Rule):
     enabled: bool = True
     name: str = "UnnecessaryIncludeVars"
     version: str = "v0.0.1"
-    severity: Severity = Severity.VERY_LOW
-    tags: tuple = Tag.VARIABLE
+    severity: str = Severity.VERY_LOW
+    tags: tuple[str, ...] = (Tag.VARIABLE,)
 
     def match(self, ctx: AnsibleRunContext) -> bool:
-        return ctx.current.type == RunTargetType.Task
+        if ctx.current is None:
+            return False
+        return bool(ctx.current.type == RunTargetType.Task)
 
-    def process(self, ctx: AnsibleRunContext):
+    def process(self, ctx: AnsibleRunContext) -> RuleResult | None:
         task = ctx.current
+        if task is None:
+            return None
 
-        verdict = (
-            task.action_type == ActionType.MODULE_TYPE
-            and task.resolved_action
-            and task.resolved_action == "ansible.builtin.include_vars"
-            and not task.spec.tags
-            and not task.spec.when
+        action_type = getattr(task, "action_type", "")
+        resolved_action = getattr(task, "resolved_action", "")
+        spec_tags = getattr(task.spec, "tags", None)
+        spec_when = getattr(task.spec, "when", None)
+        verdict = bool(
+            action_type == ActionType.MODULE_TYPE
+            and resolved_action
+            and resolved_action == "ansible.builtin.include_vars"
+            and not spec_tags
+            and not spec_when
         )
 
         return RuleResult(verdict=verdict, file=task.file_info(), rule=self.get_metadata())

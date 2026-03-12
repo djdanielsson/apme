@@ -1,12 +1,12 @@
 from apme_engine.engine.annotators.module_annotator_base import ModuleAnnotator, ModuleAnnotatorResult
-from apme_engine.engine.models import Annotation, DefaultRiskType, PackageInstallDetail, RiskAnnotation, TaskCall
+from apme_engine.engine.models import DefaultRiskType, PackageInstallDetail, RiskAnnotation, TaskCall
 
 
 class DnfAnnotator(ModuleAnnotator):
     fqcn: str = "ansible.builtin.dnf"
     enabled: bool = True
 
-    def run(self, task: TaskCall) -> list[Annotation]:
+    def run(self, task: TaskCall) -> ModuleAnnotatorResult:
         pkg = task.args.get("name")
         allow_downgrade = task.args.get("allow_downgrade")
         validate_certs = task.args.get("validate_certs")

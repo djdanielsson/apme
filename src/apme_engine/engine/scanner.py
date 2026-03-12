@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import contextlib
 import datetime
 import json
@@ -6,6 +8,7 @@ import sys
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import jsonpickle
 import yaml
@@ -51,7 +54,7 @@ default_config_path = ARI_CONFIG_PATH or os.path.expanduser("~/.ari/config")
 default_data_dir = os.path.join("/tmp", "ari-data")
 default_rules_dir = os.path.join(os.path.dirname(__file__), "rules")
 default_log_level = "info"
-default_rules = []
+default_rules: list[Any] = []
 default_disable_default_rules = False
 default_logger_key = "ari"
 
@@ -64,12 +67,12 @@ class Config:
     rules_dir: str = ""
     logger_key: str = ""
     log_level: str = ""
-    rules: list = field(default_factory=list)
+    rules: list[Any] = field(default_factory=list)
     disable_default_rules: bool = False
 
-    _data: dict = field(default_factory=dict)
+    _data: dict[str, Any] = field(default_factory=dict)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if not self.path:
             self.path = default_config_path
         config_data = {}
@@ -104,12 +107,17 @@ class Config:
             self.rules = self._get_single_config("ARI_RULES", "rules", default_rules, "list", ",")
 
     def _get_single_config(
-        self, env_key: str = "", yaml_key: str = "", __default: any = None, __type=None, separator=""
-    ):
+        self,
+        env_key: str = "",
+        yaml_key: str = "",
+        __default: Any = None,
+        __type: Any = None,
+        separator: str = "",
+    ) -> Any:
         if env_key in os.environ:
-            _from_env = os.environ.get(env_key, None)
+            _from_env: Any = os.environ.get(env_key, None)
             if _from_env and __type and __type == "list":
-                _from_env = _from_env.split(separator)
+                _from_env = _from_env.split(separator) if isinstance(_from_env, str) else _from_env
             return _from_env
         elif yaml_key in self._data:
             _from_file = self._data.get(yaml_key, None)
@@ -142,36 +150,36 @@ class SingleScan:
     name: str = ""
     collection_name: str = ""
     role_name: str = ""
-    target_playbook_name: str = None
+    target_playbook_name: str | None = None
     playbook_yaml: str = ""
     playbook_only: bool = False
-    target_taskfile_name: str = None
+    target_taskfile_name: str | None = None
     taskfile_yaml: str = ""
     taskfile_only: bool = False
 
-    skip_playbook_format_error: bool = (True,)
-    skip_task_format_error: bool = (True,)
+    skip_playbook_format_error: bool = True
+    skip_task_format_error: bool = True
 
     install_log: str = ""
-    tmp_install_dir: tempfile.TemporaryDirectory = None
+    tmp_install_dir: tempfile.TemporaryDirectory[Any] | None = None
 
-    index: dict = field(default_factory=dict)
+    index: dict[str, Any] = field(default_factory=dict)
 
-    root_definitions: dict = field(default_factory=dict)
-    ext_definitions: dict = field(default_factory=dict)
+    root_definitions: dict[str, Any] = field(default_factory=dict)
+    ext_definitions: dict[str, Any] = field(default_factory=dict)
 
     target_object: Object = field(default_factory=Object)
 
-    trees: list = field(default_factory=list)
+    trees: list[Any] = field(default_factory=list)
     # for inventory object
     additional: ObjectList = field(default_factory=ObjectList)
 
-    taskcalls_in_trees: list = field(default_factory=list)
-    contexts: list = field(default_factory=list)
+    taskcalls_in_trees: list[Any] = field(default_factory=list)
+    contexts: list[Any] = field(default_factory=list)
 
-    data_report: dict = field(default_factory=dict)
+    data_report: dict[str, Any] = field(default_factory=dict)
 
-    __path_mappings: dict = field(default_factory=dict)
+    __path_mappings: dict[str, Any] = field(default_factory=dict)
 
     install_dependencies: bool = False
     use_ansible_path: bool = False
@@ -179,10 +187,10 @@ class SingleScan:
     dependency_dir: str = ""
     base_dir: str = ""
     target_path: str = ""
-    loaded_dependency_dirs: list = field(default_factory=list)
+    loaded_dependency_dirs: Any = field(default_factory=list)
     use_src_cache: bool = True
 
-    prm: dict = field(default_factory=dict)
+    prm: dict[str, Any] = field(default_factory=dict)
 
     download_url: str = ""
     version: str = ""
@@ -193,33 +201,33 @@ class SingleScan:
 
     include_test_contents: bool = False
     load_all_taskfiles: bool = False
-    yaml_label_list: list = field(default_factory=list)
+    yaml_label_list: list[Any] = field(default_factory=list)
 
     save_only_rule_result: bool = False
 
-    extra_requirements: list = field(default_factory=list)
-    resolve_failures: dict = field(default_factory=dict)
+    extra_requirements: list[Any] = field(default_factory=list)
+    resolve_failures: dict[str, Any] = field(default_factory=dict)
 
-    findings: Findings = None
-    result: ARIResult = None
+    findings: Findings | None = None
+    result: ARIResult | None = None
 
     # OPA input: hierarchy + annotations (set by build_hierarchy_payload when native rules are disabled)
-    hierarchy_payload: dict = field(default_factory=dict)
+    hierarchy_payload: dict[str, Any] = field(default_factory=dict)
 
     # the following are set by ARIScanner
     root_dir: str = ""
     rules_dir: str = ""
-    rules: list = field(default_factory=list)
-    rules_cache: list = field(default_factory=list)
+    rules: list[Any] = field(default_factory=list)
+    rules_cache: list[Any] = field(default_factory=list)
     persist_dependency_cache: bool = False
-    spec_mutations_from_previous_scan: dict = field(default_factory=dict)
-    spec_mutations: dict = field(default_factory=dict)
+    spec_mutations_from_previous_scan: dict[str, Any] = field(default_factory=dict)
+    spec_mutations: dict[str, Any] = field(default_factory=dict)
     use_ansible_doc: bool = True
     do_save: bool = False
     silent: bool = False
-    _parser: Parser = None
+    _parser: Parser | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.type == LoadType.COLLECTION or self.type == LoadType.ROLE:
             type_root = self.type + "s"
             target_name = self.name
@@ -320,7 +328,7 @@ class SingleScan:
                 self.name = "__in_memory__"
                 self.target_taskfile_name = self.name
 
-    def make_target_path(self, typ, target_name, dep_dir=""):
+    def make_target_path(self, typ: str, target_name: str, dep_dir: str = "") -> str:
         target_path = ""
 
         if dep_dir:
@@ -357,14 +365,14 @@ class SingleScan:
                 target_path = target_name
         return target_path
 
-    def get_src_root(self):
-        return self.__path_mappings["src"]
+    def get_src_root(self) -> str:
+        return str(self.__path_mappings["src"])
 
-    def is_src_installed(self):
+    def is_src_installed(self) -> bool:
         index_location = self.__path_mappings["index"]
         return os.path.exists(index_location)
 
-    def _prepare_dependencies(self, root_install=True):
+    def _prepare_dependencies(self, root_install: bool = True) -> tuple[str, Any]:
         # Install the target if needed
         target_path = self.make_target_path(self.type, self.name)
 
@@ -399,7 +407,7 @@ class SingleScan:
 
         return target_path, dep_dirs
 
-    def create_load_file(self, target_type, target_name, target_path):
+    def create_load_file(self, target_type: str, target_name: str, target_path: str) -> Load:
         loader_version = get_loader_version()
 
         if not os.path.exists(target_path) and not self.playbook_yaml and not self.taskfile_yaml:
@@ -425,7 +433,7 @@ class SingleScan:
         load_object(ld)
         return ld
 
-    def get_definition_path(self, ext_type, ext_name):
+    def get_definition_path(self, ext_type: str, ext_name: str) -> str:
         target_path = ""
         if ext_type == LoadType.ROLE:
             target_path = os.path.join(
@@ -441,7 +449,7 @@ class SingleScan:
             raise ValueError("Invalid ext_type")
         return target_path
 
-    def load_definition_ext(self, target_type, target_name, target_path):
+    def load_definition_ext(self, target_type: str, target_name: str, target_path: str) -> None:
         ld = self.create_load_file(target_type, target_name, target_path)
         use_cache = True
         output_dir = self.get_definition_path(ld.target_type, ld.target_name)
@@ -450,6 +458,8 @@ class SingleScan:
                 logger.debug(f"use cache from {output_dir}")
             definitions, mappings = Parser.restore_definition_objects(output_dir)
         else:
+            if self._parser is None:
+                raise ValueError("Parser not initialized")
             definitions, mappings = self._parser.run(load_data=ld)
             if self.do_save:
                 if output_dir == "":
@@ -465,7 +475,7 @@ class SingleScan:
         }
         return
 
-    def _set_load_root(self, target_path=""):
+    def _set_load_root(self, target_path: str = "") -> Load | None:
         root_load_data = None
         if self.type in [LoadType.ROLE, LoadType.COLLECTION]:
             ext_type = self.type
@@ -480,7 +490,7 @@ class SingleScan:
             root_load_data = self.create_load_file(self.type, self.name, target_path)
         return root_load_data
 
-    def get_source_path(self, ext_type, ext_name, is_ext_for_project=False):
+    def get_source_path(self, ext_type: str, ext_name: str, is_ext_for_project: bool = False) -> str:
         base_dir = ""
         if is_ext_for_project:
             base_dir = self.__path_mappings["dependencies"]
@@ -505,10 +515,12 @@ class SingleScan:
             raise ValueError("Invalid ext_type")
         return target_path
 
-    def load_definitions_root(self, target_path=""):
+    def load_definitions_root(self, target_path: str = "") -> None:
         output_dir = self.__path_mappings["root_definitions"]
         root_load = self._set_load_root(target_path=target_path)
 
+        if self._parser is None:
+            raise ValueError("Parser not initialized")
         definitions, mappings = self._parser.run(load_data=root_load, collection_name_of_project=self.collection_name)
         if self.do_save:
             if output_dir == "":
@@ -522,7 +534,7 @@ class SingleScan:
             "mappings": mappings,
         }
 
-    def apply_spec_mutations(self):
+    def apply_spec_mutations(self) -> None:
         if not self.spec_mutations_from_previous_scan:
             return
         # overwrite the loaded object with the mutated object in spec mutations
@@ -535,7 +547,7 @@ class SingleScan:
                     self.root_definitions["definitions"][type_name][i] = mutated_spec
         return
 
-    def set_target_object(self):
+    def set_target_object(self) -> None:
         type_name = self.type + "s"
         obj_list = self.root_definitions.get("definitions", {}).get(type_name, [])
         if len(obj_list) == 0:
@@ -551,7 +563,7 @@ class SingleScan:
                     break
         return
 
-    def construct_trees(self, ram_client=None):
+    def construct_trees(self, ram_client: RAMClient | None = None) -> None:
         trees, additional, extra_requirements, resolve_failures = tree(
             self.root_definitions,
             self.ext_definitions,
@@ -595,7 +607,7 @@ class SingleScan:
                     logger.info("  tree file saved")
         return
 
-    def resolve_variables(self, ram_client=None):
+    def resolve_variables(self, ram_client: RAMClient | None = None) -> None:
         taskcalls_in_trees = resolve(self.trees, self.additional)
         self.taskcalls_in_trees = taskcalls_in_trees
 
@@ -625,7 +637,7 @@ class SingleScan:
             Path(tasks_in_t_path).write_text("\n".join(tasks_in_t_lines))
         return
 
-    def annotate(self):
+    def annotate(self) -> None:
         contexts = analyze(self.contexts)
         self.contexts = contexts
 
@@ -641,7 +653,7 @@ class SingleScan:
 
         return
 
-    def _node_to_dict(self, node):
+    def _node_to_dict(self, node: Any) -> dict[str, Any]:
         """Serialize a RunTarget (playcall, rolecall, taskcall, etc.) to a JSON-serializable dict for OPA input."""
         d = {"type": getattr(node, "type", ""), "key": getattr(node, "key", "")}
         spec = getattr(node, "spec", None)
@@ -698,7 +710,7 @@ class SingleScan:
                     d["module_options"] = {str(k): self._json_safe(v) for k, v in mo.items()}
         return d
 
-    def _opts_for_opa(self, opts, keys):
+    def _opts_for_opa(self, opts: dict[str, Any], keys: list[str]) -> dict[str, Any]:
         """Return a JSON-serializable subset of opts for OPA (only listed keys that exist)."""
         out = {}
         for k in keys:
@@ -709,7 +721,7 @@ class SingleScan:
                 out[k] = self._json_safe(v)
         return out
 
-    def _json_safe(self, v):
+    def _json_safe(self, v: Any) -> Any:
         """Coerce value to a JSON-serializable form."""
         if v is None:
             return None
@@ -721,7 +733,7 @@ class SingleScan:
             return {str(k): self._json_safe(x) for k, x in v.items()}
         return str(v)
 
-    def _location_to_dict(self, loc) -> dict | None:
+    def _location_to_dict(self, loc: Any) -> dict[str, Any] | None:
         """Serialize a Location to a JSON-safe dict for OPA."""
         if loc is None or getattr(loc, "is_empty", False):
             return None
@@ -731,7 +743,7 @@ class SingleScan:
             "is_mutable": getattr(loc, "is_mutable", False),
         }
 
-    def _annotation_to_dict(self, an) -> dict:
+    def _annotation_to_dict(self, an: Any) -> dict[str, Any]:
         """Serialize a full Annotation (including RiskAnnotation detail) for OPA input."""
         from .models import Location, RiskAnnotation
 
@@ -791,11 +803,11 @@ class SingleScan:
         if config_key and d.get("key") != config_key:
             d["config_key"] = self._json_safe(config_key)
         if getattr(an, "is_mutable_key", None) is not None:
-            d["is_mutable_key"] = bool(an.is_mutable_key)
+            d["is_mutable_key"] = bool(getattr(an, "is_mutable_key", False))
 
         return d
 
-    def build_hierarchy_payload(self, scan_id: str = ""):
+    def build_hierarchy_payload(self, scan_id: str = "") -> dict[str, Any]:
         """Build OPA input: hierarchy (collection/role/playbook/play/task) + annotations. No native rules."""
         if not scan_id:
             scan_id = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d%H%M%S")
@@ -826,7 +838,7 @@ class SingleScan:
         }
         return self.hierarchy_payload
 
-    def apply_rules(self):
+    def apply_rules(self) -> None:
         # Engine-only mode: no native ARI rules; build hierarchy+annotations for OPA.
         self.build_hierarchy_payload()
         target_name = self.name
@@ -858,34 +870,34 @@ class SingleScan:
         self.result = None
         return
 
-    def add_time_records(self, time_records: dict):
+    def add_time_records(self, time_records: dict[str, Any]) -> None:
         if self.findings:
             self.findings.metadata["time_records"] = time_records
         return
 
-    def count_definitions(self):
+    def count_definitions(self) -> tuple[int, dict[str, int], dict[str, int]]:
         dep_num = len(self.loaded_dependency_dirs)
-        ext_counts = {}
+        ext_counts: dict[str, int] = {}
         for _, _defs in self.ext_definitions.items():
             for key, val in _defs.get("definitions", {}).items():
                 _current = ext_counts.get(key, 0)
                 _current += len(val)
                 ext_counts[key] = _current
-        root_counts = {}
+        root_counts: dict[str, int] = {}
         for key, val in self.root_definitions.get("definitions", {}).items():
             _current = root_counts.get(key, 0)
             _current += len(val)
             root_counts[key] = _current
         return dep_num, ext_counts, root_counts
 
-    def set_metadata(self, metadata: dict, dependencies: dict):
+    def set_metadata(self, metadata: dict[str, Any], dependencies: Any) -> None:
         self.target_path = self.make_target_path(self.type, self.name)
         self.version = metadata.get("version", "")
         self.hash = metadata.get("hash", "")
         self.download_url = metadata.get("download_url", "")
         self.loaded_dependency_dirs = dependencies
 
-    def set_metadata_findings(self):
+    def set_metadata_findings(self) -> None:
         target_name = self.name
         if self.collection_name:
             target_name = self.collection_name
@@ -905,7 +917,7 @@ class SingleScan:
             dependencies=dependencies,
         )
 
-    def load_index(self):
+    def load_index(self) -> None:
         index_location = self.__path_mappings["index"]
         with open(index_location) as f:
             self.index = json.load(f)
@@ -913,36 +925,36 @@ class SingleScan:
 
 @dataclass
 class ARIScanner:
-    config: Config = None
+    config: Config | None = None
 
     root_dir: str = ""
     rules_dir: str = ""
-    rules: list = field(default_factory=list)
-    rules_cache: list = field(default_factory=list)
+    rules: list[Any] = field(default_factory=list)
+    rules_cache: list[Any] = field(default_factory=list)
 
-    ram_client: RAMClient = None
+    ram_client: RAMClient | None = None
     read_ram: bool = True
     read_ram_for_dependency: bool = True
     write_ram: bool = False
 
     persist_dependency_cache: bool = False
 
-    skip_playbook_format_error: bool = (True,)
-    skip_task_format_error: bool = (True,)
+    skip_playbook_format_error: bool = True
+    skip_task_format_error: bool = True
 
     use_ansible_doc: bool = True
 
     do_save: bool = False
-    _parser: Parser = None
+    _parser: Parser | None = None
 
     show_all: bool = False
     pretty: bool = False
     silent: bool = False
     output_format: str = ""
 
-    _current: SingleScan = None
+    _current: SingleScan | None = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if not self.config:
             self.config = config
 
@@ -991,12 +1003,12 @@ class ARIScanner:
         include_test_contents: bool = False,
         load_all_taskfiles: bool = False,
         save_only_rule_result: bool = False,
-        yaml_label_list: list = None,
+        yaml_label_list: list[Any] | None = None,
         objects: bool = False,
         out_dir: str = "",
-        spec_mutations_from_previous_scan: dict = None,
-    ):
-        time_records = {}
+        spec_mutations_from_previous_scan: dict[str, Any] | None = None,
+    ) -> Any:
+        time_records: dict[str, Any] = {}
         self.record_begin(time_records, "scandata_init")
 
         if not name and path:
@@ -1034,14 +1046,14 @@ class ARIScanner:
             include_test_contents=include_test_contents,
             load_all_taskfiles=load_all_taskfiles,
             save_only_rule_result=save_only_rule_result,
-            yaml_label_list=yaml_label_list,
+            yaml_label_list=yaml_label_list or [],
             out_dir=out_dir,
             root_dir=self.root_dir,
             rules_dir=self.rules_dir,
             rules=self.rules,
             rules_cache=self.rules_cache,
             persist_dependency_cache=self.persist_dependency_cache,
-            spec_mutations_from_previous_scan=spec_mutations_from_previous_scan,
+            spec_mutations_from_previous_scan=spec_mutations_from_previous_scan or {},
             use_ansible_doc=self.use_ansible_doc,
             do_save=self.do_save,
             silent=self.silent,
@@ -1173,7 +1185,8 @@ class ARIScanner:
                             load_only=True,
                         )
                         dep_scandata = dep_scanner.get_last_scandata()
-                        scandata.ext_definitions[key] = dep_scandata.root_definitions
+                        if dep_scandata is not None:
+                            scandata.ext_definitions[key] = dep_scandata.root_definitions
                         dep_loaded = True
 
             self.record_end(time_records, "dependency_load")
@@ -1270,12 +1283,17 @@ class ARIScanner:
             # print("root definitions:", root_counts)
 
         # save RAM data
-        if self.write_ram and scandata.type not in [LoadType.PLAYBOOK, LoadType.TASKFILE, LoadType.PROJECT]:
-            self.register_findings_to_ram(scandata.findings)
-            self.register_indices_to_ram(scandata.findings, include_test_contents)
+        findings = scandata.findings
+        if (
+            self.write_ram
+            and scandata.type not in [LoadType.PLAYBOOK, LoadType.TASKFILE, LoadType.PROJECT]
+            and findings is not None
+        ):
+            self.register_findings_to_ram(findings)
+            self.register_indices_to_ram(findings, include_test_contents)
 
-        if scandata.out_dir is not None and scandata.out_dir != "":
-            self.save_rule_result(scandata.findings, scandata.out_dir)
+        if scandata.out_dir is not None and scandata.out_dir != "" and findings is not None:
+            self.save_rule_result(findings, scandata.out_dir)
             if not self.silent:
                 print(f"The rule result is saved at {scandata.out_dir}")
 
@@ -1284,13 +1302,13 @@ class ARIScanner:
                 if not self.silent:
                     print(f"The objects is saved at {scandata.out_dir}")
 
-        if not self.silent:
-            summary = summarize_findings(scandata.findings, self.show_all)
+        if not self.silent and findings is not None:
+            summary = summarize_findings(findings, self.show_all)
             print(summary)
 
-        if self.pretty:
+        if self.pretty and findings is not None:
             data_str = ""
-            data = json.loads(jsonpickle.encode(scandata.findings.simple(), make_refs=False))
+            data = json.loads(jsonpickle.encode(findings.simple(), make_refs=False))
             if self.output_format.lower() == "json":
                 data_str = json.dumps(data, indent=2)
             elif self.output_format.lower() == "yaml":
@@ -1340,13 +1358,19 @@ class ARIScanner:
                     spec_mutations_from_previous_scan=scandata.spec_mutations,
                 )
 
-        return scandata.findings.report.get("ari_result", None)
+        return findings.report.get("ari_result", None) if findings is not None else None
 
-    def load_metadata_from_ram(self, type, name, version):
+    def load_metadata_from_ram(self, type: str, name: str, version: str) -> tuple[bool, Any, Any]:
+        if self.ram_client is None:
+            return False, None, None
         loaded, metadata, dependencies = self.ram_client.load_metadata_from_findings(type, name, version)
         return loaded, metadata, dependencies
 
-    def load_definitions_from_ram(self, type, name, version, hash, allow_unresolved=False):
+    def load_definitions_from_ram(
+        self, type: str, name: str, version: str, hash: str, allow_unresolved: bool = False
+    ) -> tuple[bool, dict[str, Any]]:
+        if self.ram_client is None:
+            return False, {}
         loaded, definitions, mappings = self.ram_client.load_definitions_from_findings(
             type, name, version, hash, allow_unresolved
         )
@@ -1358,16 +1382,19 @@ class ARIScanner:
             }
         return loaded, definitions_dict
 
-    def register_findings_to_ram(self, findings: Findings):
-        self.ram_client.register(findings)
+    def register_findings_to_ram(self, findings: Findings) -> None:
+        if self.ram_client is not None:
+            self.ram_client.register(findings)
 
-    def register_indices_to_ram(self, findings: Findings, include_test_contents: bool = False):
-        self.ram_client.register_indices_to_ram(findings, include_test_contents)
+    def register_indices_to_ram(self, findings: Findings, include_test_contents: bool = False) -> None:
+        if self.ram_client is not None:
+            self.ram_client.register_indices_to_ram(findings, include_test_contents)
 
-    def save_findings(self, findings: Findings, out_dir: str):
-        self.ram_client.save_findings(findings, out_dir)
+    def save_findings(self, findings: Findings, out_dir: str) -> None:
+        if self.ram_client is not None:
+            self.ram_client.save_findings(findings, out_dir)
 
-    def save_rule_result(self, findings: Findings, out_dir: str):
+    def save_rule_result(self, findings: Findings, out_dir: str) -> None:
         if out_dir == "":
             raise ValueError("output dir must be a non-empty value")
 
@@ -1376,7 +1403,7 @@ class ARIScanner:
 
         findings.save_rule_result(fpath=os.path.join(out_dir, "rule_result.json"))
 
-    def save_definitions(self, definitions: dict, out_dir: str):
+    def save_definitions(self, definitions: dict[str, Any], out_dir: str) -> None:
         if out_dir == "":
             raise ValueError("output dir must be a non-empty value")
 
@@ -1388,25 +1415,26 @@ class ARIScanner:
         with open(fpath, "w") as file:
             file.write(objects_json_str)
 
-    def get_last_scandata(self):
+    def get_last_scandata(self) -> SingleScan | None:
         return self._current
 
-    def save_error(self, error: str, out_dir: str = ""):
-        if out_dir == "":
-            type = self._current.type
-            name = self._current.name
-            version = self._current.version
-            hash = self._current.hash
-            out_dir = self.ram_client.make_findings_dir_path(type, name, version, hash)
-        self.ram_client.save_error(error, out_dir)
+    def save_error(self, error: str, out_dir: str = "") -> None:
+        if out_dir == "" and self._current is not None and self.ram_client is not None:
+            _type = self._current.type
+            _name = self._current.name
+            _version = self._current.version
+            _hash = self._current.hash
+            out_dir = self.ram_client.make_findings_dir_path(_type, _name, _version, _hash)
+        if self.ram_client is not None:
+            self.ram_client.save_error(error, out_dir)
 
-    def record_begin(self, time_records: dict, record_name: str):
+    def record_begin(self, time_records: dict[str, Any], record_name: str) -> None:
         time_records[record_name] = {}
         time_records[record_name]["begin"] = datetime.datetime.now(datetime.timezone.utc).strftime(
             "%Y-%m-%dT%H:%M:%S.%f"
         )
 
-    def record_end(self, time_records: dict, record_name: str):
+    def record_end(self, time_records: dict[str, Any], record_name: str) -> None:
         end = datetime.datetime.now(datetime.timezone.utc)
         end = end.replace(tzinfo=None)
         time_records[record_name]["end"] = end.strftime("%Y-%m-%dT%H:%M:%S.%f")
@@ -1416,13 +1444,13 @@ class ARIScanner:
 
 
 def tree(
-    root_definitions,
-    ext_definitions,
-    ram_client=None,
-    target_playbook_path=None,
-    target_taskfile_path=None,
-    load_all_taskfiles=False,
-):
+    root_definitions: dict[str, Any],
+    ext_definitions: dict[str, Any],
+    ram_client: RAMClient | None = None,
+    target_playbook_path: str | None = None,
+    target_taskfile_path: str | None = None,
+    load_all_taskfiles: bool = False,
+) -> tuple[list[Any], Any, list[Any], dict[str, Any]]:
     tl = TreeLoader(
         root_definitions, ext_definitions, ram_client, target_playbook_path, target_taskfile_path, load_all_taskfiles
     )
@@ -1439,14 +1467,16 @@ def tree(
     )
 
 
-def resolve(trees, additional):
+def resolve(trees: list[Any], additional: Any) -> list[TaskCallsInTree]:
     taskcalls_in_trees = []
     for i, tree in enumerate(trees):
         if not isinstance(tree, ObjectList):
             continue
         if len(tree.items) == 0:
             continue
-        root_key = tree.items[0].spec.key
+        first_item = tree.items[0]
+        spec = getattr(first_item, "spec", None)
+        root_key = spec.key if spec is not None else getattr(first_item, "key", "")
         logger.debug(f"[{i + 1}/{len(trees)}] {root_key}")
         taskcalls = resolve_variables(tree, additional)
         d = TaskCallsInTree(

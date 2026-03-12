@@ -9,7 +9,7 @@ from apme_engine.validators.native.rules._test_helpers import (
 from apme_engine.validators.native.rules.L037_unresolved_module import UnresolvedModuleRule
 
 
-def test_L037_fires_when_module_unresolved():
+def test_L037_fires_when_module_unresolved() -> None:
     spec = make_task_spec(
         module="unknown_module",
         executable_type=ExecutableType.MODULE_TYPE,
@@ -21,11 +21,12 @@ def test_L037_fires_when_module_unresolved():
     rule = UnresolvedModuleRule()
     assert rule.match(ctx)
     result = rule.process(ctx)
+    assert result is not None
     assert result.verdict is True
-    assert result.rule.rule_id == "L037"
+    assert result.rule is not None and result.rule.rule_id == "L037"
 
 
-def test_L037_does_not_fire_when_module_resolved():
+def test_L037_does_not_fire_when_module_resolved() -> None:
     spec = make_task_spec(
         module="copy",
         executable_type=ExecutableType.MODULE_TYPE,
@@ -36,4 +37,5 @@ def test_L037_does_not_fire_when_module_resolved():
     rule = UnresolvedModuleRule()
     assert rule.match(ctx)
     result = rule.process(ctx)
+    assert result is not None
     assert result.verdict is False

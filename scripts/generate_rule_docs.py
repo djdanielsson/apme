@@ -22,7 +22,7 @@ def playbook(*tasks_yaml: str) -> str:
     return PLAYBOOK_WRAP + "\n".join(lines)
 
 
-def write_native(name: str, rule_id: str, title: str, desc: str, violation: str, pass_yaml: str):
+def write_native(name: str, rule_id: str, title: str, desc: str, violation: str, pass_yaml: str) -> None:
     path = NATIVE_RULES / f"{name}.md"
     path.write_text(
         f"""---
@@ -52,7 +52,7 @@ description: {desc}
     print(path.name)
 
 
-def write_opa(num: int, rule_id: str, title: str, desc: str, violation: str, pass_yaml: str):
+def write_opa(num: int, rule_id: str, title: str, desc: str, violation: str, pass_yaml: str) -> None:
     path = OPA_BUNDLE / f"L{num:03d}.md"
     path.write_text(
         f"""---
@@ -82,7 +82,7 @@ description: {desc}
     print(path.name)
 
 
-def main():
+def main() -> None:
     pb_v = playbook("- name: Bad\n  ansible.builtin.shell: whoami")
     pb_p = playbook("- name: Ok\n  ansible.builtin.command: whoami")
 

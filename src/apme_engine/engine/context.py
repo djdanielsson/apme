@@ -1,14 +1,18 @@
+from __future__ import annotations
+
 import copy
 import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any, cast
 
 from .models import (
     BecomeInfo,
     CallObject,
     Collection,
     InventoryType,
+    Module,
     Object,
     Play,
     Playbook,
@@ -17,6 +21,7 @@ from .models import (
     TaskCall,
     TaskFile,
     Variable,
+    VariablePrecedence,
     VariableType,
     immutable_var_types,
 )
@@ -27,7 +32,12 @@ _special_var_value = "__ansible_special_variable__"
 variable_block_re = re.compile(r"{{[^}]+}}")
 
 
-def get_object(json_path, type, name, cache=None):
+def get_object(
+    json_path: str,
+    type: str,
+    name: str,
+    cache: dict[str, tuple[str, str]] | None = None,
+) -> Object | Role | Collection | Play | Task | TaskFile | Module | None:
     if cache is None:
         cache = {}
     json_type = ""
@@ -52,7 +62,7 @@ def get_object(json_path, type, name, cache=None):
     else:
         json_type, json_str = cached[0], cached[1]
     if json_type == "role":
-        r = Role.from_json(json_str)
+        r = cast(Role, Role.from_json(json_str))
         if type == "collection":
             raise ValueError("collection cannot be gotten in a role")
         if type == "role":
@@ -62,16 +72,16 @@ def get_object(json_path, type, name, cache=None):
         elif type == "taskfile":
             for tf in r.taskfiles:
                 if tf.defined_in == name:
-                    return tf
+                    return cast(TaskFile, tf)
         elif type == "task":
             for tf in r.taskfiles:
                 for t in tf.tasks:
                     if t.id == name:
-                        return t
+                        return cast(Task, t)
         elif type == "module":
             for m in r.modules:
                 if m.fqcn == name:
-                    return m
+                    return cast(Module, m)
         return None
     elif json_type == "collection":
         c = Collection()
@@ -81,46 +91,46 @@ def get_object(json_path, type, name, cache=None):
         if type == "role":
             for r in c.roles:
                 if r.fqcn == name:
-                    return r
+                    return cast(Role, r)
         elif type == "playbook":
             for p in c.playbooks:
                 if p.defined_in == name:
-                    return p
+                    return cast(Play, p)
         elif type == "taskfile":
             for tf in c.taskfiles:
                 if tf.defined_in == name:
-                    return tf
+                    return cast(TaskFile, tf)
             for r in c.roles:
                 for tf in r.taskfiles:
                     if tf.defined_in == name:
-                        return tf
+                        return cast(TaskFile, tf)
         elif type == "task":
             for p in c.playbooks:
                 for t in p.tasks:
                     if t.id == name:
-                        return t
+                        return cast(Task, t)
             for tf in c.taskfiles:
                 for t in tf.tasks:
                     if t.id == name:
-                        return t
+                        return cast(Task, t)
             for r in c.roles:
                 for tf in r.taskfiles:
                     for t in tf.tasks:
                         if t.id == name:
-                            return t
+                            return cast(Task, t)
         elif type == "module":
             for m in c.modules:
                 if m.fqcn == name:
-                    return m
+                    return cast(Module, m)
         return None
     return None
 
 
-def recursive_find_variable(var_name, var_dict=None):
+def recursive_find_variable(var_name: str, var_dict: dict[str, Any] | None = None) -> Any:
     if var_dict is None:
         var_dict = {}
 
-    def _visitor(vname, nname, node):
+    def _visitor(vname: str, nname: str, node: Any) -> Any:
         if nname == vname:
             return node
         if isinstance(node, dict):
@@ -138,7 +148,7 @@ def recursive_find_variable(var_name, var_dict=None):
     return _visitor(var_name, "", var_dict)
 
 
-def flatten(var_dict: dict = None, _prefix: str = ""):
+def flatten(var_dict: dict[str, Any] | None = None, _prefix: str = "") -> dict[str, Any]:
     if var_dict is None:
         var_dict = {}
     flat_vars = {}
@@ -156,27 +166,27 @@ def flatten(var_dict: dict = None, _prefix: str = ""):
 @dataclass
 class Context:
     keep_obj: bool = False
-    chain: list = field(default_factory=list)
-    variables: dict = field(default_factory=dict)
-    options: dict = field(default_factory=dict)
-    inventories: list = field(default_factory=list)
-    role_defaults: list = field(default_factory=list)
-    role_vars: list = field(default_factory=list)
-    registered_vars: list = field(default_factory=list)
-    set_facts: list = field(default_factory=list)
-    task_vars: list = field(default_factory=list)
+    chain: list[dict[str, Any]] = field(default_factory=list)
+    variables: dict[str, Any] = field(default_factory=dict)
+    options: dict[str, Any] = field(default_factory=dict)
+    inventories: list[Any] = field(default_factory=list)
+    role_defaults: list[str] = field(default_factory=list)
+    role_vars: list[str] = field(default_factory=list)
+    registered_vars: list[str] = field(default_factory=list)
+    set_facts: list[str] = field(default_factory=list)
+    task_vars: list[str] = field(default_factory=list)
 
-    become: BecomeInfo = None
-    module_defaults: dict = field(default_factory=dict)
+    become: BecomeInfo | None = None
+    module_defaults: dict[str, Any] = field(default_factory=dict)
 
-    var_set_history: dict = field(default_factory=dict)
-    var_use_history: dict = field(default_factory=dict)
+    var_set_history: dict[str, list[Variable]] = field(default_factory=dict)
+    var_use_history: dict[str, Any] = field(default_factory=dict)
 
-    _flat_vars: dict = field(default_factory=dict)
+    _flat_vars: dict[str, Any] = field(default_factory=dict)
 
-    def add(self, obj, depth_lvl=0):
-        _obj = None
-        _spec = None
+    def add(self, obj: Object | CallObject, depth_lvl: int = 0) -> None:
+        _obj: Object | CallObject | None = None
+        _spec: Object | None = None
         if isinstance(obj, Object):
             _obj = obj
             _spec = obj
@@ -253,12 +263,16 @@ class Context:
             # Module
             return
         self.options.update(_spec.options)
-        chain_node = {"key": _obj.key, "depth": depth_lvl}
+        chain_node: dict[str, Any] = {"key": _obj.key, "depth": depth_lvl}
         if self.keep_obj:
             chain_node["obj"] = _obj
         self.chain.append(chain_node)
 
-    def resolve_variable(self, var_name, resolve_history=None):
+    def resolve_variable(
+        self,
+        var_name: str,
+        resolve_history: dict[str, dict[str, Any]] | None = None,
+    ) -> tuple[Any, VariablePrecedence, dict[str, dict[str, Any]]]:
         if resolve_history is None:
             resolve_history = {}
         if var_name in resolve_history:
@@ -343,9 +357,13 @@ class Context:
 
         return None, VariableType.Unknown, _resolve_history
 
-    def resolve_single_variable(self, txt, resolve_history=None):
+    def resolve_single_variable(
+        self,
+        txt: Any,
+        resolve_history: dict[str, dict[str, Any]] | None = None,
+    ) -> tuple[Any, dict[str, dict[str, Any]]]:
         if resolve_history is None:
-            resolve_history = []
+            resolve_history = {}
         new_history = resolve_history.copy()
         if not isinstance(txt, str):
             return txt, new_history
@@ -370,7 +388,7 @@ class Context:
         else:
             return txt, new_history
 
-    def update_flat_vars(self, new_vars: dict, _prefix: str = ""):
+    def update_flat_vars(self, new_vars: dict[str, Any], _prefix: str = "") -> None:
         for k, v in new_vars.items():
             if isinstance(v, dict):
                 flat_var_name = f"{_prefix}{k}"
@@ -382,22 +400,22 @@ class Context:
                 self._flat_vars.update({flat_key: v})
         return
 
-    def chain_str(self):
-        lines = []
+    def chain_str(self) -> str:
+        lines: list[str] = []
         for chain_item in self.chain:
-            obj = chain_item.get("obj", None)
+            obj: Object | CallObject | None = chain_item.get("obj", None)
             depth = chain_item.get("depth", 0)
             indent = "  " * depth
-            obj_type = type(obj).__name__
-            obj_name = obj.name
+            obj_type = type(obj).__name__ if obj else "None"
+            obj_name = getattr(obj, "name", "") or getattr(obj, "key", "") if obj else ""
             line = f"{indent}{obj_type}: {obj_name}\n"
-            if obj_type == "Task":
-                module_name = obj.module
+            if obj_type == "Task" and obj and hasattr(obj, "module"):
+                module_name = getattr(obj, "module", "")
                 line = f"{indent}{obj_type}: {obj_name} (module: {module_name})\n"
             lines.append(line)
         return "".join(lines)
 
-    def copy(self):
+    def copy(self) -> Context:
         return Context(
             keep_obj=self.keep_obj,
             chain=copy.copy(self.chain),
@@ -411,7 +429,7 @@ class Context:
         # return copy.deepcopy(self)
 
 
-def resolved_vars_contains(resolved_vars, new_var):
+def resolved_vars_contains(resolved_vars: list[dict[str, Any]], new_var: dict[str, Any]) -> bool:
     if not isinstance(new_var, dict):
         return False
     new_var_key = new_var.get("key", "")
@@ -430,15 +448,20 @@ def resolved_vars_contains(resolved_vars, new_var):
     return False
 
 
-def resolve_module_options(context: Context, taskcall: TaskCall):
-    resolved_vars = []
-    variables_in_loop = []
-    used_variables = {}
-    if len(taskcall.spec.loop) == 0:
+def resolve_module_options(
+    context: Context, taskcall: TaskCall
+) -> tuple[list[Any], list[dict[str, Any]], dict[str, list[str]], dict[str, Any]]:
+    resolved_vars: list[dict[str, Any]] = []
+    variables_in_loop: list[dict[str, Any]] = []
+    used_variables: dict[str, Any] = {}
+    spec = taskcall.spec
+    loop: dict[str, Any] = getattr(spec, "loop", {}) or {}
+    module_options: Any = getattr(spec, "module_options", None)
+    if len(loop) == 0:
         variables_in_loop = [{}]
     else:
-        loop_key = list(taskcall.spec.loop.keys())[0]
-        loop_values = taskcall.spec.loop.get(loop_key, [])
+        loop_key = list(loop.keys())[0]
+        loop_values = loop.get(loop_key, [])
         new_var = {
             "key": loop_key,
             "value": loop_values,
@@ -540,16 +563,16 @@ def resolve_module_options(context: Context, taskcall: TaskCall):
             if loop_values:
                 raise ValueError(f"loop_values of type {type(loop_values).__name__} is not supported yet")
 
-    resolved_opts_in_loop = []
-    mutable_vars_per_mo = {}
+    resolved_opts_in_loop: list[Any] = []
+    mutable_vars_per_mo: dict[str, list[str]] = {}
     for variables in variables_in_loop:
-        resolved_opts = None
-        if isinstance(taskcall.spec.module_options, dict):
+        resolved_opts: Any = None
+        if isinstance(module_options, dict):
             resolved_opts = {}
             for (
                 module_opt_key,
                 module_opt_val,
-            ) in taskcall.spec.module_options.items():
+            ) in module_options.items():
                 if not isinstance(module_opt_val, str):
                     resolved_opts[module_opt_key] = module_opt_val
                     continue
@@ -619,10 +642,10 @@ def resolve_module_options(context: Context, taskcall: TaskCall):
                         break
                     resolved_opt_val = resolved_opt_val.replace(original_block, str(resolved_var_val))
                 resolved_opts[module_opt_key] = resolved_opt_val
-        elif isinstance(taskcall.spec.module_options, str):
-            resolved_opt_val = taskcall.spec.module_options
+        elif isinstance(module_options, str):
+            resolved_opt_val = module_options
             if variable_block_re.search(resolved_opt_val):
-                var_names = extract_variable_names(taskcall.spec.module_options)
+                var_names = extract_variable_names(module_options)
                 for var_name_dict in var_names:
                     original_block = var_name_dict.get("original", "")
                     var_name = var_name_dict.get("name", "")
@@ -680,12 +703,12 @@ def resolve_module_options(context: Context, taskcall: TaskCall):
                     resolved_opt_val = resolved_opt_val.replace(original_block, str(resolved_var_val))
             resolved_opts = resolved_opt_val
         else:
-            resolved_opts = taskcall.spec.module_options
+            resolved_opts = module_options
         resolved_opts_in_loop.append(resolved_opts)
     return resolved_opts_in_loop, resolved_vars, mutable_vars_per_mo, used_variables
 
 
-def extract_variable_names(txt):
+def extract_variable_names(txt: str) -> list[dict[str, str]]:
     if not variable_block_re.search(txt):
         return []
     found_var_blocks = variable_block_re.findall(txt)
@@ -720,8 +743,8 @@ def extract_variable_names(txt):
     return blocks
 
 
-def flatten_dict_vars(variables: dict, _prefix: str = "") -> dict:
-    flat_vars_dict = {}
+def flatten_dict_vars(variables: dict[str, Any], _prefix: str = "") -> dict[str, Any]:
+    flat_vars_dict: dict[str, Any] = {}
     for key, val in variables.items():
         var_name = f"{_prefix}{key}" if _prefix else key
         flat_vars_dict[var_name] = val

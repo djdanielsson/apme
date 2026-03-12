@@ -3,7 +3,8 @@
 import os
 from pathlib import Path
 
-from apme.v1 import common_pb2, primary_pb2
+from apme.v1.common_pb2 import File
+from apme.v1.primary_pb2 import ScanOptions, ScanRequest
 
 # Skip these dirs when walking (same kind of ignores as many linters)
 SKIP_DIRS = {".git", "__pycache__", ".venv", "venv", "node_modules", ".tox", "htmlcov"}
@@ -62,7 +63,7 @@ def build_scan_request(
     project_root_name: str = "project",
     ansible_core_version: str | None = None,
     collection_specs: list[str] | None = None,
-) -> primary_pb2.ScanRequest:
+) -> ScanRequest:
     """
     Walk target_path (file or directory) and build a ScanRequest with chunked files.
     Paths in File messages are relative to the project root (target_path if dir, else parent).
@@ -98,15 +99,15 @@ def build_scan_request(
         # Skip if looks binary
         if b"\x00" in content[:8192]:
             continue
-        files.append(common_pb2.File(path=str(rel), content=content))
+        files.append(File(path=str(rel), content=content))
 
-    options = primary_pb2.ScanOptions()
+    options = ScanOptions()
     if ansible_core_version:
         options.ansible_core_version = ansible_core_version
     if collection_specs:
         options.collection_specs.extend(collection_specs)
 
-    return primary_pb2.ScanRequest(
+    return ScanRequest(
         scan_id=scan_id or "",
         project_root=project_root_name,
         files=files,

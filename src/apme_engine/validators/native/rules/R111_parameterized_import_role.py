@@ -6,13 +6,12 @@ from apme_engine.engine.models import (
     RuleResult,
     RunTargetType,
     Severity,
+    TaskCall,
 )
 from apme_engine.engine.models import (
     ExecutableType as ActionType,
 )
-from apme_engine.engine.models import (
-    RuleTag as Tag,
-)
+from apme_engine.engine.models import RuleTag as Tag
 
 
 @dataclass
@@ -22,17 +21,23 @@ class ParameterizedImportRoleRule(Rule):
     enabled: bool = True
     name: str = "ParameterizedImportRole"
     version: str = "v0.0.1"
-    severity: Severity = Severity.HIGH
-    tags: tuple = Tag.DEPENDENCY
+    severity: str = Severity.HIGH
+    tags: tuple[str, ...] = (Tag.DEPENDENCY,)
 
     def match(self, ctx: AnsibleRunContext) -> bool:
-        return ctx.current.type == RunTargetType.Task
+        if ctx.current is None:
+            return False
+        return bool(ctx.current.type == RunTargetType.Task)
 
-    def process(self, ctx: AnsibleRunContext):
+    def process(self, ctx: AnsibleRunContext) -> RuleResult | None:
         task = ctx.current
+        if task is None or not isinstance(task, TaskCall):
+            return None
 
         role_ref_arg = task.args.get("name")
-        verdict = task.action_type == ActionType.ROLE_TYPE and role_ref_arg and role_ref_arg.is_mutable
+        verdict = bool(
+            task.action_type == ActionType.ROLE_TYPE and role_ref_arg is not None and role_ref_arg.is_mutable
+        )
         role_ref = role_ref_arg.raw if role_ref_arg else None
         detail = {
             "role": role_ref,

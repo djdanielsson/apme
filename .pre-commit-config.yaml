@@ -5,3 +5,15 @@ repos:
       - id: ruff
         args: [--fix]
       - id: ruff-format
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.19.1
+    hooks:
+      - id: mypy
+        args: [--strict, src/, tests/, scripts/]
+        pass_filenames: false
+        additional_dependencies:
+          - types-protobuf
+          - types-PyYAML
+          - types-requests
+          - types-tabulate
+          - grpc-stubs

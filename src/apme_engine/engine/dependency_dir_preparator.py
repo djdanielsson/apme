@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import contextlib
 import datetime
 import glob
@@ -10,6 +12,7 @@ import tarfile
 import tempfile
 from copy import deepcopy
 from dataclasses import asdict, dataclass, field
+from typing import Any
 
 import yaml
 
@@ -85,23 +88,30 @@ class DependencyDirPreparator:
     target_version: str = ""
     target_path: str = ""
     target_dependency_dir: str = ""
-    target_path_mappings: dict = field(default_factory=dict)
+    target_path_mappings: dict[str, Any] = field(default_factory=dict)
     metadata: DownloadMetadata = field(default_factory=DownloadMetadata)
     download_location: str = ""
     dependency_dir_path: str = ""
     silent: bool = False
     do_save: bool = False
-    tmp_install_dir: tempfile.TemporaryDirectory = None
+    tmp_install_dir: tempfile.TemporaryDirectory[Any] | None = None
     periodical_cleanup: bool = False
-    cleanup_queue: list = field(default_factory=list)
+    cleanup_queue: list[Any] = field(default_factory=list)
     cleanup_threshold: int = 200
 
     # -- out --
-    dependency_dirs: list = field(default_factory=list)
+    dependency_dirs: list[Any] = field(default_factory=list)
+    install_log: str = ""
+    index: dict[str, Any] = field(default_factory=dict)
 
     def prepare_dir(
-        self, root_install=True, use_ansible_path=False, is_src_installed=False, cache_enabled=False, cache_dir=""
-    ):
+        self,
+        root_install: bool = True,
+        use_ansible_path: bool = False,
+        is_src_installed: bool = False,
+        cache_enabled: bool = False,
+        cache_dir: str = "",
+    ) -> list[Any]:
         logger.debug("setup base dirs")
         self.setup_dirs(cache_enabled, cache_dir)
         logger.debug("prepare target dir")
@@ -125,7 +135,7 @@ class DependencyDirPreparator:
             self.prepare_dependency_dir(dependencies, cache_enabled, cache_dir)
         return self.dependency_dirs
 
-    def setup_dirs(self, cache_enabled=False, cache_dir=""):
+    def setup_dirs(self, cache_enabled: bool = False, cache_dir: str = "") -> None:
         self.download_location = os.path.join(self.root_dir, "archives")
         self.dependency_dir_path = self.root_dir
         # check download_location
@@ -139,7 +149,13 @@ class DependencyDirPreparator:
             os.makedirs(self.dependency_dir_path)
         return
 
-    def prepare_root_dir(self, root_install=True, is_src_installed=False, cache_enabled=False, cache_dir=""):
+    def prepare_root_dir(
+        self,
+        root_install: bool = True,
+        is_src_installed: bool = False,
+        cache_enabled: bool = False,
+        cache_dir: str = "",
+    ) -> None:
         # install root
         if is_src_installed:
             pass
@@ -186,7 +202,9 @@ class DependencyDirPreparator:
                     self.metadata.hash = hash
         return
 
-    def prepare_dependency_dir(self, dependencies, cache_enabled=False, cache_dir=""):
+    def prepare_dependency_dir(
+        self, dependencies: dict[str, Any], cache_enabled: bool = False, cache_dir: str = ""
+    ) -> None:
         col_dependencies = dependencies.get("dependencies", {}).get("collections", [])
         role_dependencies = dependencies.get("dependencies", {}).get("roles", [])
 
@@ -230,7 +248,8 @@ class DependencyDirPreparator:
                         logger.debug(f"found cache data {targz_file}")
                         metadata_file = os.path.join(targz_file.rsplit("/", 1)[0], download_metadata_file)
                         md = self.find_target_metadata(LoadType.COLLECTION, metadata_file, col_name)
-                        downloaded_dep.metadata = md
+                        if md is not None:
+                            downloaded_dep.metadata = md
                     else:
                         # if no cache data, download
                         logger.debug("cache data not found")
@@ -241,8 +260,8 @@ class DependencyDirPreparator:
                         metadata = self.extract_collections_metadata(install_msg, cache_location)
                         metadata_file = self.export_data(metadata, cache_location, download_metadata_file)
                         md = self.find_target_metadata(LoadType.COLLECTION, metadata_file, col_name)
-                        downloaded_dep.metadata = md
-                        if md:
+                        if md is not None:
+                            downloaded_dep.metadata = md
                             targz_file = md.download_src_path
                     # install collection from tar.gz
                     self.install_galaxy_collection_from_targz(targz_file, sub_dependency_dir_path)
@@ -358,14 +377,18 @@ class DependencyDirPreparator:
                         if os.path.exists(install_dir):
                             install_dir = os.path.dirname(install_dir)
                         install_msg, install_err = install_galaxy_target(
-                            name, LoadType.ROLE, install_dir, self.source_repository, target_version
+                            name,
+                            LoadType.ROLE,
+                            install_dir,
+                            self.source_repository,
+                            target_version=target_version if target_version is not None else "",
                         )
                         logger.debug(f"role install msg: {install_msg}")
                         logger.debug(f"role install msg err: {install_err}")
-                        metadata = self.extract_roles_metadata(install_msg)
-                        if not metadata:
+                        metadata_val: dict[str, list[dict[str, Any]]] | None = self.extract_roles_metadata(install_msg)
+                        if not metadata_val:
                             raise ValueError(f"failed to install {LoadType.ROLE} {name}")
-                        metadata_file = self.export_data(metadata, download_meta_dir_path, download_metadata_file)
+                        metadata_file = self.export_data(metadata_val, download_meta_dir_path, download_metadata_file)
                         md = self.find_target_metadata(LoadType.ROLE, metadata_file, name)
                         # save cache
                         if not os.path.exists(cache_dir_path):
@@ -397,11 +420,11 @@ class DependencyDirPreparator:
                     )
                     logger.debug(f"role install msg: {install_msg}")
                     logger.debug(f"role install msg err: {install_err}")
-                    metadata = self.extract_roles_metadata(install_msg)
-                    if not metadata:
+                    metadata_val = self.extract_roles_metadata(install_msg)
+                    if not metadata_val:
                         raise ValueError(f"failed to install {LoadType.ROLE} {name}")
                     sub_download_location = os.path.join(self.download_location, "role", name)
-                    metadata_file = self.export_data(metadata, sub_download_location, download_metadata_file)
+                    metadata_file = self.export_data(metadata_val, sub_download_location, download_metadata_file)
                     md = self.find_target_metadata(LoadType.ROLE, metadata_file, name)
                     if md is not None:
                         downloaded_dep.metadata = md
@@ -409,16 +432,17 @@ class DependencyDirPreparator:
                 self.dependency_dirs.append(asdict(downloaded_dep))
         return
 
-    def src_install(self):
+    def src_install(self) -> None:
         try:
             self.setup_tmp_dir()
-            self.root_install(self.tmp_install_dir)
+            if self.tmp_install_dir is not None:
+                self.root_install(self.tmp_install_dir)
         finally:
             self.clean_tmp_dir()
         return
 
-    def root_install(self, tmp_src_dir):
-        tmp_src_dir = os.path.join(self.tmp_install_dir.name, "src")
+    def root_install(self, tmp_install_dir: tempfile.TemporaryDirectory[Any]) -> None:
+        tmp_src_dir = os.path.join(tmp_install_dir.name, "src")
         if not os.path.exists(tmp_src_dir):
             os.makedirs(tmp_src_dir)
 
@@ -452,11 +476,12 @@ class DependencyDirPreparator:
                 metadata = self.extract_collections_metadata(install_msg, sub_download_location)
                 metadata_file = self.export_data(metadata, sub_download_location, download_metadata_file)
                 md = self.find_target_metadata(LoadType.COLLECTION, metadata_file, self.target_name)
-            if md:
+            if md is not None:
                 self.install_galaxy_collection_from_reqfile(md.requirements_file, tmp_src_dir)
             dst_src_dir = self.target_path_mappings["src"]
             dependency_dir = tmp_src_dir
-            self.metadata = md
+            if md is not None:
+                self.metadata = md
         elif self.target_type == LoadType.ROLE:
             install_msg = ""
             sub_download_location = os.path.join(self.download_location, "roles", self.target_name)
@@ -479,10 +504,10 @@ class DependencyDirPreparator:
                 )
                 logger.debug(f"role install msg: {install_msg}")
                 logger.debug(f"role install msg err: {install_err}")
-                metadata = self.extract_roles_metadata(install_msg)
-                if not metadata:
+                role_metadata: dict[str, list[dict[str, Any]]] | None = self.extract_roles_metadata(install_msg)
+                if not role_metadata:
                     raise ValueError(f"failed to install {self.target_type} {self.target_name}")
-                metadata_file = self.export_data(metadata, metafile_location, download_metadata_file)
+                metadata_file = self.export_data(role_metadata, metafile_location, download_metadata_file)
                 md = self.find_target_metadata(LoadType.ROLE, metadata_file, self.target_name)
                 # save cache
                 if not os.path.exists(sub_download_location):
@@ -529,15 +554,15 @@ class DependencyDirPreparator:
         self.dependency_dirs = self.dependnecy_dirs(metadata_file, self.target_type, self.target_name)
         return
 
-    def set_index(self, path):
+    def set_index(self, path: str) -> None:
         if not self.silent:
             print("crawl content")
         dep_type = LoadType.UNKNOWN
-        target_path_list = []
+        target_path_list: list[str] = []
         if os.path.isfile(path):
             # need further check?
             dep_type = LoadType.PLAYBOOK
-            target_path_list.append = [path]
+            target_path_list.append(path)
         elif os.path.exists(os.path.join(path, collection_manifest_json)):
             dep_type = LoadType.COLLECTION
             target_path_list = [path]
@@ -554,10 +579,10 @@ class DependencyDirPreparator:
             logger.error("this target type is not supported")
             sys.exit(1)
 
-        list = []
+        dep_list: list[dict[str, Any]] = []
         for target_path in target_path_list:
             ext_name = get_target_name(dep_type, target_path)
-            list.append(
+            dep_list.append(
                 {
                     "name": ext_name,
                     "type": dep_type,
@@ -565,13 +590,19 @@ class DependencyDirPreparator:
             )
 
         index_data = {
-            "dependencies": list,
+            "dependencies": dep_list,
             "path_mappings": self.target_path_mappings,
         }
 
         self.index = index_data
 
-    def download_galaxy_collection(self, target, output_dir, version="", source_repository=""):
+    def download_galaxy_collection(
+        self,
+        target: str,
+        output_dir: str,
+        version: str = "",
+        source_repository: str = "",
+    ) -> str:
         server_option = ""
         if source_repository:
             server_option = f"--server {source_repository}"
@@ -594,7 +625,9 @@ class DependencyDirPreparator:
         logger.debug(f"STDOUT: {install_msg}")
         return install_msg
 
-    def download_galaxy_collection_from_reqfile(self, requirements, output_dir, source_repository=""):
+    def download_galaxy_collection_from_reqfile(
+        self, requirements: str, output_dir: str, source_repository: str = ""
+    ) -> None:
         server_option = ""
         if source_repository:
             server_option = f"--server {source_repository}"
@@ -609,7 +642,7 @@ class DependencyDirPreparator:
         logger.debug(f"STDOUT: {install_msg}")
         # return proc.stdout
 
-    def install_galaxy_collection_from_targz(self, tarfile, output_dir):
+    def install_galaxy_collection_from_targz(self, tarfile: str, output_dir: str) -> None:
         logger.debug(f"install collection from {tarfile}")
         proc = subprocess.run(
             f"ansible-galaxy collection install {tarfile} -p {output_dir}",
@@ -622,7 +655,7 @@ class DependencyDirPreparator:
         logger.debug(f"STDOUT: {install_msg}")
         # return proc.stdout
 
-    def install_galaxy_collection_from_reqfile(self, requirements, output_dir):
+    def install_galaxy_collection_from_reqfile(self, requirements: str, output_dir: str) -> None:
         if not os.path.isfile(requirements):
             # get requirements file from archives dir under current root_dir
             child_dir_path = requirements.split("archives")[-1]
@@ -647,7 +680,7 @@ class DependencyDirPreparator:
         logger.debug(f"STDOUT: {install_msg}")
         # return proc.stdout
 
-    def is_download_file_exist(self, type, target, dir):
+    def is_download_file_exist(self, type: str, target: str, dir: str) -> tuple[bool, str]:
         is_exist = False
         filename = ""
         download_metadata_files = glob.glob(f"{dir}/{type}/{target}/**/{download_metadata_file}", recursive=True)
@@ -667,7 +700,7 @@ class DependencyDirPreparator:
                         filename = file
         return is_exist, filename
 
-    def install_galaxy_role_from_reqfile(self, file, output_dir):
+    def install_galaxy_role_from_reqfile(self, file: str, output_dir: str) -> None:
         proc = subprocess.run(
             f"ansible-galaxy role install -r {file} -p {output_dir}",
             shell=True,
@@ -678,7 +711,7 @@ class DependencyDirPreparator:
         install_msg = proc.stdout
         logger.debug(f"STDOUT: {install_msg}")
 
-    def extract_collections_metadata(self, log_message, download_location):
+    def extract_collections_metadata(self, log_message: str, download_location: str) -> dict[str, list[dict[str, Any]]]:
         # -- log message
         # Downloading collection 'community.rabbitmq:1.2.3' to
         # Downloading https://galaxy.ansible.com/download/ansible-posix-1.4.0.tar.gz to ...
@@ -724,7 +757,7 @@ class DependencyDirPreparator:
         result = {"collections": metadata_list}
         return result
 
-    def extract_roles_metadata(self, log_message):
+    def extract_roles_metadata(self, log_message: str) -> dict[str, list[dict[str, Any]]] | None:
         # - downloading role from https://github.com/rhythmictech/ansible-role-awscli/archive/1.0.3.tar.gz
         # - extracting rhythmictech.awscli to /private/tmp/role-test/rhythmictech.awscli
         url = ""
@@ -760,7 +793,7 @@ class DependencyDirPreparator:
         result = {"roles": metadata_list}
         return result
 
-    def find_target_metadata(self, type, metadata_file, target):
+    def find_target_metadata(self, type: str, metadata_file: str, target: str) -> DownloadMetadata | None:
         if not os.path.isfile(metadata_file):
             # get metadata file from archives dir under current root_dir
             child_dir_path = metadata_file.split("archives")[-1]
@@ -785,8 +818,8 @@ class DependencyDirPreparator:
         logger.warning(f"metadata not found: {target}")
         return None
 
-    def existing_dependency_dir_loader(self, dependency_type, dependency_dir_path):
-        search_dirs = []
+    def existing_dependency_dir_loader(self, dependency_type: str, dependency_dir_path: str) -> list[dict[str, Any]]:
+        search_dirs: list[dict[str, Any]] = []
         if dependency_type == LoadType.COLLECTION:
             base_dir = dependency_dir_path
             if os.path.exists(os.path.join(dependency_dir_path, "ansible_collections")):
@@ -799,31 +832,30 @@ class DependencyDirPreparator:
                 ]
                 search_dirs.extend(colls)
 
-        dependency_dirs = []
+        dependency_dirs: list[dict[str, Any]] = []
         for dep_info in search_dirs:
-            downloaded_dep = {"dir": "", "metadata": {}}
-            downloaded_dep["dir"] = dep_info["path"]
-            # meta data
-            downloaded_dep["metadata"]["type"] = LoadType.COLLECTION
-            downloaded_dep["metadata"]["name"] = dep_info["name"]
+            metadata: dict[str, Any] = {"type": LoadType.COLLECTION, "name": dep_info["name"]}
+            downloaded_dep: dict[str, Any] = {"dir": dep_info["path"], "metadata": metadata}
             dependency_dirs.append(downloaded_dep)
         return dependency_dirs
 
-    def __save_install_log(self):
+    def __save_install_log(self) -> None:
+        if self.tmp_install_dir is None:
+            return
         tmpdir = self.tmp_install_dir.name
         tmp_install_log = os.path.join(tmpdir, "install.log")
         with open(tmp_install_log, "w") as f:
             f.write(self.install_log)
 
-    def __save_index(self):
-        index_location = self.__path_mappings["index"]
+    def __save_index(self) -> None:
+        index_location = self.target_path_mappings["index"]
         index_dir = os.path.dirname(os.path.abspath(index_location))
         if not os.path.exists(index_dir):
             os.makedirs(index_dir)
         with open(index_location, "w") as f:
             json.dump(self.index, f, indent=2)
 
-    def move_src(self, src, dst):
+    def move_src(self, src: str, dst: str) -> None:
         if src == "" or not os.path.exists(src) or not os.path.isdir(src):
             raise ValueError(f"src {src} is not directory")
         if dst == "" or ".." in dst:
@@ -850,13 +882,13 @@ class DependencyDirPreparator:
             raise ValueError(proc.stderr + "\ndirs: " + ", ".join(dirs)) from exc
         return
 
-    def setup_tmp_dir(self):
+    def setup_tmp_dir(self) -> None:
         if self.tmp_install_dir is None or not os.path.exists(self.tmp_install_dir.name):
             self.tmp_install_dir = tempfile.TemporaryDirectory()
             if self.periodical_cleanup:
                 self.cleanup_queue.append(deepcopy(self.tmp_install_dir))
 
-    def clean_tmp_dir(self):
+    def clean_tmp_dir(self) -> None:
         if self.tmp_install_dir is not None and os.path.exists(self.tmp_install_dir.name):
             if self.periodical_cleanup:
                 if len(self.cleanup_queue) > self.cleanup_threshold:
@@ -868,7 +900,7 @@ class DependencyDirPreparator:
                 self.tmp_install_dir.cleanup()
                 self.tmp_install_dir = None
 
-    def export_data(self, data, dir, filename):
+    def export_data(self, data: dict[str, Any], dir: str, filename: str) -> str:
         if not os.path.exists(dir):
             os.makedirs(dir)
         file = os.path.join(dir, filename)
@@ -877,7 +909,7 @@ class DependencyDirPreparator:
             json.dump(data, f)
         return file
 
-    def get_metafile_in_target(self, type, filepath):
+    def get_metafile_in_target(self, type: str, filepath: str) -> tuple[str, str]:
         metafile_path = ""
         files_path = ""
         if type == LoadType.COLLECTION:
@@ -887,13 +919,15 @@ class DependencyDirPreparator:
                     if info.name.endswith(collection_manifest_json):
                         f = tar.extractfile(info)
                         metafile_path = filepath.replace(".tar.gz", f"-{collection_manifest_json}")
-                        with open(metafile_path, "wb") as c:
-                            c.write(f.read())
+                        if f is not None:
+                            with open(metafile_path, "wb") as c:
+                                c.write(f.read())
                     if info.name.endswith(collection_files_json):
                         f = tar.extractfile(info)
                         files_path = filepath.replace(".tar.gz", f"-{collection_files_json}")
-                        with open(files_path, "wb") as c:
-                            c.write(f.read())
+                        if f is not None:
+                            with open(files_path, "wb") as c:
+                                c.write(f.read())
         elif type == LoadType.ROLE:
             # get meta/main.yml path
             role_meta_files = safe_glob(
@@ -907,7 +941,7 @@ class DependencyDirPreparator:
                 metafile_path = role_meta_files[0]
         return metafile_path, files_path
 
-    def update_metadata(self, type, metadata_file, target, key, value):
+    def update_metadata(self, type: str, metadata_file: str, target: str, key: str, value: Any) -> None:
         with open(metadata_file) as f:
             metadata = json.load(f)
         if type == LoadType.COLLECTION:
@@ -932,7 +966,7 @@ class DependencyDirPreparator:
                     json.dump(metadata, f)
         return
 
-    def update_role_download_src(self, metadata_file, dst_src_dir):
+    def update_role_download_src(self, metadata_file: str, dst_src_dir: str) -> None:
         with open(metadata_file) as f:
             metadata = json.load(f)
         metadata_list = metadata.get("roles", [])
@@ -953,7 +987,7 @@ class DependencyDirPreparator:
             json.dump(metadata, f)
         return
 
-    def get_author(self, type, metafile_path):
+    def get_author(self, type: str, metafile_path: str) -> str:
         if not os.path.exists(metafile_path):
             metafile_path = f"{self.root_dir}/{metafile_path}"
             if not os.path.exists(metafile_path):
@@ -967,11 +1001,14 @@ class DependencyDirPreparator:
         elif type == LoadType.ROLE:
             with open(metafile_path) as f:
                 metadata = yaml.safe_load(f)
+            if metadata is None:
+                return ""
             author = metadata.get("galaxy_info", {}).get("author", "")
-            return author
+            return str(author) if author is not None else ""
+        return ""
 
-    def dependnecy_dirs(self, metadata_file, target_type, target_name):
-        dependency_dirs = []
+    def dependnecy_dirs(self, metadata_file: str, target_type: str, target_name: str) -> list[dict[str, Any]]:
+        dependency_dirs: list[dict[str, Any]] = []
         if not os.path.isfile(metadata_file):
             # get metadata file from archives dir under current root_dir
             child_dir_path = metadata_file.split("archives")[-1]
@@ -1009,12 +1046,12 @@ class DependencyDirPreparator:
         return dependency_dirs
 
 
-def find_ext_dependencies(path):
+def find_ext_dependencies(path: str) -> tuple[str, list[str]]:
     collection_meta_files = safe_glob(os.path.join(path, "**", collection_manifest_json), recursive=True)
     if len(collection_meta_files) > 0:
         collection_path_list = [trim_suffix(f, ["/" + collection_manifest_json]) for f in collection_meta_files]
         collection_path_list = remove_subdirectories(collection_path_list)
-        return LoadType.COLLECTION, collection_path_list
+        return (LoadType.COLLECTION, collection_path_list)
     role_meta_files = safe_glob(
         [
             os.path.join(path, "**", role_meta_main_yml),
@@ -1027,5 +1064,5 @@ def find_ext_dependencies(path):
             trim_suffix(f, ["/" + role_meta_main_yml, "/" + role_meta_main_yaml]) for f in role_meta_files
         ]
         role_path_list = remove_subdirectories(role_path_list)
-        return LoadType.ROLE, role_path_list
-    return LoadType.UNKNOWN, []
+        return (LoadType.ROLE, role_path_list)
+    return (LoadType.UNKNOWN, [])

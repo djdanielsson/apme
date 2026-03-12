@@ -23,6 +23,7 @@ This directory contains the Architecture Decision Records (ADRs) for APME.
 | [ADR-015](ADR-015-github-actions-prek.md) | GitHub Actions CI with prek | Accepted | 2026-03 |
 | [ADR-016](ADR-016-single-branch-main.md) | Single-branch `main` Strategy | Accepted | 2026-03 |
 | [ADR-017](ADR-017-trust-and-verify-agent-sdlc.md) | Trust-and-verify Agent SDLC Invocation | Accepted | 2026-03 |
+| [ADR-018](ADR-018-mypy-strict-type-checking.md) | mypy Strict Mode Type Checking | Accepted | 2026-03 |
 
 ## Categories
 
@@ -68,7 +69,7 @@ Original planning ADRs that were superseded by implementation decisions:
 ## Creating New ADRs
 
 1. Copy the template from `../.sdlc/templates/adr.md`
-2. Use the next available number (currently ADR-018)
+2. Use the next available number (currently ADR-019)
 3. Include:
    - Status (Proposed → Accepted)
    - Date
@@ -101,3 +102,4 @@ Original planning ADRs that were superseded by implementation decisions:
 | 015 | 2026-03 | GitHub Actions CI with prek |
 | 016 | 2026-03 | Single-branch `main` strategy |
 | 017 | 2026-03 | Trust-and-verify agent SDLC invocation |
+| 018 | 2026-03 | mypy strict mode type checking |

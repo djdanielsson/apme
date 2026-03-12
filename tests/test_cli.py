@@ -3,6 +3,7 @@
 import json
 from io import StringIO
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -11,19 +12,19 @@ import apme_engine.cli as cli_module
 from apme_engine.validators.base import ScanContext
 
 
-def _make_context(hierarchy_payload: dict, scandata=None):
+def _make_context(hierarchy_payload: dict[str, Any], scandata: Any = None) -> ScanContext:
     return ScanContext(hierarchy_payload=hierarchy_payload, scandata=scandata, root_dir="")
 
 
 class TestMain:
     """Tests for main() CLI entrypoint."""
 
-    @pytest.fixture(autouse=True)
-    def _repo_root(self, repo_root):
+    @pytest.fixture(autouse=True)  # type: ignore[untyped-decorator]
+    def _repo_root(self, repo_root: Path) -> None:
         """Ensure repo_root is available; main uses Path(__file__).parent.parent."""
         pass
 
-    def test_main_scan_failure_exits_1(self):
+    def test_main_scan_failure_exits_1(self) -> None:
         """When run_scan raises, main writes to stderr and exits 1."""
         stderr_io = StringIO()
         with (
@@ -36,7 +37,7 @@ class TestMain:
         assert exc_info.value.code == 1
         assert "path not found" in stderr_io.getvalue() or "Scan failed" in stderr_io.getvalue()
 
-    def test_main_empty_payload_exits_0_with_json(self):
+    def test_main_empty_payload_exits_0_with_json(self) -> None:
         """When hierarchy_payload is empty and --json, print JSON and exit 0."""
         stdout_io = StringIO()
         with (
@@ -53,7 +54,7 @@ class TestMain:
         assert data["violations"] == []
         assert "hierarchy_payload" in data
 
-    def test_main_empty_payload_exits_0_without_json(self):
+    def test_main_empty_payload_exits_0_without_json(self) -> None:
         """When hierarchy_payload is empty and no --json, exit 0 after stderr message."""
         stderr_io = StringIO()
         with (
@@ -66,7 +67,7 @@ class TestMain:
         assert exc_info.value.code == 0
         assert "No hierarchy payload" in stderr_io.getvalue()
 
-    def test_main_no_validators_json_outputs_hierarchy_only(self, sample_hierarchy_payload):
+    def test_main_no_validators_json_outputs_hierarchy_only(self, sample_hierarchy_payload: dict[str, object]) -> None:
         """With --no-opa --no-native and --json, output is hierarchy_payload only."""
         stdout_io = StringIO()
         with (
@@ -81,7 +82,7 @@ class TestMain:
         assert data["hierarchy_payload"]["scan_id"] == sample_hierarchy_payload["scan_id"]
         assert "violations" not in data
 
-    def test_main_no_validators_no_json_prints_message(self, sample_hierarchy_payload):
+    def test_main_no_validators_no_json_prints_message(self, sample_hierarchy_payload: dict[str, object]) -> None:
         """With --no-opa --no-native and no --json, print message about validators skipped."""
         stdout_io = StringIO()
         with (
@@ -93,11 +94,11 @@ class TestMain:
         assert "validators skipped" in stdout_io.getvalue().lower() or "hierarchy" in stdout_io.getvalue().lower()
 
     def test_main_with_opa_json_outputs_violations_and_count(
-        self, sample_hierarchy_payload, opa_eval_result_with_violations
-    ):
+        self, sample_hierarchy_payload: dict[str, object], opa_eval_result_with_violations: dict[str, object]
+    ) -> None:
         """With OPA and --json, output includes violations and count."""
         stdout_io = StringIO()
-        violations = opa_eval_result_with_violations["result"][0]["expressions"][0]["value"]
+        violations = opa_eval_result_with_violations["result"][0]["expressions"][0]["value"]  # type: ignore[index]
         with (
             patch.object(cli_module, "run_scan", return_value=_make_context(sample_hierarchy_payload)),
             patch("apme_engine.validators.opa.run_opa", return_value=violations),
@@ -111,7 +112,7 @@ class TestMain:
         assert data["count"] == 1
         assert data["violations"][0]["rule_id"] == "task-name"
 
-    def test_main_with_opa_no_json_prints_summary_and_list(self, sample_hierarchy_payload):
+    def test_main_with_opa_no_json_prints_summary_and_list(self, sample_hierarchy_payload: dict[str, object]) -> None:
         """With OPA and no --json, print Scan line and violation lines."""
         stdout_io = StringIO()
         violations = [{"rule_id": "r1", "level": "warning", "message": "msg", "file": "f.yml", "line": 1, "path": "p"}]
@@ -128,7 +129,9 @@ class TestMain:
         assert "f.yml" in out
         assert "msg" in out
 
-    def test_main_with_opa_no_violations_prints_no_violations(self, sample_hierarchy_payload):
+    def test_main_with_opa_no_violations_prints_no_violations(
+        self, sample_hierarchy_payload: dict[str, object]
+    ) -> None:
         """With OPA and no violations, print 'No violations.'"""
         stdout_io = StringIO()
         with (
@@ -140,7 +143,9 @@ class TestMain:
             cli_module.main()
         assert "No violations" in stdout_io.getvalue()
 
-    def test_main_uses_custom_opa_bundle_when_provided(self, sample_hierarchy_payload, tmp_path):
+    def test_main_uses_custom_opa_bundle_when_provided(
+        self, sample_hierarchy_payload: dict[str, object], tmp_path: Path
+    ) -> None:
         """When --opa-bundle is passed, OpaValidator receives that path."""
         bundle = tmp_path / "custom_bundle"
         bundle.mkdir()
@@ -157,7 +162,7 @@ class TestMain:
 class TestRunScan:
     """Tests for run_scan (runner module) via CLI integration."""
 
-    def test_run_scan_nonexistent_path_raises(self, repo_root):
+    def test_run_scan_nonexistent_path_raises(self, repo_root: Path) -> None:
         """run_scan raises FileNotFoundError when target does not exist."""
         with (
             patch.object(
@@ -168,7 +173,9 @@ class TestRunScan:
         ):
             cli_module.main()
 
-    def test_run_scan_playbook_file_called_with_correct_args(self, repo_root, tmp_path, sample_hierarchy_payload):
+    def test_run_scan_playbook_file_called_with_correct_args(
+        self, repo_root: Path, tmp_path: Path, sample_hierarchy_payload: dict[str, object]
+    ) -> None:
         """When target is a file, run_scan is called with playbook path and repo_root (from CLI's __file__)."""
         playbook = tmp_path / "play.yml"
         playbook.write_text("---\n- hosts: localhost\n  tasks: []\n")
@@ -186,7 +193,9 @@ class TestRunScan:
         assert call_args[0][1] == expected_root
         assert call_args[1]["include_scandata"] is True
 
-    def test_run_scan_returns_context_with_payload(self, repo_root, tmp_path, sample_hierarchy_payload):
+    def test_run_scan_returns_context_with_payload(
+        self, repo_root: Path, tmp_path: Path, sample_hierarchy_payload: dict[str, object]
+    ) -> None:
         """run_scan returns ScanContext with hierarchy_payload."""
         from apme_engine.runner import run_scan
 

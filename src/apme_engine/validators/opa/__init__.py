@@ -1,6 +1,9 @@
 """OPA validator: runs Rego policy on hierarchy payload. Built-in bundle in this package."""
 
+from __future__ import annotations
+
 import os
+from typing import Any
 
 from apme_engine.opa_client import run_opa
 from apme_engine.validators.base import ScanContext
@@ -21,7 +24,7 @@ class OpaValidator:
         self.bundle_path = bundle_path or _default_bundle_path()
         self.entrypoint = entrypoint
 
-    def run(self, context: ScanContext) -> list[dict]:
+    def run(self, context: ScanContext) -> list[dict[str, Any]]:
         """Run OPA on hierarchy_payload; return list of violation dicts."""
         return run_opa(
             context.hierarchy_payload,

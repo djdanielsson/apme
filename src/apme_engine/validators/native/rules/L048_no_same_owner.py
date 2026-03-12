@@ -26,14 +26,18 @@ class NoSameOwnerRule(Rule):
     enabled: bool = False
     name: str = "NoSameOwner"
     version: str = "v0.0.1"
-    severity: Severity = Severity.LOW
-    tags: tuple = Tag.SYSTEM
+    severity: str = Severity.LOW
+    tags: tuple[str, ...] = (Tag.SYSTEM,)
 
     def match(self, ctx: AnsibleRunContext) -> bool:
-        return ctx.current.type == RunTargetType.Task
+        if ctx.current is None:
+            return False
+        return bool(ctx.current.type == RunTargetType.Task)
 
-    def process(self, ctx: AnsibleRunContext):
+    def process(self, ctx: AnsibleRunContext) -> RuleResult | None:
         task = ctx.current
+        if task is None:
+            return None
         resolved = getattr(task.spec, "resolved_name", "") or ""
         if resolved not in COPY_MODULES:
             return RuleResult(verdict=False, file=task.file_info(), rule=self.get_metadata())

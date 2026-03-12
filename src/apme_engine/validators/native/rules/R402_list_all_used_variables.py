@@ -6,10 +6,9 @@ from apme_engine.engine.models import (
     RuleResult,
     RunTargetType,
     Severity,
+    TaskCall,
 )
-from apme_engine.engine.models import (
-    RuleTag as Tag,
-)
+from apme_engine.engine.models import RuleTag as Tag
 
 
 @dataclass
@@ -19,18 +18,22 @@ class ListAllUsedVariablesRule(Rule):
     enabled: bool = True
     name: str = "ListAllUsedVariables"
     version: str = "v0.0.1"
-    severity: Severity = Severity.NONE
-    tags: tuple = Tag.VARIABLE
+    severity: str = Severity.NONE
+    tags: tuple[str, ...] = (Tag.VARIABLE,)
 
     def match(self, ctx: AnsibleRunContext) -> bool:
-        return ctx.current.type == RunTargetType.Task
+        if ctx.current is None:
+            return False
+        return bool(ctx.current.type == RunTargetType.Task)
 
-    def process(self, ctx: AnsibleRunContext):
+    def process(self, ctx: AnsibleRunContext) -> RuleResult | None:
         task = ctx.current
+        if task is None:
+            return None
 
         verdict = False
-        detail = {}
-        if ctx.is_end(task):
+        detail: dict[str, object] = {}
+        if ctx.is_end(task) and isinstance(task, TaskCall):
             verdict = True
             detail["metadata"] = ctx.info
             detail["variables"] = list(task.variable_use.keys())

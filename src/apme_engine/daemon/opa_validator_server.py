@@ -4,12 +4,15 @@ import json
 import os
 import sys
 import time
+from typing import Any
 
 import grpc
 import grpc.aio
 import httpx
 
-from apme.v1 import common_pb2, validate_pb2, validate_pb2_grpc
+from apme.v1 import validate_pb2, validate_pb2_grpc
+from apme.v1.common_pb2 import HealthResponse, RuleTiming, ValidatorDiagnostics
+from apme.v1.validate_pb2 import ValidateResponse
 from apme_engine.daemon.violation_convert import violation_dict_to_proto
 
 OPA_REST_URL = os.environ.get("APME_OPA_REST_URL", "http://localhost:8181")
@@ -21,23 +24,23 @@ _MAX_CONCURRENT_RPCS = int(os.environ.get("APME_OPA_MAX_RPCS", "32"))
 class OpaValidatorServicer(validate_pb2_grpc.ValidatorServicer):
     """Async gRPC facade: translates Validate RPCs into OPA REST queries via httpx."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._client = httpx.AsyncClient(timeout=30.0)
 
-    async def Validate(self, request, context):
+    async def Validate(self, request: Any, context: Any) -> validate_pb2.ValidateResponse:
         req_id = request.request_id or ""
         t0 = time.monotonic()
-        violations: list[dict] = []
+        violations: list[dict[str, Any]] = []
         opa_query_ms = 0.0
         opa_response_size = 0
         try:
-            hierarchy_payload = {}
+            hierarchy_payload: dict[str, Any] = {}
             if request.hierarchy_payload:
                 try:
                     hierarchy_payload = json.loads(request.hierarchy_payload)
                 except (json.JSONDecodeError, UnicodeDecodeError):
                     sys.stderr.write(f"[req={req_id}] OPA: failed to decode hierarchy_payload\n")
-                    return validate_pb2.ValidateResponse(violations=[], request_id=req_id)
+                    return ValidateResponse(violations=[], request_id=req_id)
 
             url = f"{OPA_REST_URL}{OPA_VIOLATIONS_ENDPOINT}"
             tq = time.monotonic()
@@ -48,7 +51,7 @@ class OpaValidatorServicer(validate_pb2_grpc.ValidatorServicer):
             if r.status_code != 200:
                 sys.stderr.write(f"[req={req_id}] OPA returned HTTP {r.status_code}\n")
                 sys.stderr.flush()
-                return validate_pb2.ValidateResponse(violations=[], request_id=req_id)
+                return ValidateResponse(violations=[], request_id=req_id)
 
             data = r.json()
             result = data.get("result", [])
@@ -59,7 +62,7 @@ class OpaValidatorServicer(validate_pb2_grpc.ValidatorServicer):
         except Exception as e:
             sys.stderr.write(f"[req={req_id}] OPA error: {e}\n")
             sys.stderr.flush()
-            return validate_pb2.ValidateResponse(violations=[], request_id=req_id)
+            return ValidateResponse(violations=[], request_id=req_id)
 
         total_ms = (time.monotonic() - t0) * 1000
 
@@ -67,12 +70,12 @@ class OpaValidatorServicer(validate_pb2_grpc.ValidatorServicer):
 
         rule_counts = Counter(v.get("rule_id", "unknown") for v in violations)
         rule_timings = [
-            common_pb2.RuleTiming(rule_id="opa_query", elapsed_ms=opa_query_ms, violations=len(violations)),
+            RuleTiming(rule_id="opa_query", elapsed_ms=opa_query_ms, violations=len(violations)),
         ]
         for rid, count in sorted(rule_counts.items()):
-            rule_timings.append(common_pb2.RuleTiming(rule_id=rid, elapsed_ms=0.0, violations=count))
+            rule_timings.append(RuleTiming(rule_id=rid, elapsed_ms=0.0, violations=count))
 
-        diag = common_pb2.ValidatorDiagnostics(
+        diag = ValidatorDiagnostics(
             validator_name="opa",
             request_id=req_id,
             total_ms=total_ms,
@@ -85,26 +88,26 @@ class OpaValidatorServicer(validate_pb2_grpc.ValidatorServicer):
             },
         )
 
-        return validate_pb2.ValidateResponse(
+        return ValidateResponse(
             violations=[violation_dict_to_proto(v) for v in violations],
             request_id=req_id,
             diagnostics=diag,
         )
 
-    async def Health(self, request, context):
+    async def Health(self, request: Any, context: Any) -> HealthResponse:
         try:
             r = await self._client.get(f"{OPA_REST_URL}/health")
             if r.status_code == 200:
-                return common_pb2.HealthResponse(status="ok")
-            return common_pb2.HealthResponse(status=f"opa unhealthy: HTTP {r.status_code}")
+                return HealthResponse(status="ok")
+            return HealthResponse(status=f"opa unhealthy: HTTP {r.status_code}")
         except Exception as e:
-            return common_pb2.HealthResponse(status=f"opa unreachable: {e}")
+            return HealthResponse(status=f"opa unreachable: {e}")
 
 
-async def serve(listen: str = "0.0.0.0:50054"):
+async def serve(listen: str = "0.0.0.0:50054") -> Any:
     """Create, bind, and start async gRPC server with OPA servicer."""
     server = grpc.aio.server(maximum_concurrent_rpcs=_MAX_CONCURRENT_RPCS)
-    validate_pb2_grpc.add_ValidatorServicer_to_server(OpaValidatorServicer(), server)
+    validate_pb2_grpc.add_ValidatorServicer_to_server(OpaValidatorServicer(), server)  # type: ignore[no-untyped-call]
     if ":" in listen:
         _, _, port = listen.rpartition(":")
         server.add_insecure_port(f"[::]:{port}")

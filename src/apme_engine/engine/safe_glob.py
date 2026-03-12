@@ -1,11 +1,20 @@
+from __future__ import annotations
+
 import os
 import re
 import sys
+from typing import Any
 
 
 # glob.glob() may cause infinite loop when there is symlink loop
 # safe_glob() support the case by `followlink=False` option as default
-def safe_glob(patterns, root_dir="", recursive=True, type=None, followlinks=False):
+def safe_glob(
+    patterns: str | list[str],
+    root_dir: str = "",
+    recursive: bool = True,
+    type: list[str] | None = None,
+    followlinks: bool = False,
+) -> list[str]:
     if type is None:
         type = ["file", "dir"]
     pattern_list = []
@@ -75,15 +84,17 @@ def safe_glob(patterns, root_dir="", recursive=True, type=None, followlinks=Fals
     return matched_files
 
 
-def pattern_match(pattern, fpath):
+def pattern_match(pattern: str, fpath: str) -> Any:
     pattern = pattern.replace("**/", "<ANY>")
     pattern = pattern.replace("*", "[^/]*")
     pattern = pattern.replace("<ANY>", ".*")
     regex_pattern = rf"^{pattern}$"
-    return re.match(regex_pattern, fpath)
+    result = re.match(regex_pattern, fpath)
+    return result
 
 
 if __name__ == "__main__":
-    dir, pattern = sys.argv[1], sys.argv[2]
-    found = safe_glob(dir, [pattern], recursive=False)
+    root_dir: str = sys.argv[1]
+    pattern = sys.argv[2]
+    found = safe_glob(pattern, root_dir=root_dir, recursive=False)
     print(found)

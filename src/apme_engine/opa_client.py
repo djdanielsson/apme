@@ -15,7 +15,7 @@ def _run_opa_podman(
     bundle_path: Path,
     entrypoint: str,
     timeout: int,
-) -> subprocess.CompletedProcess:
+) -> subprocess.CompletedProcess[str]:
     """Run OPA via podman run with bundle mounted. Returns CompletedProcess.
     Uses --userns=keep-id and -u root so the container can read the bind mount
     when the OPA image runs as non-root (rootless Podman). :z allows SELinux
@@ -56,7 +56,7 @@ def _run_opa_local(
     bundle_path: Path,
     entrypoint: str,
     timeout: int,
-) -> subprocess.CompletedProcess:
+) -> subprocess.CompletedProcess[str]:
     """Run local opa binary. Returns CompletedProcess."""
     return subprocess.run(
         ["opa", "eval", "-i", "-", "-d", str(bundle_path), entrypoint, "--format", "json"],
@@ -67,7 +67,7 @@ def _run_opa_local(
     )
 
 
-def _run_opa_test_podman(bundle_path: Path, timeout: int = 120) -> subprocess.CompletedProcess:
+def _run_opa_test_podman(bundle_path: Path, timeout: int = 120) -> subprocess.CompletedProcess[str]:
     """Run `opa test . -v` inside Podman with bundle mounted. Same volume/user flags as eval."""
     bundle_abs = bundle_path.resolve()
     cmd = [
@@ -92,7 +92,7 @@ def _run_opa_test_podman(bundle_path: Path, timeout: int = 120) -> subprocess.Co
     )
 
 
-def _run_opa_test_local(bundle_path: Path, timeout: int = 120) -> subprocess.CompletedProcess:
+def _run_opa_test_local(bundle_path: Path, timeout: int = 120) -> subprocess.CompletedProcess[str]:
     """Run `opa test . -v` using local opa binary with cwd = bundle_path."""
     return subprocess.run(
         ["opa", "test", ".", "-v"],
@@ -128,7 +128,9 @@ def run_opa_test(bundle_path: str | Path, timeout: int = 120) -> tuple[bool, str
     return (out.returncode == 0, out.stdout or "", out.stderr or "")
 
 
-def run_opa(input_data: dict, bundle_path: str, entrypoint: str = "data.apme.rules.violations") -> list[dict[str, Any]]:
+def run_opa(
+    input_data: dict[str, Any], bundle_path: str, entrypoint: str = "data.apme.rules.violations"
+) -> list[dict[str, Any]]:
     """
     Run OPA eval with input_data as input and bundle at bundle_path.
     Uses Podman container (openpolicyagent/opa) by default; set OPA_USE_PODMAN=0 to use a local opa binary.

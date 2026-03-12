@@ -19,14 +19,18 @@ class InlineEnvVarRule(Rule):
     enabled: bool = True
     name: str = "InlineEnvVar"
     version: str = "v0.0.1"
-    severity: Severity = Severity.VERY_LOW
-    tags: tuple = Tag.CODING
+    severity: str = Severity.VERY_LOW
+    tags: tuple[str, ...] = (Tag.CODING,)
 
     def match(self, ctx: AnsibleRunContext) -> bool:
-        return ctx.current.type == RunTargetType.Task
+        if ctx.current is None:
+            return False
+        return bool(ctx.current.type == RunTargetType.Task)
 
-    def process(self, ctx: AnsibleRunContext):
+    def process(self, ctx: AnsibleRunContext) -> RuleResult | None:
         task = ctx.current
+        if task is None:
+            return None
         options = getattr(task.spec, "options", None) or {}
         has_env = "environment" in options and options.get("environment")
         verdict = bool(has_env)
