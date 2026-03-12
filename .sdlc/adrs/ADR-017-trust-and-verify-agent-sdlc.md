@@ -28,25 +28,30 @@ Additionally, the skills were located in `.claude/skills/`, tying them to a spec
 
 **Adopt a trust-and-verify model.** Remove `disable-model-invocation: true` from all SDLC skills, allowing the agent to invoke them proactively when context warrants it. The agent must inform the user whenever it creates an SDLC artifact. All artifacts are reviewed as part of the normal PR diff before merge.
 
+The human remains in the loop — that is foundational and non-negotiable. What changes is the *initiation model*: the human no longer needs to remember to invoke `/adr-new` or `/dr-new` at the right moment. The agent recognizes when an SDLC artifact is warranted and creates it. The human reviews, modifies, or rejects the artifact through the existing PR review process. The shift is from human-initiated to agent-initiated, human-verified.
+
 ## Rationale
 
+- The human-in-the-loop is preserved through PR review — every artifact the agent creates appears in the diff and must be approved before merge
 - The agent is already trusted to modify source code, create commits, push branches, and open PRs — creating a markdown ADR is lower risk than any of those operations
-- SDLC artifacts are version-controlled and reviewed in PRs, providing a natural verification checkpoint
-- The user is informed in real-time when an artifact is created, and can reject or modify it
-- Removing the safeguard shifts SDLC from "process the user must remember" to "process the agent handles"
+- The change removes the *initiation* burden, not the *oversight* — the user still reviews and approves every artifact
+- SDLC artifacts are version-controlled, so unwanted artifacts are trivially reverted
+- The user is informed in real-time when an artifact is created, and can reject or modify it before the PR is even opened
+- Removing the initiation requirement shifts SDLC from "process the user must remember" to "process the agent handles, user verifies"
 - Consolidating skills under `.agents/skills/` makes them tool-agnostic — not tied to Claude Code, Cursor, or any specific agent runtime
 
 ## Consequences
 
 ### Positive
+- Human oversight is preserved — every artifact is reviewed in the PR diff
 - Architectural decisions are captured as they happen, not after the fact
 - SDLC compliance becomes automatic rather than manual
-- Reduced cognitive load on the user
+- Reduced cognitive load on the user — no need to remember which skill to invoke and when
 - Skills are tool-agnostic under `.agents/skills/`
 
 ### Negative
-- PR diffs may include SDLC artifacts the user needs to review (mitigated by the agent informing the user)
-- Agent may occasionally create artifacts that aren't needed (mitigated by PR review)
+- PR diffs may include SDLC artifacts the user needs to review (mitigated by the agent informing the user and the low cost of reviewing or deleting a markdown file)
+- Agent may occasionally create artifacts that aren't needed (mitigated by PR review — unwanted artifacts are trivially reverted)
 
 ## Implementation Notes
 
