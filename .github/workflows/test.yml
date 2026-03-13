@@ -22,7 +22,6 @@ jobs:
       - run: uv sync --extra dev
       - run: uv run pytest --cov --cov-report=term-missing
       - name: Fail if git reports dirty
-        if: always()
         run: |
           if [[ -n $(git status -s) ]]; then
             echo "::error::Git reports modified/untracked files after test run"

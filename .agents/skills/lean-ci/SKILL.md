@@ -26,37 +26,33 @@ locally-runnable commands; CI just calls them.
    (`requires-python`). Tool versions are managed in `.pre-commit-config.yaml`
    (ruff, mypy) and `pyproject.toml` (deps). Not in workflow YAML.
 
-4. **Minimal setup actions.** Only `actions/checkout` and `astral-sh/setup-uv`.
+4. **Minimal setup actions.** `astral-sh/setup-uv` and `actions/checkout` only.
    No `actions/setup-python` (uv handles it). No other setup actions without
    explicit justification.
 
 5. **Pin actions to commit SHAs.** Mutable tags (`@v4`) allow upstream changes
-   to affect CI without review. Pin to the commit SHA with the tag in a comment
-   (ADR-015):
-
-   ```yaml
-   - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-   ```
+   to affect CI without review. Always pin to a full commit SHA with a comment
+   noting the tag (ADR-015).
 
 ## Existing locally-runnable commands
 
-| Command | What it does | CI workflow |
-|---------|-------------|-------------|
-| `prek run --all-files` | Lint (ruff), format (ruff-format), type check (mypy) | `prek.yml` |
-| `uv run pytest --cov --cov-report=term-missing` | Run tests with coverage enforcement | `test.yml` |
-| `uv sync --extra dev` | Install all runtime + dev dependencies | Both |
+| Command | What it does | CI job |
+|---------|-------------|--------|
+| `prek run --all-files` | Lint, format, type check (ruff + mypy) | `prek` workflow |
+| `uv run pytest --cov --cov-report=term-missing` | Test with coverage enforcement | `test` workflow |
+| `uv sync --extra dev` | Install runtime + dev dependencies | Setup step |
 
 ## Workflow structure
 
-CI has two workflows (separation of concerns):
+CI has two workflows in `.github/workflows/`:
 
-- **`prek.yml`**: Runs prek hooks (ruff lint, ruff format, mypy strict). Uses
-  `j178/prek-action` which handles installation and caching.
-- **`test.yml`**: Installs deps via `uv sync --extra dev`, runs pytest with
-  coverage. Coverage threshold is in `pyproject.toml` (`fail_under = 95`).
+- **prek.yml**: Runs `prek` (ruff lint, ruff format, mypy strict). Quality gate
+  for code style and type safety.
+- **test.yml**: Runs `pytest` with coverage. Quality gate for correctness.
+  Coverage threshold is in `pyproject.toml` (`fail_under = 95`).
 
-Both workflows trigger on `pull_request` targeting `main` and use `concurrency`
-groups with `cancel-in-progress` to avoid stacking runs on rapid pushes.
+Both trigger on `pull_request` targeting `main` and use `concurrency` groups
+with `cancel-in-progress` to avoid stacking runs on rapid pushes.
 
 ## Rules for modifications
 
@@ -64,36 +60,16 @@ When adding or modifying CI:
 
 - **DO** add new build logic as a script in `scripts/`, then call it from the
   workflow with a single `run:` line.
-- **DO** use SHA-pinned actions with the tag noted in a comment.
-- **DO** set `FORCE_COLOR: 1` and `PY_COLORS: 1` for readable CI output.
+- **DO** use SHA-pinned actions with a tag comment (e.g.,
+  `actions/checkout@de0fac2e...  # v6`).
+- **DO** set `FORCE_COLOR: 1` and `PY_COLORS: 1` as workflow-level env vars
+  for readable CI logs.
+- **DO** use `ubuntu-24.04` explicitly rather than `ubuntu-latest`.
 - **DO NOT** put multi-line shell scripts in `run:` blocks. If it needs more
   than one command, it belongs in a script. The git dirty check is the one
   exception -- it is a CI-only guard with no local equivalent.
-- **DO NOT** add setup actions beyond `actions/checkout` and
-  `astral-sh/setup-uv`.
-- **DO NOT** hardcode tool or Python versions in YAML.
+- **DO NOT** add `actions/setup-python` or other setup actions. `setup-uv`
+  handles the Python toolchain.
+- **DO NOT** hardcode tool versions in YAML. Versions belong in
+  `.pre-commit-config.yaml` or `pyproject.toml`.
 - **DO NOT** add secrets or publishing steps without explicit approval.
-
-## Example: adding a new CI step
-
-Wrong (logic in YAML):
-
-```yaml
-- name: Generate docs
-  run: |
-    uv run pip install sphinx
-    uv run sphinx-build -b html docs/ docs/_build/
-    tar czf docs.tar.gz docs/_build/
-```
-
-Right (logic in a script):
-
-```bash
-# scripts/build_docs.sh
-uv run sphinx-build -b html docs/ docs/_build/
-```
-
-```yaml
-- name: Generate docs
-  run: ./scripts/build_docs.sh
-```
