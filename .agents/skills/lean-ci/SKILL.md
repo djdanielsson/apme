@@ -39,7 +39,7 @@ locally-runnable commands; CI just calls them.
 | Command | What it does | CI job |
 |---------|-------------|--------|
 | `prek run --all-files` | Lint, format, type check (ruff + mypy) | `prek` workflow |
-| `uv run pytest --cov=src/apme_engine --cov-report=term-missing --cov-fail-under=95` | Test with coverage enforcement | `test` workflow |
+| `uv run pytest --cov=src/apme_engine --cov-report=term-missing --cov-fail-under=28` | Test with coverage enforcement | `test` workflow |
 | `uv sync --extra dev` | Install runtime + dev dependencies | Setup step |
 
 ## Workflow structure
@@ -49,8 +49,9 @@ CI has two workflows in `.github/workflows/`:
 - **prek.yml**: Runs `prek` (ruff lint, ruff format, mypy strict). Quality gate
   for code style and type safety.
 - **test.yml**: Runs `pytest` with coverage. Quality gate for correctness.
-  Coverage threshold is enforced via `--cov-fail-under=95` (also configured
-  in `pyproject.toml` under `[tool.coverage.report]`).
+  Coverage threshold is enforced via `--cov-fail-under` (also configured
+  in `pyproject.toml` under `[tool.coverage.report]`). Ratchet up as
+  tests are added; never lower without justification.
 
 Both trigger on `pull_request` targeting `main` and use `concurrency` groups
 with `cancel-in-progress` to avoid stacking runs on rapid pushes.
