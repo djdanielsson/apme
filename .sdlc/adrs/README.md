@@ -24,6 +24,7 @@ This directory contains the Architecture Decision Records (ADRs) for APME.
 | [ADR-016](ADR-016-single-branch-main.md) | Single-branch `main` Strategy | Accepted | 2026-03 |
 | [ADR-017](ADR-017-trust-and-verify-agent-sdlc.md) | Trust-and-verify Agent SDLC Invocation | Accepted | 2026-03 |
 | [ADR-018](ADR-018-mypy-strict-type-checking.md) | mypy Strict Mode Type Checking | Accepted | 2026-03 |
+| [ADR-019](ADR-019-dependency-governance.md) | Dependency Governance Policy | Accepted | 2026-03 |
 
 ## Categories
 
@@ -55,6 +56,7 @@ This directory contains the Architecture Decision Records (ADRs) for APME.
 ### Process
 - ADR-016: Single-branch `main` strategy
 - ADR-017: Trust-and-verify agent SDLC invocation
+- ADR-019: Dependency governance policy
 
 ## Archived
 
@@ -69,7 +71,7 @@ Original planning ADRs that were superseded by implementation decisions:
 ## Creating New ADRs
 
 1. Copy the template from `../.sdlc/templates/adr.md`
-2. Use the next available number (currently ADR-019)
+2. Use the next available number (currently ADR-020)
 3. Include:
    - Status (Proposed → Accepted)
    - Date
@@ -103,3 +105,4 @@ Original planning ADRs that were superseded by implementation decisions:
 | 016 | 2026-03 | Single-branch `main` strategy |
 | 017 | 2026-03 | Trust-and-verify agent SDLC invocation |
 | 018 | 2026-03 | mypy strict mode type checking |
+| 019 | 2026-03 | Dependency governance policy |
