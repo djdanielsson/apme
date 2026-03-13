@@ -11,7 +11,7 @@ from importlib.util import module_from_spec, spec_from_file_location
 from inspect import isclass
 from typing import TYPE_CHECKING, cast
 
-import requests
+import httpx
 import yaml
 from filelock import FileLock
 from tabulate import tabulate
@@ -192,7 +192,8 @@ def escape_local_path(path: str) -> str:
 
 
 def get_hash_of_url(url: str) -> str:
-    response = requests.get(url)
+    response = httpx.get(url, follow_redirects=True)
+    response.raise_for_status()
     hash = hashlib.sha256(response.content).hexdigest()
     return hash
 
