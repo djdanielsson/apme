@@ -133,7 +133,7 @@ class TestParserDumpAndRestore:
         mapping_path = output_dir / "mappings.json"
         assert mapping_path.exists()
 
-        restored_defs, restored_ld = Parser.restore_definition_objects(str(output_dir))
+        restored_defs, _ = Parser.restore_definition_objects(str(output_dir))
         assert "playbooks" in restored_defs
 
     def test_restore_missing_mappings_raises(self, tmp_path: Path) -> None:
