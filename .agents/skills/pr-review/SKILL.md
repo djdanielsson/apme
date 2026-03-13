@@ -22,8 +22,9 @@ comments block merge.
 - Every comment requires two actions: a **closing reply** and **thread
   resolution**. Replying alone does not resolve the thread; the thread must
   be explicitly resolved via the GitHub UI or API.
-- Reply to each comment with a brief explanation of what was done, referencing
-  the commit hash (e.g., "Fixed in abc1234.").
+- Reply to each comment with a **brief explanation of how it was resolved** and
+  the commit hash (e.g., "Removed the unused imports so Ruff F401 passes.
+  Fixed in abc1234."). Do not reply with only the SHA; explain the fix.
 - If a comment is a false positive or you disagree, reply with a clear
   technical explanation, then resolve the thread. Do not dismiss without
   justification.
@@ -68,35 +69,63 @@ Never show API keys, tokens, or credentials on command lines in docs or
 examples. Demonstrate env var usage instead. Shell history and process lists
 expose command-line arguments.
 
+### Unused imports (Ruff F401)
+
+Copilot often flags unused imports. With Ruff `F` rules enabled, these fail CI.
+Remove unused imports or use the symbol (e.g. in a type annotation or
+assertion). Prefer trimming the import list over `# noqa: F401` unless the
+import is intentionally side-effect only.
+
 ## Workflow
 
 1. After pushing a PR, wait for both CI and Copilot review.
 2. Read all review comments and CI logs.
 3. Fix all issues in a single commit (or minimal commits).
-4. Reply to each comment with the fix commit hash (e.g., "Fixed in abc1234.").
+4. Reply to each comment with a brief explanation of how it was resolved and
+   the commit hash (e.g., "Removed unused imports. Fixed in abc1234.").
 5. **Resolve each review thread** after replying. Every thread must have both
    a closing reply and an explicit resolution — replying alone is not enough.
-   Use the GitHub GraphQL API:
 
-   ```bash
-   # List unresolved threads
-   gh api graphql -f query='{
-     repository(owner: "ansible", name: "apme") {
-       pullRequest(number: N) {
-         reviewThreads(first: 20) {
-           nodes { id isResolved comments(first:1) { nodes { body } } }
-         }
-       }
-     }
-   }'
+### Replying to review comments
 
-   # Resolve a thread
-   gh api graphql -f query='mutation {
-     resolveReviewThread(input: {threadId: "THREAD_ID"}) {
-       thread { isResolved }
-     }
-   }'
-   ```
+Post a reply using the REST API. Each reply must state **how** the issue was
+resolved and include the commit hash (not only the SHA):
+
+```bash
+# Example: explain the fix, then cite the commit
+gh api -X POST "repos/ansible/apme/pulls/PR/comments/COMMENT_ID/replies" \
+  -f body="Removed the unused imports so Ruff F401 passes. Fixed in COMMIT_SHA."
+```
+
+To get comment IDs: `gh api repos/ansible/apme/pulls/PR/comments` and use each
+comment's `id`. Alternatively, reply in the GitHub PR UI, then resolve threads
+via GraphQL below.
+
+### Resolving review threads (GraphQL)
+
+Replace `N` with the PR number and `THREAD_ID` with the `id` from
+`reviewThreads.nodes[].id` (from the list query). Filter nodes where
+`isResolved` is false if you only want to resolve open threads.
+
+```bash
+# List threads (get id from nodes for each thread)
+gh api graphql -f query='{
+  repository(owner: "ansible", name: "apme") {
+    pullRequest(number: N) {
+      reviewThreads(first: 20) {
+        nodes { id isResolved comments(first:1) { nodes { body } } }
+      }
+    }
+  }
+}'
+
+# Resolve one thread
+gh api graphql -f query='mutation {
+  resolveReviewThread(input: {threadId: "THREAD_ID"}) {
+    thread { isResolved }
+  }
+}'
+```
 
 6. Update the PR description to include the new commit(s).
 7. If CI failure is unrelated to your changes (e.g., flaky test, transient
