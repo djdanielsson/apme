@@ -1,3 +1,5 @@
+"""CLI subcommand to search Risk Assessment Model findings for a target."""
+
 import argparse
 
 from ...risk_assessment_model import RAMClient
@@ -6,9 +8,17 @@ from ...utils import split_name_and_version
 
 
 class RAMSearchCLI:
+    """CLI subcommand to search RAM findings for a collection or role.
+
+    Attributes:
+        args: Parsed command-line arguments.
+
+    """
+
     args: argparse.Namespace | None = None
 
     def __init__(self) -> None:
+        """Parse command-line arguments for RAM search."""
         parser = argparse.ArgumentParser(description="TODO")
         parser.add_argument("target_type", help="content type", choices={"ram"})
         parser.add_argument("action", help="action for RAM command or target_name of search action")
@@ -17,6 +27,12 @@ class RAMSearchCLI:
         self.args = args
 
     def run(self) -> None:
+        """Search and print RAM findings for the target.
+
+        Raises:
+            ValueError: When action is not "search".
+
+        """
         args = self.args
         assert args is not None
         action = args.action

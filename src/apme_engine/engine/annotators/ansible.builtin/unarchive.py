@@ -1,3 +1,5 @@
+"""Annotator for the ansible.builtin.unarchive module."""
+
 import contextlib
 
 from apme_engine.engine.annotators.module_annotator_base import ModuleAnnotator, ModuleAnnotatorResult
@@ -6,10 +8,27 @@ from apme_engine.engine.utils import parse_bool
 
 
 class UnarchiveAnnotator(ModuleAnnotator):
+    """Annotates unarchive tasks with inbound transfer risk when downloading from URLs.
+
+    Attributes:
+        fqcn: Fully qualified module name.
+        enabled: Whether this annotator is active.
+
+    """
+
     fqcn: str = "ansible.builtin.unarchive"
     enabled: bool = True
 
     def run(self, task: TaskCall) -> ModuleAnnotatorResult:
+        """Extract inbound transfer risk when unarchive downloads from remote URL.
+
+        Args:
+            task: The task call to analyze.
+
+        Returns:
+            Result with inbound transfer risk annotations when downloading from URL.
+
+        """
         src = task.args.get("src")  # required
         dest = task.args.get("dest")  # required
         remote_src = task.args.get("remote_src")

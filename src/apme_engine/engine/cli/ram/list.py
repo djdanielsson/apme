@@ -1,3 +1,5 @@
+"""CLI subcommand to list all Risk Assessment Model metadata."""
+
 import argparse
 
 from ...risk_assessment_model import RAMClient
@@ -6,9 +8,17 @@ from ...utils import show_all_ram_metadata
 
 
 class RAMListCLI:
+    """CLI subcommand to list all RAM metadata entries.
+
+    Attributes:
+        args: Parsed command-line arguments.
+
+    """
+
     args: argparse.Namespace | None = None
 
     def __init__(self) -> None:
+        """Parse command-line arguments for RAM list."""
         parser = argparse.ArgumentParser(description="TODO")
         parser.add_argument("target_type", help="content type", choices={"ram"})
         parser.add_argument("action", help="action for RAM command or target_name of search action")
@@ -16,6 +26,12 @@ class RAMListCLI:
         self.args = args
 
     def run(self) -> None:
+        """Display all RAM metadata.
+
+        Raises:
+            ValueError: When action is not "list".
+
+        """
         args = self.args
         assert args is not None
         action = args.action

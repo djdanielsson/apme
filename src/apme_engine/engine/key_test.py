@@ -1,3 +1,5 @@
+"""Test script to exercise keyutil.get_obj_info_by_key with sample keys."""
+
 import json
 
 from apme_engine.engine.keyutil import get_obj_info_by_key

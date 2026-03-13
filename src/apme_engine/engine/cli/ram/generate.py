@@ -1,12 +1,22 @@
+"""CLI subcommand to generate Risk Assessment Model data for collections and roles."""
+
 import argparse
 
 from ...ram_generator import RiskAssessmentModelGenerator as RAMGenerator
 
 
 class RAMGenerateCLI:
+    """CLI subcommand to generate RAM data from a target list file.
+
+    Attributes:
+        args: Parsed command-line arguments.
+
+    """
+
     args: argparse.Namespace | None = None
 
     def __init__(self) -> None:
+        """Parse command-line arguments for RAM generate."""
         parser = argparse.ArgumentParser(description="TODO")
         parser.add_argument("target_type", help="content type", choices={"ram"})
         parser.add_argument("action", help="action for RAM command or target_name of search action")
@@ -24,6 +34,12 @@ class RAMGenerateCLI:
         self.args = args
 
     def run(self) -> None:
+        """Run RAM generation for targets from the specified file.
+
+        Raises:
+            ValueError: When action is not "generate" or target list format is invalid.
+
+        """
         args = self.args
         assert args is not None
         action = args.action

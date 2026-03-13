@@ -1,3 +1,5 @@
+"""RAM (Risk Assessment Model) CLI subcommands: search, list, diff, generate, update, release."""
+
 import sys
 
 from .diff import RAMDiffCLI
@@ -11,9 +13,17 @@ ram_actions = ["search", "list", "diff", "generate", "update", "release"]
 
 
 class RAMCLI:
+    """CLI dispatcher for RAM (Risk Assessment Model) operations: search, list, diff, generate, update, release."""
+
     _cli: RAMSearchCLI | RAMListCLI | RAMDiffCLI | RAMGenerateCLI | RAMUpdateCLI | RAMReleaseCLI | None = None
 
     def __init__(self) -> None:
+        """Parse sys.argv and instantiate the appropriate RAM subcommand CLI.
+
+        Raises:
+            ValueError: When no action is specified or action is not supported.
+
+        """
         args = sys.argv
         if len(args) > 2:
             action = args[2]
@@ -42,5 +52,6 @@ class RAMCLI:
             raise ValueError(f"An action must be specified; {ram_actions}")
 
     def run(self) -> None:
+        """Execute the selected RAM subcommand."""
         if self._cli is not None:
             self._cli.run()

@@ -1,3 +1,5 @@
+"""CLI subcommand to diff Risk Assessment Model data between two versions."""
+
 import argparse
 
 from ...risk_assessment_model import RAMClient
@@ -6,9 +8,17 @@ from ...utils import show_diffs
 
 
 class RAMDiffCLI:
+    """CLI subcommand to diff Risk Assessment Model data between two versions.
+
+    Attributes:
+        args: Parsed command-line arguments.
+
+    """
+
     args: argparse.Namespace | None = None
 
     def __init__(self) -> None:
+        """Parse command-line arguments for RAM diff."""
         parser = argparse.ArgumentParser(description="TODO")
         parser.add_argument("target_type", help="content type", choices={"ram"})
         parser.add_argument("action", help="action for RAM command or target_name of search action")
@@ -19,6 +29,12 @@ class RAMDiffCLI:
         self.args = args
 
     def run(self) -> None:
+        """Show diffs between two RAM versions for the given target.
+
+        Raises:
+            ValueError: When action is not "diff".
+
+        """
         args = self.args
         assert args is not None
         action = args.action

@@ -1,12 +1,31 @@
+"""Annotator for the ansible.builtin.dnf module."""
+
 from apme_engine.engine.annotators.module_annotator_base import ModuleAnnotator, ModuleAnnotatorResult
 from apme_engine.engine.models import DefaultRiskType, PackageInstallDetail, RiskAnnotation, TaskCall
 
 
 class DnfAnnotator(ModuleAnnotator):
+    """Annotates dnf tasks with package install risk details.
+
+    Attributes:
+        fqcn: Fully qualified module name.
+        enabled: Whether this annotator is active.
+
+    """
+
     fqcn: str = "ansible.builtin.dnf"
     enabled: bool = True
 
     def run(self, task: TaskCall) -> ModuleAnnotatorResult:
+        """Extract package install risk from dnf task arguments.
+
+        Args:
+            task: The task call to analyze.
+
+        Returns:
+            Result with package install risk annotations.
+
+        """
         pkg = task.args.get("name")
         allow_downgrade = task.args.get("allow_downgrade")
         validate_certs = task.args.get("validate_certs")

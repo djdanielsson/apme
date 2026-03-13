@@ -1,3 +1,5 @@
+"""CLI package for APME engine: ARI scanner and RAM management commands."""
+
 import argparse
 import json
 import os
@@ -17,9 +19,17 @@ __all__ = ["ARICLI", "RAMCLI", "logger"]
 
 
 class ARICLI:
+    """CLI for ARI (Ansible Rule Inspector) scanning of projects, roles, collections, playbooks, and taskfiles.
+
+    Attributes:
+        args: Parsed command-line arguments.
+
+    """
+
     args: argparse.Namespace | None = None
 
     def __init__(self) -> None:
+        """Parse command-line arguments for ARI scan operations."""
         parser = argparse.ArgumentParser(description="TODO")
         parser.add_argument(
             "-s",
@@ -116,6 +126,7 @@ class ARICLI:
         self.args = args
 
     def run(self) -> None:
+        """Execute the ARI scan based on parsed arguments."""
         args = self.args
         assert args is not None
         print("ARI args: ", args.target_name)

@@ -10,17 +10,41 @@ from apme_engine.engine.models import DefaultRiskType, RiskAnnotation, TaskCall,
 
 
 class SampleCustomAnnotator(RiskAnnotator):
+    """Example risk annotator for custom modules (template only, disabled by default).
+
+    Attributes:
+        name: Annotator name identifier.
+        enabled: Whether this annotator is active.
+
+    """
+
     name: str = "sample"
     enabled: bool = False
 
-    # whether this task should be analyzed by this or not
     def match(self, taskcall: TaskCall) -> bool:
+        """Return True if the task should be analyzed by this annotator.
+
+        Args:
+            taskcall: The task call to check.
+
+        Returns:
+            True if the task should be analyzed.
+
+        """
         # resolved_name = taskcall.resolved_name
         # return resolved_name.startswith("sample.custom.")
         return False
 
-    # extract analyzed_data from task and embed it
     def run(self, task: TaskCall) -> ModuleAnnotatorResult:
+        """Extract risk annotations from the task and return aggregated results.
+
+        Args:
+            task: The task call to analyze.
+
+        Returns:
+            Aggregated risk annotations for the task.
+
+        """
         resolved_name = getattr(task.spec, "resolved_name", "") if task.spec else ""
         options = getattr(task.spec, "module_options", {}) if task.spec else {}
         var_annos = task.get_annotation_by_type(VariableAnnotation.type)
@@ -40,6 +64,15 @@ class SampleCustomAnnotator(RiskAnnotator):
         return ModuleAnnotatorResult(annotations=annotations)
 
     def homebrew(self, options: YAMLDict) -> YAMLDict:
+        """Extract package install details from homebrew module options.
+
+        Args:
+            options: Module options dict from the task.
+
+        Returns:
+            Dict with package install details (pkg, delete).
+
+        """
         data: YAMLDict = {}
         if type(options) is not dict:
             return data

@@ -1,12 +1,22 @@
+"""CLI subcommand to update existing Risk Assessment Model data."""
+
 import argparse
 
 from ...ram_generator import RiskAssessmentModelGenerator as RAMGenerator
 
 
 class RAMUpdateCLI:
+    """CLI subcommand to update RAM data for targets from a file.
+
+    Attributes:
+        args: Parsed command-line arguments.
+
+    """
+
     args: argparse.Namespace | None = None
 
     def __init__(self) -> None:
+        """Parse command-line arguments for RAM update."""
         parser = argparse.ArgumentParser(description="TODO")
         parser.add_argument("target_type", help="content type", choices={"ram"})
         parser.add_argument("action", help="action for RAM command or target_name of search action")
@@ -16,6 +26,12 @@ class RAMUpdateCLI:
         self.args = args
 
     def run(self) -> None:
+        """Run RAM update for targets from the specified file.
+
+        Raises:
+            ValueError: When action is not "update" or target list format is invalid.
+
+        """
         args = self.args
         assert args is not None
         action = args.action
