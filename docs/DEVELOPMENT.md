@@ -62,6 +62,7 @@ ruff format --check src/ tests/ # format check (CI mode)
 ```
 src/apme_engine/
 ├── cli.py                  CLI entry point (scan, format, fix, health-check)
+├── ansi.py                 Zero-dependency ANSI styling (NO_COLOR/FORCE_COLOR)
 ├── runner.py               run_scan() → ScanContext
 ├── formatter.py            YAML formatter (format_file, format_directory)
 ├── opa_client.py           OPA eval (Podman or local binary)
@@ -372,6 +373,21 @@ apme-scan scan --primary-addr localhost:50051 -vv .
 
 # JSON output includes diagnostics when -v or -vv is set
 apme-scan scan --primary-addr localhost:50051 -v --json .
+```
+
+### Color output
+
+Scan results use ANSI styling (summary box, severity badges, tree view). Color is auto-detected via TTY and respects the [no-color.org](https://no-color.org) standard:
+
+```bash
+# Disable color via environment variable (any value, including empty string)
+NO_COLOR=1 apme-scan scan .
+
+# Force color in non-TTY contexts (CI pipelines)
+FORCE_COLOR=1 apme-scan scan .
+
+# Disable color via CLI flag
+apme-scan scan --no-ansi .
 ```
 
 ### Adding diagnostics to a new validator

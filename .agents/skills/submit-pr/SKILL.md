@@ -32,6 +32,9 @@ If `prek` is not installed, fall back to:
 ruff check src/ tests/ && ruff format --check src/ tests/
 ```
 
+**All `prek` checks must pass cleanly on all files** — not just the files you changed.
+If the branch has pre-existing violations (e.g., from an old base), rebase onto `upstream/main` first.
+
 If violations are found:
 1. Run `ruff check --fix src/ tests/` and `ruff format src/ tests/` to auto-fix
 2. Manually fix any remaining violations

@@ -1,14 +1,14 @@
-"""Zero-dependency ANSI color/style abstraction for CLI output.
+r"""Zero-dependency ANSI color/style abstraction for CLI output.
 
 Provides terminal styling with NO_COLOR/FORCE_COLOR support, severity badges,
-box drawing, simple tables, and tree connectors. See ADR-014.
+box drawing, simple tables, and tree connectors.
 
 Usage:
     from apme_engine.ansi import bold, red, green, severity_badge, box, table
 
     print(bold(red("Error:")), "something went wrong")
     print(severity_badge("high"))  # -> " ERROR " on red background
-    print(box("Summary\\n2 errors", title="Scan Results"))
+    print(box("Summary\n2 errors", title="Scan Results"))
 """
 
 from __future__ import annotations
@@ -25,13 +25,17 @@ _color_enabled: bool | None = None
 
 
 def _use_color() -> bool:
-    """Check if color output should be used. Follows https://no-color.org."""
+    """Check if color output should be used. Follows https://no-color.org.
+
+    Returns:
+        Whether color output should be used.
+    """
     global _color_enabled
     if _color_enabled is not None:
         return _color_enabled
 
     # NO_COLOR takes precedence (any value disables color)
-    if os.environ.get("NO_COLOR"):
+    if "NO_COLOR" in os.environ:
         _color_enabled = False
         return False
 
@@ -51,21 +55,61 @@ def reset_color_detection() -> None:
     _color_enabled = None
 
 
+def force_no_color() -> None:
+    """Programmatically disable color output (for --no-ansi flag)."""
+    global _color_enabled
+    _color_enabled = False
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # ANSI SGR codes
 # ─────────────────────────────────────────────────────────────────────────────
 
 
 class Style:
-    """ANSI SGR (Select Graphic Rendition) escape codes."""
+    """ANSI SGR (Select Graphic Rendition) escape codes.
+
+    Color constants aligned with ansible-creator's Color class.
+
+    Attributes:
+        RESET: Reset all styles.
+        BOLD: Bold text.
+        DIM: Dim text.
+        UNDERLINE: Underlined text.
+        REVERSE: Reverse video.
+        BLACK: Black foreground.
+        RED: Red foreground.
+        GREEN: Green foreground.
+        YELLOW: Yellow foreground.
+        BLUE: Blue foreground.
+        MAGENTA: Magenta foreground.
+        CYAN: Cyan foreground.
+        WHITE: White foreground.
+        GREY: Grey foreground.
+        GRAY: Grey foreground (alias).
+        BRIGHT_RED: Bright red foreground.
+        BRIGHT_GREEN: Bright green foreground.
+        BRIGHT_YELLOW: Bright yellow foreground.
+        BRIGHT_BLUE: Bright blue foreground.
+        BRIGHT_MAGENTA: Bright magenta foreground.
+        BRIGHT_CYAN: Bright cyan foreground.
+        BRIGHT_WHITE: Bright white foreground.
+        BG_RED: Red background.
+        BG_GREEN: Green background.
+        BG_YELLOW: Yellow background.
+        BG_BLUE: Blue background.
+        BG_MAGENTA: Magenta background.
+        BG_CYAN: Cyan background.
+    """
 
     RESET = "\033[0m"
     BOLD = "\033[1m"
     DIM = "\033[2m"
     UNDERLINE = "\033[4m"
-    REVERSE = "\033[7m"  # Swap foreground/background (used for badges)
+    REVERSE = "\033[7m"
 
     # Foreground colors
+    BLACK = "\033[30m"
     RED = "\033[31m"
     GREEN = "\033[32m"
     YELLOW = "\033[33m"
@@ -73,13 +117,23 @@ class Style:
     MAGENTA = "\033[35m"
     CYAN = "\033[36m"
     WHITE = "\033[37m"
+    GREY = "\033[90m"
     GRAY = "\033[90m"
+    BRIGHT_RED = "\033[91m"
+    BRIGHT_GREEN = "\033[92m"
+    BRIGHT_YELLOW = "\033[93m"
+    BRIGHT_BLUE = "\033[94m"
+    BRIGHT_MAGENTA = "\033[95m"
+    BRIGHT_CYAN = "\033[96m"
+    BRIGHT_WHITE = "\033[97m"
 
     # Background colors (for badges)
     BG_RED = "\033[41m"
     BG_GREEN = "\033[42m"
     BG_YELLOW = "\033[43m"
     BG_BLUE = "\033[44m"
+    BG_MAGENTA = "\033[45m"
+    BG_CYAN = "\033[46m"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -88,60 +142,138 @@ class Style:
 
 
 def style(text: str, *styles: str) -> str:
-    """Wrap text with ANSI style codes. Respects NO_COLOR."""
+    """Wrap text with ANSI style codes. Respects NO_COLOR.
+
+    Args:
+        text: Text to style.
+        *styles: ANSI SGR code strings to apply.
+
+    Returns:
+        Styled text string.
+    """
     if not _use_color() or not styles:
         return text
     return "".join(styles) + text + Style.RESET
 
 
 def bold(text: str) -> str:
-    """Apply bold style."""
+    """Apply bold style.
+
+    Args:
+        text: Text to style.
+
+    Returns:
+        Styled text string.
+    """
     return style(text, Style.BOLD)
 
 
 def dim(text: str) -> str:
-    """Apply dim style."""
+    """Apply dim style.
+
+    Args:
+        text: Text to style.
+
+    Returns:
+        Styled text string.
+    """
     return style(text, Style.DIM)
 
 
 def underline(text: str) -> str:
-    """Apply underline style."""
+    """Apply underline style.
+
+    Args:
+        text: Text to style.
+
+    Returns:
+        Styled text string.
+    """
     return style(text, Style.UNDERLINE)
 
 
 def red(text: str) -> str:
-    """Apply red foreground color."""
+    """Apply red foreground color.
+
+    Args:
+        text: Text to style.
+
+    Returns:
+        Styled text string.
+    """
     return style(text, Style.RED)
 
 
 def green(text: str) -> str:
-    """Apply green foreground color."""
+    """Apply green foreground color.
+
+    Args:
+        text: Text to style.
+
+    Returns:
+        Styled text string.
+    """
     return style(text, Style.GREEN)
 
 
 def yellow(text: str) -> str:
-    """Apply yellow foreground color."""
+    """Apply yellow foreground color.
+
+    Args:
+        text: Text to style.
+
+    Returns:
+        Styled text string.
+    """
     return style(text, Style.YELLOW)
 
 
 def blue(text: str) -> str:
-    """Apply blue foreground color."""
+    """Apply blue foreground color.
+
+    Args:
+        text: Text to style.
+
+    Returns:
+        Styled text string.
+    """
     return style(text, Style.BLUE)
 
 
 def magenta(text: str) -> str:
-    """Apply magenta foreground color."""
+    """Apply magenta foreground color.
+
+    Args:
+        text: Text to style.
+
+    Returns:
+        Styled text string.
+    """
     return style(text, Style.MAGENTA)
 
 
 def cyan(text: str) -> str:
-    """Apply cyan foreground color."""
+    """Apply cyan foreground color.
+
+    Args:
+        text: Text to style.
+
+    Returns:
+        Styled text string.
+    """
     return style(text, Style.CYAN)
 
 
 def gray(text: str) -> str:
-    """Apply gray foreground color."""
-    return style(text, Style.GRAY)
+    """Apply gray foreground color.
+
+    Args:
+        text: Text to style.
+
+    Returns:
+        Styled text string.
+    """
+    return style(text, Style.GREY)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -153,17 +285,40 @@ _ANSI_ESCAPE = re.compile(r"\033\[[0-9;]*m")
 
 
 def strip_ansi(text: str) -> str:
-    """Remove ANSI escape sequences from text."""
+    """Remove ANSI escape sequences from text.
+
+    Args:
+        text: Text possibly containing ANSI codes.
+
+    Returns:
+        Text with ANSI codes removed.
+    """
     return _ANSI_ESCAPE.sub("", text)
 
 
 def visible_width(text: str) -> int:
-    """Get visible width of text (excluding ANSI codes)."""
+    """Get visible width of text (excluding ANSI codes).
+
+    Args:
+        text: Text possibly containing ANSI codes.
+
+    Returns:
+        Visible character count.
+    """
     return len(strip_ansi(text))
 
 
 def ljust_ansi(text: str, width: int, fillchar: str = " ") -> str:
-    """Left-justify text to width, accounting for ANSI codes."""
+    """Left-justify text to width, accounting for ANSI codes.
+
+    Args:
+        text: Text to justify.
+        width: Target width.
+        fillchar: Fill character.
+
+    Returns:
+        Left-justified text string.
+    """
     visible = visible_width(text)
     if visible >= width:
         return text
@@ -171,7 +326,16 @@ def ljust_ansi(text: str, width: int, fillchar: str = " ") -> str:
 
 
 def rjust_ansi(text: str, width: int, fillchar: str = " ") -> str:
-    """Right-justify text to width, accounting for ANSI codes."""
+    """Right-justify text to width, accounting for ANSI codes.
+
+    Args:
+        text: Text to justify.
+        width: Target width.
+        fillchar: Fill character.
+
+    Returns:
+        Right-justified text string.
+    """
     visible = visible_width(text)
     if visible >= width:
         return text
@@ -188,13 +352,13 @@ SEVERITY_DISPLAY: dict[str, tuple[str, str]] = {
     "high": ("ERROR", Style.BG_RED + Style.WHITE + Style.BOLD),
     "medium": ("WARN", Style.BG_YELLOW + Style.BOLD),
     "low": ("WARN", Style.BG_YELLOW + Style.BOLD),
-    "very_low": ("HINT", Style.BG_BLUE + Style.WHITE),
-    "none": ("HINT", Style.BG_BLUE + Style.WHITE),
+    "very_low": ("HINT", Style.BG_CYAN + Style.WHITE),
+    "none": ("HINT", Style.BG_CYAN + Style.WHITE),
     # Also support direct level names
     "error": ("ERROR", Style.BG_RED + Style.WHITE + Style.BOLD),
     "warning": ("WARN", Style.BG_YELLOW + Style.BOLD),
-    "hint": ("HINT", Style.BG_BLUE + Style.WHITE),
-    "info": ("INFO", Style.BG_GREEN + Style.WHITE),
+    "hint": ("HINT", Style.BG_CYAN + Style.WHITE),
+    "info": ("INFO", Style.BG_MAGENTA + Style.WHITE),
 }
 
 
@@ -221,14 +385,14 @@ def severity_indicator(level: str) -> str:
         level: Severity level
 
     Returns:
-        Colored indicator: x (red), △ (yellow), i (blue)
+        Colored indicator: x (red), △ (yellow), i (cyan)
     """
     level_lower = level.lower() if level else "none"
     if level_lower in ("very_high", "high", "error"):
         return red("x")
     if level_lower in ("medium", "low", "warning"):
         return yellow("△")
-    return blue("i")
+    return cyan("i")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -349,9 +513,7 @@ def table(
 
     # Header row
     if headers:
-        header_cells = [
-            ljust_ansi(bold(h), col_widths[i]) for i, h in enumerate(headers)
-        ]
+        header_cells = [ljust_ansi(bold(h), col_widths[i]) for i, h in enumerate(headers)]
         lines.append(sep.join(header_cells))
         # Underline
         underline_cells = [BOX_H * w for w in col_widths]

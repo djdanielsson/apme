@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 import apme_engine.cli as cli_module
+from apme_engine.ansi import strip_ansi
 from apme_engine.cli import (
     _deduplicate_violations,
     _fmt_ms,
@@ -155,13 +156,14 @@ class TestMain:
         ):
             cli_module.main()
         out = stdout_io.getvalue()
-        assert "Violations: 1" in out or "Violations:" in out
-        assert "r1" in out
-        assert "f.yml" in out
-        assert "msg" in out
+        clean = strip_ansi(out)
+        assert "1 warning(s)" in clean or "WARN" in clean
+        assert "r1" in clean
+        assert "f.yml" in clean
+        assert "msg" in clean
 
     def test_main_with_opa_no_violations_prints_no_violations(self, sample_hierarchy_payload: YAMLDict) -> None:
-        """With OPA and no violations, print 'No violations.'.
+        """With OPA and no violations, print 'No issues found'.
 
         Args:
             sample_hierarchy_payload: Fixture providing sample hierarchy data.
@@ -175,7 +177,7 @@ class TestMain:
             patch("sys.stdout", stdout_io),
         ):
             cli_module.main()
-        assert "No violations" in stdout_io.getvalue()
+        assert "No issues found" in strip_ansi(stdout_io.getvalue())
 
     def test_main_uses_custom_opa_bundle_when_provided(
         self, sample_hierarchy_payload: YAMLDict, tmp_path: Path
