@@ -10,6 +10,7 @@ Agent skills for development workflow and spec-driven development.
 |-------|---------|-----------|
 | `submit-pr` | Prepare and submit a pull request | — |
 | `pr-review` | Handle PR review feedback | — |
+| `review-contributor-pr` | Review and prepare a contributor's PR (upstream/fork) | — |
 
 ### Spec-Driven Development (SDLC)
 
@@ -35,6 +36,8 @@ skills/
 ├── submit-pr/
 │   └── SKILL.md
 ├── pr-review/
+│   └── SKILL.md
+├── review-contributor-pr/
 │   └── SKILL.md
 ├── sdlc-status/
 │   ├── SKILL.md
