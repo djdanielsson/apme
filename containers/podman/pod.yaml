@@ -82,5 +82,6 @@ spec:
   volumes:
     - name: cache
       hostPath:
-        path: /tmp/apme-cache
+        # Replaced by up.sh with APME_CACHE_HOST_PATH or XDG cache default
+        path: __APME_CACHE_PATH__
         type: DirectoryOrCreate
