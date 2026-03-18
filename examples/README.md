@@ -4,7 +4,9 @@ These playbooks are **intentionally non-conformant**. They exist to
 demonstrate and test APME's scanner, auto-fix, and remediation capabilities.
 
 **Do not "fix" these files** — the lint violations, bad practices, and fake
-secrets are by design.
+secrets are by design. **Do not run these playbooks** with
+`ansible-playbook` — several contain tasks that modify system state
+(package installs, file writes, user creation).
 
 ## Files
 
