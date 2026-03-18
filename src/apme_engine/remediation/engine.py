@@ -167,7 +167,7 @@ class RemediationEngine:
             for v in tier1:
                 rule_id = str(v.get("rule_id", ""))
                 if rule_id.startswith("native:"):
-                    rule_id = rule_id[len("native:"):]
+                    rule_id = rule_id[len("native:") :]
                 vf_raw = str(v.get("file", ""))
                 vf = _resolve_file(vf_raw)
 

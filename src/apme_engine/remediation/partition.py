@@ -22,7 +22,7 @@ def is_finding_resolvable(violation: ViolationDict, registry: TransformRegistry)
     rule_id = str(violation.get("rule_id", ""))
     # Native validator prefixes rule IDs with "native:" — strip it for registry lookup
     if rule_id.startswith("native:"):
-        rule_id = rule_id[len("native:"):]
+        rule_id = rule_id[len("native:") :]
     return rule_id in registry
 
 
