@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from apme_engine.engine.models import ViolationDict
-from apme_engine.remediation.partition import partition_violations
+from apme_engine.remediation.partition import normalize_rule_id, partition_violations
 from apme_engine.remediation.registry import TransformRegistry
 
 
@@ -133,16 +133,25 @@ class RemediationEngine:
 
         # Violations may report relative filenames (e.g. "site.yml") while
         # file_contents keys are absolute paths.  Build a reverse lookup so we
-        # can resolve either form to the canonical key.
-        _basename_to_key: dict[str, str] = {}
+        # can resolve either form to the canonical key.  When multiple files
+        # share a basename the entry is set to None so we skip rather than
+        # resolving to the wrong file.
+        _basename_to_key: dict[str, str | None] = {}
         for fp in file_paths:
-            _basename_to_key[Path(fp).name] = fp
+            bn = Path(fp).name
+            if bn in _basename_to_key and _basename_to_key[bn] != fp:
+                _basename_to_key[bn] = None
+            else:
+                _basename_to_key[bn] = fp
             _basename_to_key[fp] = fp
 
         def _resolve_file(vf: str) -> str | None:
             if vf in file_contents:
                 return vf
-            return _basename_to_key.get(vf) or _basename_to_key.get(Path(vf).name)
+            candidate = _basename_to_key.get(vf) or _basename_to_key.get(Path(vf).name)
+            if candidate is None and vf:
+                self._log(f"  Skipping violation: ambiguous or unknown file '{vf}'")
+            return candidate
 
         originals = dict(file_contents)
         all_applied_rules: dict[str, list[str]] = {fp: [] for fp in file_paths}
@@ -165,9 +174,7 @@ class RemediationEngine:
 
             applied_this_pass = 0
             for v in tier1:
-                rule_id = str(v.get("rule_id", ""))
-                if rule_id.startswith("native:"):
-                    rule_id = rule_id[len("native:") :]
+                rule_id = normalize_rule_id(str(v.get("rule_id", "")))
                 vf_raw = str(v.get("file", ""))
                 vf = _resolve_file(vf_raw)
 
