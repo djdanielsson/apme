@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # Run CLI container on-the-fly with current directory mounted at /workspace.
 # Joins the apme-pod network so it can reach Primary. Run from any directory you want to scan.
-# Usage: run-cli.sh [apme-scan args...]
-# Example: run-cli.sh
-# Example: run-cli.sh --json .
-# Example: run-cli.sh --no-native .
+# Usage: run-cli.sh [subcommand] [args...]
+# Example: run-cli.sh                     # scan . (default)
+# Example: run-cli.sh scan --json .       # scan with JSON output
+# Example: run-cli.sh fix --check .       # dry-run fix
+# Example: run-cli.sh fix .              # apply Tier 1 fixes
+# Example: run-cli.sh health-check       # check all services
 set -e
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # Ensure image exists

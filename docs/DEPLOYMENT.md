@@ -37,21 +37,29 @@ This builds six images:
 
 This runs `podman play kube containers/podman/pod.yaml`, which starts the pod `apme-pod` with five containers (Primary, Native, OPA, Ansible, Cache Maintainer). A cache directory (`apme-cache/`) is created in the repo root.
 
-### Run a scan
+### Run CLI commands
 
 ```bash
 cd /path/to/your/ansible/project
-/path/to/ansible-forward/containers/podman/run-cli.sh
+
+# Scan (default: scan .)
+/path/to/apme/containers/podman/run-cli.sh
+/path/to/apme/containers/podman/run-cli.sh scan --json .
+
+# Fix (Tier 1 deterministic fixes)
+containers/podman/run-cli.sh fix --check .   # dry-run
+containers/podman/run-cli.sh fix .           # apply
+
+# Format (YAML normalization)
+containers/podman/run-cli.sh format --check .
+
+# Health check
+containers/podman/run-cli.sh health-check
 ```
 
-Options:
+The CLI container joins `apme-pod`, mounts CWD as `/workspace:Z` (read-write for `fix`/`format`), and communicates with Primary at `127.0.0.1:50051` via gRPC.
 
-```bash
-containers/podman/run-cli.sh --json .        # JSON output
-containers/podman/run-cli.sh --no-native .   # Skip native validator
-```
-
-The CLI container joins `apme-pod`, mounts CWD as `/workspace:ro,Z`, and calls `Primary.Scan` at `127.0.0.1:50051`.
+The `fix` command uses a bidirectional streaming RPC (`FixSession`, ADR-028) for real-time progress and interactive AI proposal review.
 
 ### Stop the pod
 
@@ -116,7 +124,7 @@ The OPA binary runs internally on `localhost:8181`; the gRPC wrapper proxies to 
 | Name | Host path | Container mount | Services | Access |
 |------|-----------|-----------------|----------|--------|
 | `cache` | `apme-cache/` | `/cache` | Cache Maintainer, Ansible | rw (cache-maintainer), ro (ansible) |
-| workspace | CWD (CLI only) | `/workspace` | CLI | ro |
+| workspace | CWD (CLI only) | `/workspace` | CLI | rw |
 
 ## OPA container details
 
@@ -148,23 +156,33 @@ The Ansible container pre-builds venvs for multiple ansible-core versions during
 
 Collections from the cache volume are symlinked or copied into the venv's `site-packages/ansible_collections/` directory so they're on the Python path (no `ANSIBLE_COLLECTIONS_PATH` or `ansible.cfg` needed).
 
-## Local development (no containers)
+## Local development (daemon mode)
 
-For development and testing without containers:
+For development and testing without the Podman pod, the CLI can start a
+local daemon that runs the Primary, Native, OPA, and Ansible validators
+in-process (ADR-024):
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 pip install -e ".[dev]"
 
-# Run a scan (in-process mode)
-apme-scan /path/to/project
+# Start the local daemon
+python -m apme_engine.cli daemon start
 
-# OPA evaluation uses Podman by default; to use a local opa binary:
-OPA_USE_PODMAN=0 apme-scan .
+# Run commands (thin CLI talks to local daemon via gRPC)
+python -m apme_engine.cli scan /path/to/project
+python -m apme_engine.cli fix --check .
+python -m apme_engine.cli fix .
+
+# Stop the daemon
+python -m apme_engine.cli daemon stop
 ```
 
-In-process mode runs the engine and validators (Native, OPA) in the same process. The Ansible validator is not available in this mode (requires pre-built venvs).
+Daemon mode starts a local Primary server with Native, OPA, and Ansible
+validators running in-process. Gitleaks is excluded (requires the container
+with the gitleaks binary). OPA runs via the local `opa` binary; skip it
+with `--no-opa` if `opa` is not installed.
 
 ## Troubleshooting
 

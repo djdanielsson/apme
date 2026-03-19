@@ -23,27 +23,31 @@ The pod creates:
 - **Cache directory** — defaults to `${XDG_CACHE_HOME:-$HOME/.cache}/apme` (persists across reboots). Override with `APME_CACHE_HOST_PATH=/my/cache ./up.sh`. The cache-maintainer writes here; the ansible validator reads it.
 - OPA bundle is mounted from **src/apme_engine/validators/opa/bundle**.
 
-## Run a scan (CLI on-the-fly)
+## Run CLI commands (on-the-fly container)
 
-From **any directory** you want to scan:
-
-```bash
-/path/to/ansible-forward/containers/podman/run-cli.sh
-```
-
-Or from the repo root, to scan a project elsewhere:
+From **any directory** you want to work with:
 
 ```bash
+# Scan (default: scan .)
 ./containers/podman/run-cli.sh
-# scans current directory
+./containers/podman/run-cli.sh scan --json .
 
-cd /path/to/project
-/path/to/ansible-forward/containers/podman/run-cli.sh
-# or with options
-/path/to/ansible-forward/containers/podman/run-cli.sh --json .
+# Fix (Tier 1 deterministic fixes, --check for dry-run)
+./containers/podman/run-cli.sh fix --check .
+./containers/podman/run-cli.sh fix .
+
+# Format (YAML normalization)
+./containers/podman/run-cli.sh format --check .
+
+# Health check
+./containers/podman/run-cli.sh health-check
 ```
 
-The script mounts `$(pwd)` at `/workspace` in the CLI container and joins the pod so the CLI can reach Primary at `127.0.0.1:50051`.
+The script mounts `$(pwd)` read-write at `/workspace` in the CLI container and joins the pod so the CLI can reach Primary at `127.0.0.1:50051`.
+
+The `fix` command uses a **bidirectional gRPC stream** (`FixSession`, ADR-028)
+that streams progress in real-time and supports interactive review of AI
+proposals when `--ai` is enabled.
 
 ## Health check
 

@@ -37,21 +37,21 @@ This builds six images:
 
 This runs `podman play kube containers/podman/pod.yaml`, which starts the pod `apme-pod` with five containers (Primary, Native, OPA, Ansible, Cache Maintainer). A cache directory (`apme-cache/`) is created in the repo root.
 
-### Run a Scan
+### Run CLI Commands
 
 ```bash
 cd /path/to/your/ansible/project
-/path/to/ansible-forward/containers/podman/run-cli.sh
+/path/to/apme/containers/podman/run-cli.sh              # scan (default)
+/path/to/apme/containers/podman/run-cli.sh scan --json . # JSON output
+/path/to/apme/containers/podman/run-cli.sh fix --check . # dry-run fix
+/path/to/apme/containers/podman/run-cli.sh fix .         # apply Tier 1 fixes
+/path/to/apme/containers/podman/run-cli.sh format --check .
+/path/to/apme/containers/podman/run-cli.sh health-check
 ```
 
-**Options:**
+The CLI container joins `apme-pod`, mounts CWD as `/workspace:Z` (read-write for `fix`/`format`), and communicates with Primary at `127.0.0.1:50051` via gRPC.
 
-```bash
-containers/podman/run-cli.sh --json .        # JSON output
-containers/podman/run-cli.sh --no-native .   # Skip native validator
-```
-
-The CLI container joins `apme-pod`, mounts CWD as `/workspace:ro,Z`, and calls `Primary.Scan` at `127.0.0.1:50051`.
+The `fix` command uses a **bidirectional streaming RPC** (`FixSession`, ADR-028) for real-time progress and interactive AI proposal review.
 
 ### Stop the Pod
 
@@ -118,7 +118,7 @@ Reports status of all services (Primary, Native, OPA, Ansible, Cache Maintainer)
 | Name | Host Path | Container Mount | Services | Access |
 |------|-----------|-----------------|----------|--------|
 | `cache` | `apme-cache/` | `/cache` | Cache Maintainer, Ansible | rw (cache-maintainer), ro (ansible) |
-| `workspace` | CWD (CLI only) | `/workspace` | CLI | ro |
+| `workspace` | CWD (CLI only) | `/workspace` | CLI | rw |
 
 ---
 
@@ -156,23 +156,36 @@ The Ansible container **pre-builds venvs** for multiple ansible-core versions du
 
 ---
 
-## Local Development (No Containers)
+## Local Development (Daemon Mode)
 
-For development and testing without containers:
+For development and testing without the Podman pod, the CLI can start a
+local daemon that runs the Primary, Native, OPA, and Ansible validators
+in-process (ADR-024):
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 pip install -e ".[dev]"
 
-# Run a scan (in-process mode)
-apme-scan /path/to/project
+# Start the local daemon (background process)
+python -m apme_engine.cli daemon start
 
-# OPA evaluation uses Podman by default; to use a local opa binary:
-OPA_USE_PODMAN=0 apme-scan .
+# Run commands (same thin CLI, talks to local daemon via gRPC)
+python -m apme_engine.cli scan /path/to/project
+python -m apme_engine.cli fix --check .
+python -m apme_engine.cli fix .
+
+# Stop the daemon
+python -m apme_engine.cli daemon stop
 ```
 
-**In-process mode** runs the engine and validators (Native, OPA) in the same process. The Ansible validator is **not available** in this mode (requires pre-built venvs).
+**Daemon mode** starts a local Primary server with Native, OPA, and Ansible
+validators running in-process. Gitleaks is excluded (requires the container
+with the gitleaks binary). OPA runs via the local `opa` binary (no container
+needed); skip it with `--no-opa` if `opa` is not installed.
+
+The CLI is a **thin gRPC client** — it sends file bytes to the daemon and
+receives results. It does not import engine internals.
 
 ---
 
@@ -225,3 +238,5 @@ podman pod stop apme-pod && podman pod rm apme-pod
 - [DATA_FLOW.md](/DATA_FLOW.md) — Request lifecycle and serialization
 - [ADR-004](/.sdlc/adrs/ADR-004-podman-pod-deployment.md) — Podman pod decision
 - [ADR-006](/.sdlc/adrs/ADR-006-ephemeral-venvs.md) — Ephemeral venvs for Ansible
+- [ADR-024](/.sdlc/adrs/ADR-024-thin-cli-daemon-mode.md) — Thin CLI with local daemon mode
+- [ADR-028](/.sdlc/adrs/ADR-028-session-based-fix-workflow.md) — Session-based fix workflow (FixSession bidi stream)

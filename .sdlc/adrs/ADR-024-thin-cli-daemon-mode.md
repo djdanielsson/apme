@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Accepted (implemented in PR #43)
 
 ## Date
 
@@ -170,54 +170,26 @@ does not enable multi-client reuse.
 
 ### New gRPC RPCs on Primary
 
-Add to `proto/apme/v1/primary.proto`:
+Added to `proto/apme/v1/primary.proto`:
 
 ```protobuf
 service Primary {
   // ... existing RPCs ...
   rpc FormatStream(stream ScanChunk) returns (FormatResponse);
-  rpc FixStream(stream ScanChunk) returns (FixResponse);
-}
-
-message FixOptions {
-  int32 max_passes = 1;
-  string ansible_core_version = 2;
-  repeated string collection_specs = 3;
-  repeated string exclude_patterns = 4;
-}
-
-message FixResponse {
-  repeated FileDiff format_diffs = 1;
-  repeated FilePatch remediation_patches = 2;
-  FixReport report = 3;
-  bool idempotency_ok = 4;
-}
-
-message FilePatch {
-  string path = 1;
-  bytes original = 2;
-  bytes patched = 3;
-  string diff = 4;
-  repeated string applied_rules = 5;
-}
-
-message FixReport {
-  int32 passes = 1;
-  int32 fixed = 2;
-  int32 remaining_ai = 3;
-  int32 remaining_manual = 4;
-  bool oscillation_detected = 5;
-  repeated Violation remaining_violations = 6;
+  rpc FixSession(stream SessionCommand) returns (stream SessionEvent);
 }
 ```
 
-`FixStream` reuses `ScanChunk` for file streaming (same chunked FS model as
-`ScanStream`). The first chunk carries `FixOptions`. The Primary runs all
-three phases (format, idempotency, remediate) server-side and returns the
-combined result.
-
 `FormatStream` is the streaming variant of the existing `Format` RPC for
 large projects.
+
+`FixSession` is a **bidirectional streaming RPC** (supersedes the originally
+proposed one-shot `FixStream`). The client streams `SessionCommand` messages
+(file uploads, approvals, extend/close/resume) and receives `SessionEvent`
+messages (progress, Tier 1 summary, AI proposals, results). This enables
+real-time progress feedback and human-in-the-loop approval of AI-generated
+fixes without re-uploading files. See ADR-028 for the full session-based
+fix workflow design.
 
 ### Local daemon
 
@@ -257,7 +229,7 @@ Version field enables auto-restart when the installed package is updated.
 | -------------- | ------------------------------------- | -------------------------------- |
 | `scan`         | `ScanStream` (existing)               | Chunk files, render output       |
 | `format`       | `FormatStream` (new)                  | Chunk files, apply diffs         |
-| `fix`          | `FixStream` (new)                     | Chunk files, apply patches       |
+| `fix`          | `FixSession` bidi stream (ADR-028)    | Stream files, review proposals, apply patches |
 | `cache`        | CacheMaintainer RPCs (existing)       | Dispatch to cache service        |
 | `health-check` | Health RPCs (existing)                | Render status                    |
 | `daemon`       | N/A (local process management)        | start / stop / status            |
@@ -267,24 +239,26 @@ Ansible validator service rather than managing venvs locally. The CLI's
 `session list/info/delete/reap` commands remain available but delegate to
 the validator over gRPC instead of directly manipulating `~/.apme-data/`.
 
-### Phased rollout
+### Phased rollout (completed)
 
-**Phase A — Daemon + wire existing RPCs.** Build the daemon launcher and
-`daemon` subcommand. Wire `format` to the existing `Format` RPC and `cache`
-to the existing CacheMaintainer RPCs. Keep local-mode fallback as safety net.
+All four phases were implemented together in PR #43:
 
-**Phase B — Add FixStream + FormatStream.** Add proto definitions, regenerate
-stubs, implement `FixStream` in `primary_server.py` (reuses existing scan +
-validator fan-out, adds formatter + `RemediationEngine`). Wire CLI `fix` and
-`format` to the streaming RPCs.
+**Phase A — Daemon + wire existing RPCs.** Built `daemon/launcher.py` with
+`start_daemon()`, `stop_daemon()`, `daemon_status()`, `ensure_daemon()`.
+Wired all subcommands through gRPC.
 
-**Phase C — Split cli.py.** Break the 1,315-line monolith into a `cli/`
-package: `parser.py`, `scan.py`, `fix.py`, `format.py`, `output.py`,
-`daemon.py`.
+**Phase B — Add FixSession + FormatStream.** Added `FormatStream` (unary
+response from streamed chunks) and `FixSession` (bidirectional stream per
+ADR-028) proto definitions, implemented in `primary_server.py`.
 
-**Phase D — Remove local-mode code.** Once the daemon is stable, remove the
-local-mode branches. The CLI becomes a pure gRPC client with no engine
-imports. At this point a Rust CLI rewrite is feasible.
+**Phase C — Split cli.py.** Broke the monolith into `src/apme_engine/cli/`
+package: `parser.py`, `scan.py`, `fix.py`, `format_cmd.py`, `output.py`,
+`daemon_cmd.py`, `health.py`, `cache.py`, `discovery.py`, `ansi.py`,
+`_convert.py`, `_models.py`.
+
+**Phase D — Remove local-mode code.** Local-mode branches removed from the
+thin CLI. The old monolith preserved as `_cli_legacy.py` for reference.
+The CLI imports only proto stubs, gRPC, and presentation utilities.
 
 ### What the thin CLI keeps
 
@@ -316,10 +290,12 @@ no longer imported by the CLI.
   on localhost without requiring containers
 - ADR-007: Async gRPC servers — the daemon reuses the existing async server
   implementations
-- ADR-009: Separate remediation engine — `FixStream` moves the remediation
+- ADR-009: Separate remediation engine — `FixSession` moves the remediation
   convergence loop into the Primary, where it belongs
-- ADR-011: YAML formatter pre-pass — `FixStream` runs the formatter as
+- ADR-011: YAML formatter pre-pass — `FixSession` runs the formatter as
   Phase 1 server-side, matching the current `fix` pipeline
+- ADR-028: Session-based fix workflow — `FixSession` bidirectional streaming
+  RPC supersedes the originally proposed one-shot `FixStream`
 - ADR-022: Session-scoped venvs — `session` CLI commands become gRPC
   pass-throughs to the Ansible validator; venv lifecycle management
   remains per ADR-022 but moves server-side
@@ -339,3 +315,4 @@ no longer imported by the CLI.
 | Date       | Author        | Change           |
 |------------|---------------|------------------|
 | 2026-03-18 | Architecture review | Initial proposal |
+| 2026-03-19 | AI Agent      | Accepted: implemented in PR #43. Updated FixStream → FixSession (bidi, ADR-028), updated subcommand table and phased rollout to reflect implementation. |

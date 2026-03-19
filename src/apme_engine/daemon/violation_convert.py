@@ -113,11 +113,11 @@ def violation_proto_to_dict(v: Violation) -> ViolationDict:
     if v.HasField("line_range"):
         line = [v.line_range.start, v.line_range.end]
     remediation_class = _PROTO_TO_REMEDIATION_CLASS.get(
-        v.remediation_class,  # type: ignore[attr-defined]
+        v.remediation_class,
         RemediationClass.AI_CANDIDATE.value,
     )
     resolution = _PROTO_TO_RESOLUTION.get(
-        v.remediation_resolution,  # type: ignore[attr-defined]
+        v.remediation_resolution,
         RemediationResolution.UNRESOLVED.value,
     )
     return {
