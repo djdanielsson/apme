@@ -418,10 +418,10 @@ if addr is None:
 
 provider = AbbenayProvider(addr, token=args.abbenay_token)
 if not await provider.preflight():
-    sys.exit("Error: Abbenay daemon at {addr} is not healthy.")
+    sys.exit(f"Error: Abbenay daemon at {addr} is not healthy.")
 ```
 
-The `preflight()` method calls `abbenay_grpc.health_check()` -- the same `HealthCheck` RPC exposed by the Abbenay daemon.
+The `preflight()` method calls the Abbenay client's `health_check()` RPC -- the same `HealthCheck` service exposed by the Abbenay daemon.
 
 ### Health Check Extension
 
@@ -575,8 +575,18 @@ If `--ai` is set but the daemon is unreachable, the CLI exits with a clear error
 
 `abbenay-client` is an optional dependency:
 
+Currently pinned via VCS URL to the release tag:
+
 ```toml
 [project.optional-dependencies]
+ai = [
+    "abbenay-client @ git+https://github.com/redhat-developer/abbenay.git@v2026.3.6-alpha#subdirectory=packages/python",
+]
+```
+
+Once `abbenay-client` is published to PyPI, this can be simplified to:
+
+```toml
 ai = ["abbenay-client>=2026.3.6a0"]
 ```
 

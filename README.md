@@ -143,14 +143,17 @@ See the [Abbenay container documentation](https://github.com/redhat-developer/ab
 # Pull the pre-built multi-arch image (amd64 + arm64)
 podman pull ghcr.io/redhat-developer/abbenay:latest
 
+# Standalone: Abbenay defaults to gRPC on :50051.
+# When running inside the APME pod, use -p 50057:50051 to avoid
+# colliding with APME Primary (also :50051).
 podman run -d --name abbenay \
   -v ./config.yaml:/home/abbenay/.config/abbenay/config.yaml:ro \
   -e OPENROUTER_API_KEY="$OPENROUTER_API_KEY" \
-  -p 8787:8787 -p 50051:50051 \
+  -p 8787:8787 -p 50057:50051 \
   ghcr.io/redhat-developer/abbenay:latest
 
 # Point APME at the container via gRPC TCP
-apme-scan fix --ai --abbenay-addr localhost:50051 --apply .
+apme-scan fix --ai --abbenay-addr localhost:50057 --apply .
 ```
 
 ### CLI flags
