@@ -5,6 +5,7 @@ import json
 import os
 import sys
 import time
+from collections.abc import Mapping
 from pathlib import Path
 from typing import cast
 
@@ -42,6 +43,7 @@ from apme_engine.daemon.chunked_fs import yield_scan_chunks
 from apme_engine.daemon.health_check import run_health_checks
 from apme_engine.daemon.violation_convert import violation_proto_to_dict
 from apme_engine.engine.models import RemediationClass, RemediationResolution, ViolationDict, YAMLDict
+from apme_engine.engine.node_index import NodeIndex
 from apme_engine.formatter import format_directory, format_file
 from apme_engine.remediation.engine import RemediationEngine
 from apme_engine.remediation.partition import (
@@ -763,6 +765,7 @@ def _scan_files_local(
     ansible_version: str | None = None,
     collection_specs: list[str] | None = None,
     session_id: str | None = None,
+    hierarchy_sink: list[Mapping[str, object]] | None = None,
 ) -> list[ViolationDict]:
     """In-process scan: engine + OPA + native + ansible validators. Returns violation dicts.
 
@@ -773,6 +776,9 @@ def _scan_files_local(
         ansible_version: ansible-core version for plugin introspection; None uses default.
         collection_specs: Optional collection specifiers for venv.
         session_id: Optional session ID for venv reuse across invocations.
+        hierarchy_sink: If provided, each scan's hierarchy_payload is
+            appended here so callers can build a NodeIndex without a
+            redundant second scan pass.
 
     Returns:
         Deduplicated, sorted list of violation dicts.
@@ -803,6 +809,9 @@ def _scan_files_local(
         if not context.hierarchy_payload:
             continue
 
+        if hierarchy_sink is not None:
+            hierarchy_sink.append(context.hierarchy_payload)
+
         validators: list[tuple[str, OpaValidator | NativeValidator | AnsibleValidator]] = [
             ("OPA", OpaValidator(opa_bundle)),
             ("Native", NativeValidator()),
@@ -813,6 +822,30 @@ def _scan_files_local(
             all_violations.extend(v.run(context))  # type: ignore[arg-type]
 
     return _deduplicate_violations(_sort_violations(all_violations))
+
+
+def _build_node_index_from_payloads(
+    payloads: list[Mapping[str, object]],
+) -> NodeIndex | None:
+    """Build a NodeIndex from already-collected hierarchy payloads.
+
+    This avoids a redundant second scan by reusing the payloads
+    captured during ``_scan_files_local`` via ``hierarchy_sink``.
+
+    Args:
+        payloads: List of hierarchy_payload dicts from prior scans.
+
+    Returns:
+        NodeIndex if hierarchy data was found, else None.
+    """
+    merged: dict[str, list[object]] = {"hierarchy": []}
+    for payload in payloads:
+        hierarchy = payload.get("hierarchy")
+        if isinstance(hierarchy, list):
+            merged["hierarchy"].extend(hierarchy)
+    if not merged["hierarchy"]:
+        return None
+    return NodeIndex(merged)
 
 
 def _apply_remediation(
@@ -872,7 +905,11 @@ def _apply_remediation(
         )
         active_session_id = session.session_id if session else None
 
+        hierarchy_payloads: list[Mapping[str, object]] = []
+        _capture_hierarchy = [True]
+
         def scan_fn(paths: list[str]) -> list[ViolationDict]:
+            sink = hierarchy_payloads if _capture_hierarchy[0] else None
             return _scan_files_local(
                 paths,
                 repo_root,
@@ -880,21 +917,39 @@ def _apply_remediation(
                 ansible_version=ansible_version,
                 collection_specs=collection_specs,
                 session_id=active_session_id,
+                hierarchy_sink=sink,
             )
 
+    node_index: NodeIndex | None = None
+
     registry = build_default_registry()
+
+    if not primary_addr:
+        initial_violations = scan_fn(yaml_files)
+        _capture_hierarchy[0] = False
+        node_index = _build_node_index_from_payloads(hierarchy_payloads)
+        if node_index is not None:
+            sys.stderr.write(f"  Indexed {len(node_index)} hierarchy nodes\n")
+    else:
+        initial_violations = None
+
     engine = RemediationEngine(
         registry=registry,
         scan_fn=scan_fn,
         max_passes=max_passes,
         verbose=True,
+        node_index=node_index,
     )
 
     sys.stderr.write(f"  {len(yaml_files)} YAML file(s), {len(registry)} transforms registered\n")
     sys.stderr.write(f"  Transforms: {', '.join(registry.rule_ids)}\n")
     sys.stderr.write("  Remediating...\n")
 
-    report = engine.remediate(yaml_files, apply=apply)
+    report = engine.remediate(
+        yaml_files,
+        apply=apply,
+        initial_violations=initial_violations,
+    )
 
     if apply and report.applied_patches:
         patched_paths = {p.path for p in report.applied_patches}
