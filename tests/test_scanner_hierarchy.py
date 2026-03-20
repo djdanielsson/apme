@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from apme_engine.daemon.primary_server import merge_collection_specs
 from apme_engine.engine.opa_payload import _extract_collection_set
 
 if TYPE_CHECKING:
@@ -247,6 +248,19 @@ class TestExtractCollectionSet:
         )
         assert _extract_collection_set(trees) == []
 
+    def test_path_like_values_rejected(self) -> None:
+        """Taskfile paths and URLs with dots are not misidentified as FQCNs."""
+        trees = self._make_tree(
+            [
+                ("roles/my.task.yml", ""),
+                ("includes/setup.network.tasks", ""),
+                ("/absolute/path.to.file", ""),
+                ("http://example.com.foo", ""),
+                ("has spaces.not.fqcn", ""),
+            ]
+        )
+        assert _extract_collection_set(trees) == []
+
     def test_empty_trees(self) -> None:
         """Empty tree list produces empty collection set."""
         assert _extract_collection_set([]) == []
@@ -303,47 +317,16 @@ class TestExtractCollectionSet:
 
 
 class TestCollectionSpecMerge:
-    """Tests for the collection_specs merge logic used in _scan_pipeline.
+    """Tests for merge_collection_specs (collection precedence logic).
 
-    Exercises the merge semantics independently: explicit specs (from the
-    request or requirements.yml) take precedence over bare FQCN-derived specs.
+    Exercises the merge semantics: explicit specs (from the request or
+    requirements.yml) take precedence over bare FQCN-derived specs.
+    Calls the real production helper directly.
     """
-
-    @staticmethod
-    def _merge(
-        request_specs: list[str],
-        discovered_specs: list[str],
-        hierarchy_collections: list[str],
-    ) -> list[str]:
-        """Replicate the merge logic from _scan_pipeline for testability.
-
-        Args:
-            request_specs: Specs from the original gRPC request (highest precedence).
-            discovered_specs: Specs from requirements.yml/galaxy.yml (potentially versioned).
-            hierarchy_collections: Bare namespace.collection strings from FQCN discovery.
-
-        Returns:
-            Merged collection_specs list with duplicates removed by precedence.
-        """
-        collection_specs = list(request_specs)
-        existing = {s.split(":")[0] for s in collection_specs}
-
-        for spec in discovered_specs:
-            bare = spec.split(":")[0]
-            if bare not in existing:
-                collection_specs.append(spec)
-                existing.add(bare)
-
-        for coll in hierarchy_collections:
-            if coll not in existing:
-                collection_specs.append(coll)
-                existing.add(coll)
-
-        return collection_specs
 
     def test_requirements_yml_wins_over_hierarchy(self) -> None:
         """Versioned spec from requirements.yml supersedes bare hierarchy spec."""
-        result = self._merge(
+        result = merge_collection_specs(
             request_specs=[],
             discovered_specs=["community.general:>=5.0.0"],
             hierarchy_collections=["community.general"],
@@ -352,7 +335,7 @@ class TestCollectionSpecMerge:
 
     def test_request_specs_win_over_both(self) -> None:
         """Specs from the original request take highest precedence."""
-        result = self._merge(
+        result = merge_collection_specs(
             request_specs=["community.general:==4.0.0"],
             discovered_specs=["community.general:>=5.0.0"],
             hierarchy_collections=["community.general"],
@@ -361,7 +344,7 @@ class TestCollectionSpecMerge:
 
     def test_hierarchy_supplements_missing(self) -> None:
         """Hierarchy-derived collections fill gaps not covered by requirements.yml."""
-        result = self._merge(
+        result = merge_collection_specs(
             request_specs=[],
             discovered_specs=["community.general:>=5.0.0"],
             hierarchy_collections=["ansible.posix", "community.crypto"],
@@ -373,11 +356,11 @@ class TestCollectionSpecMerge:
 
     def test_all_empty(self) -> None:
         """No specs from any source produces empty list."""
-        assert self._merge([], [], []) == []
+        assert merge_collection_specs([], [], []) == []
 
     def test_deduplication_across_sources(self) -> None:
         """Same collection in all three sources appears only once."""
-        result = self._merge(
+        result = merge_collection_specs(
             request_specs=["community.general:==4.0.0"],
             discovered_specs=["community.general:>=5.0.0"],
             hierarchy_collections=["community.general"],
@@ -387,7 +370,7 @@ class TestCollectionSpecMerge:
 
     def test_hierarchy_only(self) -> None:
         """When no requirements.yml exists, hierarchy provides all specs as bare."""
-        result = self._merge(
+        result = merge_collection_specs(
             request_specs=[],
             discovered_specs=[],
             hierarchy_collections=["community.general", "ansible.posix"],

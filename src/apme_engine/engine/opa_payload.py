@@ -247,13 +247,36 @@ def node_to_dict(node: RunTarget) -> YAMLDict:
     return d
 
 
+_FQCN_REJECT = frozenset("/\\: \t\n")
+
+
+def _looks_like_fqcn(value: str) -> bool:
+    """Return True if *value* looks like a valid Ansible FQCN module name.
+
+    Rejects taskfile paths, URLs, and other non-FQCN strings that happen
+    to contain 3+ dot-separated parts (e.g. ``roles/my.task.yml``).
+
+    Args:
+        value: Candidate module string from a taskcall node.
+
+    Returns:
+        True if *value* has >= 3 dot-separated identifier parts and contains
+        no path/URL characters.
+    """
+    if any(ch in value for ch in _FQCN_REJECT):
+        return False
+    parts = value.split(".")
+    return len(parts) >= 3 and all(parts)
+
+
 def _extract_collection_set(trees_data: list[dict[str, object]]) -> list[str]:
     """Derive unique namespace.collection pairs from FQCN module names in the tree.
 
     Walks all taskcall nodes and extracts the ``namespace.collection`` prefix
     from any module name with 3+ dot-separated parts (the FQCN pattern).
     ``ansible.builtin`` is excluded — it ships with ansible-core and never
-    needs a Galaxy install.
+    needs a Galaxy install.  Values that look like file paths or URLs are
+    rejected to avoid false positives from ``include_tasks`` / ``import_role``.
 
     Args:
         trees_data: List of tree dicts, each with a ``nodes`` list of node dicts.
@@ -271,13 +294,12 @@ def _extract_collection_set(trees_data: list[dict[str, object]]) -> list[str]:
                 continue
             for field in ("module", "original_module"):
                 mod = node.get(field, "") or ""
-                if not isinstance(mod, str):
+                if not isinstance(mod, str) or not _looks_like_fqcn(mod):
                     continue
                 parts = mod.split(".")
-                if len(parts) >= 3:
-                    fqcn_prefix = f"{parts[0]}.{parts[1]}"
-                    if fqcn_prefix != "ansible.builtin":
-                        collections.add(fqcn_prefix)
+                fqcn_prefix = f"{parts[0]}.{parts[1]}"
+                if fqcn_prefix != "ansible.builtin":
+                    collections.add(fqcn_prefix)
     return sorted(collections)
 
 
