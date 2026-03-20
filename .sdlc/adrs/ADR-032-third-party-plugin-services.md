@@ -185,7 +185,29 @@ class MyOrgPlugin(PluginBase):
         return violations
 
     def transform(self, file, violation):
-        return None
+        if violation.rule_id != self.prefixed_id("001"):
+            return None
+
+        import yaml
+
+        docs = list(yaml.safe_load_all(file.content.decode()))
+        changed = False
+        for doc in docs:
+            if not isinstance(doc, dict):
+                continue
+            tags = doc.get("tags")
+            if tags is None:
+                doc["tags"] = ["dept:unassigned"]
+                changed = True
+            elif isinstance(tags, list) and not any(t.startswith("dept:") for t in tags):
+                tags.append("dept:unassigned")
+                changed = True
+
+        if not changed:
+            return None
+
+        out = yaml.dump_all(docs, default_flow_style=False).encode()
+        return self.file(path=file.path, content=out)
 
 if __name__ == "__main__":
     MyOrgPlugin.serve()
