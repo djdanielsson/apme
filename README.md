@@ -106,7 +106,7 @@ cd /path/to/your/project
 /path/to/apme/containers/podman/run-cli.sh
 
 # With options
-containers/podman/run-cli.sh --json .
+containers/podman/run-cli.sh scan --json .
 ```
 
 ### Health check
