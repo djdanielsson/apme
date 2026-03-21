@@ -137,9 +137,11 @@ def _start_infrastructure() -> None:
     )
     if not _wait_for_port(proxy_port):
         proxy_proc.terminate()
-        proxy_proc.wait(timeout=5)
-        stderr = proxy_proc.stderr.read().decode() if proxy_proc.stderr else ""
-        pytest.exit(f"Galaxy proxy did not start on port {proxy_port}: {stderr}", returncode=2)
+        _, stderr_bytes = proxy_proc.communicate(timeout=5)
+        pytest.exit(
+            f"Galaxy proxy did not start on port {proxy_port}: {stderr_bytes.decode()}",
+            returncode=2,
+        )
         return
 
     proxy_url = f"http://127.0.0.1:{proxy_port}"
@@ -193,6 +195,7 @@ def _stop_infrastructure() -> None:
             INFRASTRUCTURE.proxy_process.wait(timeout=5)
         except subprocess.TimeoutExpired:
             INFRASTRUCTURE.proxy_process.kill()
+            INFRASTRUCTURE.proxy_process.wait()
 
     _restore_env(INFRASTRUCTURE.original_env)
     INFRASTRUCTURE = None

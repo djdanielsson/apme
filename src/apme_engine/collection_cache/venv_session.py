@@ -250,6 +250,24 @@ def install_collections_incremental(
 
 
 _DEFAULT_TTL = 3600
+_SAFE_SESSION_RE = __import__("re").compile(r"^[A-Za-z0-9_\-]+$")
+
+
+def _sanitize_session_id(session_id: str) -> str:
+    """Validate session_id is a safe filesystem name (no path traversal).
+
+    Args:
+        session_id: Raw session identifier from the client.
+
+    Returns:
+        The validated session_id (unchanged if safe).
+
+    Raises:
+        ValueError: If session_id contains unsafe characters.
+    """
+    if not session_id or not _SAFE_SESSION_RE.match(session_id):
+        raise ValueError(f"Invalid session_id {session_id!r}: must be non-empty and contain only [A-Za-z0-9_-]")
+    return session_id
 
 
 def _normalize_version(raw: str) -> str:
@@ -339,6 +357,7 @@ class VenvSessionManager:
         Returns:
             A ``VenvSession`` with a ready-to-use venv.
         """
+        session_id = _sanitize_session_id(session_id)
         specs = collection_specs or []
         pip_version = _normalize_version(ansible_version)
 
@@ -401,6 +420,7 @@ class VenvSessionManager:
         Returns:
             True if the session directory exists, False otherwise.
         """
+        session_id = _sanitize_session_id(session_id)
         session_dir = self._root / session_id
         if not session_dir.is_dir():
             return False
@@ -425,6 +445,7 @@ class VenvSessionManager:
         Returns:
             True if the session directory exists, False otherwise.
         """
+        session_id = _sanitize_session_id(session_id)
         return (self._root / session_id).is_dir()
 
     def get(
@@ -444,6 +465,7 @@ class VenvSessionManager:
         Returns:
             The matching ``VenvSession`` or ``None``.
         """
+        session_id = _sanitize_session_id(session_id)
         session_dir = self._root / session_id
         if not session_dir.is_dir():
             return None
@@ -491,6 +513,7 @@ class VenvSessionManager:
         Returns:
             True if the session directory existed and was removed.
         """
+        session_id = _sanitize_session_id(session_id)
         session_dir = self._root / session_id
         if not session_dir.is_dir():
             return False
