@@ -215,17 +215,29 @@ class TestProxyUrl:
     """Tests for _proxy_url."""
 
     def test_returns_none_when_unset(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Returns None when APME_GALAXY_PROXY_URL is not set."""
+        """Returns None when APME_GALAXY_PROXY_URL is not set.
+
+        Args:
+            monkeypatch: Pytest monkeypatch fixture.
+        """
         monkeypatch.delenv("APME_GALAXY_PROXY_URL", raising=False)
         assert _proxy_url() is None
 
     def test_returns_none_when_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Returns None when APME_GALAXY_PROXY_URL is empty/whitespace."""
+        """Returns None when APME_GALAXY_PROXY_URL is empty/whitespace.
+
+        Args:
+            monkeypatch: Pytest monkeypatch fixture.
+        """
         monkeypatch.setenv("APME_GALAXY_PROXY_URL", "  ")
         assert _proxy_url() is None
 
     def test_returns_url_when_set(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Returns the URL when APME_GALAXY_PROXY_URL is set."""
+        """Returns the URL when APME_GALAXY_PROXY_URL is set.
+
+        Args:
+            monkeypatch: Pytest monkeypatch fixture.
+        """
         monkeypatch.setenv("APME_GALAXY_PROXY_URL", "http://localhost:8765")
         assert _proxy_url() == "http://localhost:8765"
 
@@ -234,7 +246,11 @@ class TestVenvKeyProxyMarker:
     """Tests that _venv_key differs when proxy is active."""
 
     def test_proxy_produces_different_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Same inputs produce different keys with/without proxy."""
+        """Same inputs produce different keys with/without proxy.
+
+        Args:
+            monkeypatch: Pytest monkeypatch fixture.
+        """
         monkeypatch.delenv("APME_GALAXY_PROXY_URL", raising=False)
         k_no_proxy = _venv_key("2.18.0", ["ansible.posix"])
 
@@ -244,7 +260,11 @@ class TestVenvKeyProxyMarker:
         assert k_no_proxy != k_with_proxy
 
     def test_proxy_key_stable(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Proxy key is stable across calls."""
+        """Proxy key is stable across calls.
+
+        Args:
+            monkeypatch: Pytest monkeypatch fixture.
+        """
         monkeypatch.setenv("APME_GALAXY_PROXY_URL", "http://localhost:8765")
         k1 = _venv_key("2.18.0", ["ansible.posix"])
         k2 = _venv_key("2.18.0", ["ansible.posix"])
@@ -255,7 +275,15 @@ class TestBuildVenvProxyPath:
     """Tests for build_venv when APME_GALAXY_PROXY_URL is set."""
 
     def _mock_subprocess_run(self, *args: object, **kwargs: object) -> MagicMock:
-        """Mock subprocess.run that creates venv structure and records pip install calls."""
+        """Mock subprocess.run that creates venv structure and records pip install calls.
+
+        Args:
+            *args: Positional subprocess arguments.
+            **kwargs: Additional subprocess keyword arguments.
+
+        Returns:
+            Mock object with returncode 0.
+        """
         cmd = list(args[0]) if args else list(kwargs.get("args", []))  # type: ignore[call-overload]
         if not cmd:
             return MagicMock(returncode=0)
@@ -278,7 +306,12 @@ class TestBuildVenvProxyPath:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """When proxy is set, build_venv uses uv pip install --extra-index-url."""
+        """When proxy is set, build_venv uses uv pip install --extra-index-url.
+
+        Args:
+            tmp_path: Pytest temporary path fixture.
+            monkeypatch: Pytest monkeypatch fixture.
+        """
         monkeypatch.setenv("APME_GALAXY_PROXY_URL", "http://localhost:8765")
 
         with (
@@ -304,7 +337,12 @@ class TestBuildVenvProxyPath:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """When proxy is set, build_venv does NOT call _resolve_collection_path."""
+        """When proxy is set, build_venv does NOT call _resolve_collection_path.
+
+        Args:
+            tmp_path: Pytest temporary path fixture.
+            monkeypatch: Pytest monkeypatch fixture.
+        """
         monkeypatch.setenv("APME_GALAXY_PROXY_URL", "http://localhost:8765")
 
         with (
@@ -328,7 +366,12 @@ class TestBuildVenvProxyPath:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """When proxy is not set, build_venv uses the original symlink path."""
+        """When proxy is not set, build_venv uses the original symlink path.
+
+        Args:
+            tmp_path: Pytest temporary path fixture.
+            monkeypatch: Pytest monkeypatch fixture.
+        """
         monkeypatch.delenv("APME_GALAXY_PROXY_URL", raising=False)
 
         with (

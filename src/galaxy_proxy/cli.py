@@ -7,6 +7,10 @@ import logging
 import os
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from galaxy_proxy.galaxy_client import GalaxyServer
 
 
 def _setup_logging(verbose: int) -> None:
@@ -21,7 +25,7 @@ def _setup_logging(verbose: int) -> None:
     )
 
 
-def _parse_galaxy_server(raw: str) -> GalaxyServer:  # noqa: F821
+def _parse_galaxy_server(raw: str) -> GalaxyServer:
     """Parse a ``--galaxy-server`` value into a :class:`GalaxyServer`.
 
     Format: ``URL[,token=TOK][,name=LABEL]``
@@ -47,7 +51,11 @@ def _parse_galaxy_server(raw: str) -> GalaxyServer:  # noqa: F821
 
 
 def main(argv: list[str] | None = None) -> None:
-    """Galaxy proxy entry point."""
+    """Galaxy proxy entry point.
+
+    Args:
+        argv: Arguments for argparse; ``None`` parses from :data:`sys.argv`.
+    """
     parser = argparse.ArgumentParser(
         prog="galaxy-proxy",
         description="PEP 503 proxy: serve Galaxy collections as Python wheels.",
@@ -82,7 +90,6 @@ def main(argv: list[str] | None = None) -> None:
 
     import uvicorn
 
-    from galaxy_proxy.galaxy_client import GalaxyServer
     from galaxy_proxy.proxy.server import create_app
 
     parsed_servers: list[GalaxyServer] | None = None

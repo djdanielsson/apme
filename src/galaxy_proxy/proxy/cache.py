@@ -17,7 +17,12 @@ def _default_cache_dir() -> Path:
 
 @dataclass
 class CachedMetadata:
-    """Cached Galaxy version listing for a collection."""
+    """Cached Galaxy version listing for a collection.
+
+    Attributes:
+        versions: Available collection version strings from Galaxy.
+        fetched_at: Unix timestamp when the listing was fetched.
+    """
 
     versions: list[str]
     fetched_at: float
@@ -27,7 +32,12 @@ class ProxyCache:
     """Manages cached wheels and version metadata on disk."""
 
     def __init__(self, cache_dir: Path | None = None, metadata_ttl: float = 600.0) -> None:
-        """Initialise cache directories under *cache_dir* (or XDG default)."""
+        """Initialise cache directories under *cache_dir* (or XDG default).
+
+        Args:
+            cache_dir: Root directory for cached data. If None, uses XDG cache default.
+            metadata_ttl: Seconds before cached metadata is considered stale.
+        """
         self.root = cache_dir or _default_cache_dir()
         self.wheels_dir = self.root / "wheels"
         self.metadata_dir = self.root / "metadata"
@@ -37,25 +47,55 @@ class ProxyCache:
         self.metadata_dir.mkdir(parents=True, exist_ok=True)
 
     def get_wheel(self, filename: str) -> bytes | None:
-        """Return cached wheel bytes, or None if not cached."""
+        """Return cached wheel bytes, or None if not cached.
+
+        Args:
+            filename: Wheel filename under the wheels cache directory.
+
+        Returns:
+            Cached wheel bytes, or None if the file is not present.
+        """
         path = self.wheels_dir / filename
         if path.exists():
             return path.read_bytes()
         return None
 
     def put_wheel(self, filename: str, data: bytes) -> Path:
-        """Write a wheel to the cache and return its path."""
+        """Write a wheel to the cache and return its path.
+
+        Args:
+            filename: Destination filename under the wheels cache.
+            data: Raw wheel bytes to write.
+
+        Returns:
+            Path to the written wheel file.
+        """
         path = self.wheels_dir / filename
         path.write_bytes(data)
         return path
 
     def wheel_path(self, filename: str) -> Path | None:
-        """Return the path to a cached wheel if it exists."""
+        """Return the path to a cached wheel if it exists.
+
+        Args:
+            filename: Wheel filename to look up.
+
+        Returns:
+            Path to the cached file, or None if it does not exist.
+        """
         path = self.wheels_dir / filename
         return path if path.exists() else None
 
     def get_metadata(self, namespace: str, name: str) -> CachedMetadata | None:
-        """Return cached version listing if fresh, None otherwise."""
+        """Return cached version listing if fresh, None otherwise.
+
+        Args:
+            namespace: Collection namespace.
+            name: Collection name.
+
+        Returns:
+            Cached metadata if found and within TTL, otherwise None.
+        """
         path = self.metadata_dir / f"{namespace}-{name}.json"
         if not path.exists():
             return None
@@ -73,7 +113,13 @@ class ProxyCache:
         return cached
 
     def put_metadata(self, namespace: str, name: str, versions: list[str]) -> None:
-        """Cache a version listing for a collection."""
+        """Cache a version listing for a collection.
+
+        Args:
+            namespace: Collection namespace.
+            name: Collection name.
+            versions: Version strings to persist.
+        """
         path = self.metadata_dir / f"{namespace}-{name}.json"
         data = {
             "versions": versions,

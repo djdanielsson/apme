@@ -21,20 +21,42 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class GalaxyServer:
-    """A single upstream Galaxy / Automation Hub endpoint."""
+    """A single upstream Galaxy / Automation Hub endpoint.
+
+    Attributes:
+        url: Base URL of the Galaxy or Automation Hub API.
+        token: Optional API token for Authorization, if required.
+        name: Optional short name for logging and display.
+    """
 
     url: str
     token: str | None = None
     name: str | None = None
 
     def label(self) -> str:
-        """Return a human-readable label (name if set, otherwise URL)."""
+        """Return a human-readable label (name if set, otherwise URL).
+
+        Returns:
+            The configured name, or the server URL if name is unset.
+        """
         return self.name or self.url
 
 
 @dataclass
 class CollectionVersion:
-    """Metadata for a single published collection version."""
+    """Metadata for a single published collection version.
+
+    Attributes:
+        namespace: Collection namespace.
+        name: Collection name.
+        version: Semantic version string.
+        download_url: Absolute URL to the collection artifact tarball.
+        dependencies: Other collections and version constraints required by this version.
+        requires_ansible: Declared Ansible version requirement, if any.
+        license: SPDX or other license strings from metadata.
+        authors: Author strings from metadata.
+        description: Human-readable description from metadata.
+    """
 
     namespace: str
     name: str
@@ -63,7 +85,14 @@ class GalaxyClient:
         *,
         servers: list[GalaxyServer] | None = None,
     ) -> None:
-        """Initialise with one or more upstream Galaxy servers."""
+        """Initialise with one or more upstream Galaxy servers.
+
+        Args:
+            galaxy_url: Default Galaxy base URL when ``servers`` is not provided.
+            token: Default token for the single implicit server from ``galaxy_url``.
+            timeout: HTTP timeout in seconds for all clients.
+            servers: Explicit list of upstream servers; overrides ``galaxy_url``/``token``.
+        """
         self._timeout = timeout
         if servers:
             self._servers = list(servers)
@@ -99,11 +128,19 @@ class GalaxyClient:
         await self._download_client.aclose()
 
     async def __aenter__(self) -> GalaxyClient:
-        """Enter async context manager."""
+        """Enter async context manager.
+
+        Returns:
+            This client instance.
+        """
         return self
 
     async def __aexit__(self, *exc: object) -> None:
-        """Exit async context manager and close clients."""
+        """Exit async context manager and close clients.
+
+        Args:
+            *exc: Exception info from the context manager protocol (type, value, traceback).
+        """
         await self.close()
 
     async def list_versions(self, namespace: str, name: str) -> list[str]:
@@ -111,7 +148,19 @@ class GalaxyClient:
 
         Tries each configured server in order; returns versions from the
         first server that responds successfully.
-        """
+
+        Args:
+            namespace: Collection namespace.
+            name: Collection name.
+
+        Returns:
+            List of version strings from the first successful upstream.
+
+        Raises:
+            httpx.HTTPStatusError: When the last attempted server returns an error status.
+            httpx.RequestError: When the last attempted server's request fails.
+            RuntimeError: When no Galaxy servers are configured.
+        """  # noqa: DOC503
         last_exc: Exception | None = None
         for srv, client in zip(self._servers, self._clients, strict=True):
             try:
@@ -144,7 +193,20 @@ class GalaxyClient:
         """Fetch full metadata for a specific collection version.
 
         Tries each server in order.
-        """
+
+        Args:
+            namespace: Collection namespace.
+            name: Collection name.
+            version: Collection version string.
+
+        Returns:
+            Parsed ``CollectionVersion`` from the first successful upstream.
+
+        Raises:
+            httpx.HTTPStatusError: When the last attempted server returns an error status.
+            httpx.RequestError: When the last attempted server's request fails.
+            RuntimeError: When no Galaxy servers are configured.
+        """  # noqa: DOC503
         last_exc: Exception | None = None
         for srv, client in zip(self._servers, self._clients, strict=True):
             try:
@@ -174,10 +236,16 @@ class GalaxyClient:
 
         Uses a dedicated client without a base_url so it can follow the
         download URL returned by any upstream server.
+
+        Args:
+            download_url: Full URL to the tarball resource.
+
+        Returns:
+            Raw tarball bytes.
         """
         resp = await self._download_client.get(download_url)
         resp.raise_for_status()
-        return resp.content
+        return resp.content  # type: ignore[no-any-return]
 
     async def get_version_and_download(
         self,
@@ -185,7 +253,16 @@ class GalaxyClient:
         name: str,
         version: str,
     ) -> tuple[CollectionVersion, bytes]:
-        """Fetch version metadata and download the tarball in sequence."""
+        """Fetch version metadata and download the tarball in sequence.
+
+        Args:
+            namespace: Collection namespace.
+            name: Collection name.
+            version: Collection version string.
+
+        Returns:
+            Tuple of version metadata and tarball bytes.
+        """
         detail = await self.get_version_detail(namespace, name, version)
         tarball = await self.download_tarball(detail.download_url)
         return detail, tarball

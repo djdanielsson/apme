@@ -5,7 +5,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import io
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from galaxy_proxy.naming import fqcn_to_python
 
@@ -13,11 +13,17 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
-def galaxy_to_metadata(galaxy: dict) -> str:
+def galaxy_to_metadata(galaxy: dict[str, Any]) -> str:
     """Generate PEP 566 METADATA content from parsed galaxy.yml fields.
 
     Returns the full text of the METADATA file suitable for inclusion in a
     .dist-info directory.
+
+    Args:
+        galaxy: Parsed galaxy.yml fields as a dictionary.
+
+    Returns:
+        Full METADATA file contents as a string.
     """
     namespace = galaxy["namespace"]
     name = galaxy["name"]
@@ -60,10 +66,19 @@ def galaxy_to_metadata(galaxy: dict) -> str:
 
 
 def galaxy_to_metadata_with_python_deps(
-    galaxy: dict,
+    galaxy: dict[str, Any],
     requirements_txt: str | None = None,
 ) -> str:
-    """Generate METADATA including Python deps from requirements.txt."""
+    """Generate METADATA including Python deps from requirements.txt.
+
+    Args:
+        galaxy: Parsed galaxy.yml fields as a dictionary.
+        requirements_txt: Optional requirements.txt body; non-comment lines
+            become ``Requires-Dist`` entries.
+
+    Returns:
+        Full METADATA file contents as a string.
+    """
     base = galaxy_to_metadata(galaxy)
     if not requirements_txt:
         return base
@@ -81,12 +96,23 @@ def galaxy_to_metadata_with_python_deps(
 
 
 def generate_wheel_file() -> str:
-    """Generate the static WHEEL metadata file."""
+    """Generate the static WHEEL metadata file.
+
+    Returns:
+        WHEEL file contents as a string.
+    """
     return "Wheel-Version: 1.0\nGenerator: ansible-collection-proxy\nRoot-Is-Purelib: true\nTag: py3-none-any\n"
 
 
 def generate_top_level(namespace: str) -> str:
-    """Generate top_level.txt listing the top-level package."""
+    """Generate top_level.txt listing the top-level package.
+
+    Args:
+        namespace: Collection namespace (included for API symmetry with callers).
+
+    Returns:
+        Contents for ``top_level.txt`` (the static top-level package name line).
+    """
     return "ansible_collections\n"
 
 
@@ -95,6 +121,12 @@ def generate_record(file_entries: list[tuple[str, str, int]]) -> str:
 
     The RECORD file's own entry is appended with empty hash and size fields
     per the wheel specification.
+
+    Args:
+        file_entries: List of ``(wheel-relative path, SHA256 hex digest, size)``.
+
+    Returns:
+        CSV-formatted RECORD file body as a string.
     """
     buf = io.StringIO()
     writer = csv.writer(buf, lineterminator="\n")
@@ -106,12 +138,26 @@ def generate_record(file_entries: list[tuple[str, str, int]]) -> str:
 
 
 def sha256_digest(data: bytes) -> str:
-    """Return hex SHA256 digest of raw bytes."""
+    """Return hex SHA256 digest of raw bytes.
+
+    Args:
+        data: Raw bytes to hash.
+
+    Returns:
+        Lowercase hex SHA256 digest string.
+    """
     return hashlib.sha256(data).hexdigest()
 
 
 def sha256_file(path: Path) -> str:
-    """Return hex SHA256 digest of a file."""
+    """Return hex SHA256 digest of a file.
+
+    Args:
+        path: Path to the file to read and hash.
+
+    Returns:
+        Lowercase hex SHA256 digest string.
+    """
     h = hashlib.sha256()
     with open(path, "rb") as f:
         for chunk in iter(lambda: f.read(8192), b""):

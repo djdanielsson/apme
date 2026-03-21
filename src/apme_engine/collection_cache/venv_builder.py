@@ -17,7 +17,11 @@ _PROXY_ENV = "APME_GALAXY_PROXY_URL"
 
 
 def _proxy_url() -> str | None:
-    """Return the galaxy proxy URL if configured, else None."""
+    """Return the galaxy proxy URL if configured, else None.
+
+    Returns:
+        The proxy URL string, or None if not set.
+    """
     return os.environ.get(_PROXY_ENV, "").strip() or None
 
 
@@ -200,6 +204,9 @@ def _install_collections_via_proxy(
         collection_specs: Collection specifiers (e.g. ansible.posix, community.general:9.0.0).
         proxy_url: Base URL of the galaxy proxy (e.g. http://localhost:8765).
         use_uv: Whether to use uv for installation.
+
+    Raises:
+        subprocess.CalledProcessError: When the pip/uv install command fails.
     """
     simple_url = proxy_url.rstrip("/") + "/simple/"
     pip_specs = [_spec_to_pip(s) for s in collection_specs]

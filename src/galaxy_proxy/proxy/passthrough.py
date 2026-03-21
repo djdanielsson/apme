@@ -11,7 +11,12 @@ class PyPIPassthrough:
     """Forwards Simple API requests to an upstream PyPI server."""
 
     def __init__(self, pypi_url: str = DEFAULT_PYPI_URL, timeout: float = 15.0) -> None:
-        """Initialise with upstream PyPI base URL."""
+        """Initialise with upstream PyPI base URL.
+
+        Args:
+            pypi_url: Base URL of the upstream PyPI-compatible index.
+            timeout: HTTP client timeout in seconds.
+        """
         self._client = httpx.AsyncClient(
             base_url=pypi_url.rstrip("/"),
             timeout=timeout,
@@ -24,6 +29,9 @@ class PyPIPassthrough:
 
     async def fetch_project_page(self, package_name: str) -> tuple[str, int]:
         """Fetch a project's Simple API page from upstream PyPI.
+
+        Args:
+            package_name: Package name used in the Simple API path.
 
         Returns:
             Tuple of (html_content, status_code).

@@ -6,7 +6,7 @@ import io
 import json
 import tarfile
 import zipfile
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
@@ -83,6 +83,10 @@ def tarball_to_wheel(tarball_data: bytes) -> tuple[str, bytes]:
 def tarball_to_wheel_file(tarball_path: Path, output_dir: Path) -> Path:
     """Convert a Galaxy tarball file to a wheel file on disk.
 
+    Args:
+        tarball_path: Path to the collection ``.tar.gz`` archive.
+        output_dir: Directory where the ``.whl`` file will be written.
+
     Returns:
         Path to the written .whl file.
     """
@@ -93,18 +97,25 @@ def tarball_to_wheel_file(tarball_path: Path, output_dir: Path) -> Path:
     return output_path
 
 
-def _extract_tarball(tarball_data: bytes) -> tuple[dict, dict[str, bytes]]:
+def _extract_tarball(tarball_data: bytes) -> tuple[dict[str, Any], dict[str, bytes]]:
     """Extract a Galaxy tarball into metadata and file contents.
 
     Handles two Galaxy tarball layouts:
       - Flat (real Galaxy): files at root, metadata in MANIFEST.json
       - Prefixed (ansible-galaxy collection build): top-level {ns}-{name}-{ver}/
 
+    Args:
+        tarball_data: Raw bytes of the ``.tar.gz`` archive.
+
     Returns:
         A tuple of (galaxy_metadata_dict, {relative_path: bytes}).
+
+    Raises:
+        ValueError: When the archive contains neither ``MANIFEST.json`` nor
+            ``galaxy.yml`` with extractable collection metadata.
     """
     contents: dict[str, bytes] = {}
-    galaxy_data: dict | None = None
+    galaxy_data: dict[str, Any] | None = None
     has_prefix = False
 
     with tarfile.open(fileobj=io.BytesIO(tarball_data), mode="r:gz") as tf:

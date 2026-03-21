@@ -98,6 +98,16 @@ python_version = "3.10"
 mypy_path = "src"
 exclude = ["src/apme/v1/.*_pb2"]
 
+# Vendored galaxy-proxy: parsed Galaxy YAML/JSON is inherently unstructured.
+[[tool.mypy.overrides]]
+module = ["galaxy_proxy", "galaxy_proxy.*"]
+disallow_any_explicit = false
+
+# httpx stubs type Response.content as bytes; ignore is for ambiguous/alternate stubs.
+[[tool.mypy.overrides]]
+module = "galaxy_proxy.galaxy_client"
+disable_error_code = ["unused-ignore"]
+
 [[tool.mypy.overrides]]
 module = [
     "pytest",

@@ -5,6 +5,10 @@ from __future__ import annotations
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, Response
@@ -39,6 +43,18 @@ def create_app(
     When ``galaxy_servers`` is provided, the proxy tries each server in order
     (like ``ansible.cfg``'s ``galaxy_server_list``).  Otherwise falls back to
     ``galaxy_url`` / ``galaxy_token`` for backward compatibility.
+
+    Args:
+        galaxy_url: Primary Galaxy API base URL when not using ``galaxy_servers``.
+        galaxy_token: Optional bearer token for Galaxy authentication.
+        pypi_url: Base URL for PyPI passthrough (non-collection packages).
+        cache_dir: Optional cache root; defaults to XDG cache layout.
+        metadata_ttl: Seconds before cached version metadata expires.
+        enable_passthrough: Whether to forward non-collection packages to PyPI.
+        galaxy_servers: Ordered list of Galaxy servers (ansible.cfg-style).
+
+    Returns:
+        Configured FastAPI application instance.
     """
     cache = ProxyCache(cache_dir=cache_dir, metadata_ttl=metadata_ttl)
     galaxy = GalaxyClient(
@@ -49,7 +65,7 @@ def create_app(
     passthrough = PyPIPassthrough(pypi_url=pypi_url) if enable_passthrough else None
 
     @asynccontextmanager
-    async def lifespan(app: FastAPI):  # noqa: ARG001
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: ARG001
         yield
         await galaxy.close()
         if passthrough:
@@ -57,16 +73,19 @@ def create_app(
 
     app = FastAPI(title="Ansible Collection Proxy", version="0.1.0", lifespan=lifespan)
 
-    @app.get("/health")
+    @app.get("/health")  # type: ignore[untyped-decorator]
     async def health() -> dict[str, str]:
         return {"status": "ok"}
 
-    @app.get("/simple/", response_class=HTMLResponse)
+    @app.get("/simple/", response_class=HTMLResponse)  # type: ignore[untyped-decorator]
     async def root_index() -> str:
         """Root index page.
 
         For the PoC this returns a minimal page. pip doesn't need the root
         index when installing a specific package by name.
+
+        Returns:
+            Minimal HTML document string.
         """
         return (
             "<!DOCTYPE html>\n"
@@ -76,9 +95,20 @@ def create_app(
             "</body></html>\n"
         )
 
-    @app.get("/simple/{package_name}/", response_class=HTMLResponse)
+    @app.get("/simple/{package_name}/", response_class=HTMLResponse)  # type: ignore[untyped-decorator]
     async def project_page(package_name: str) -> HTMLResponse:
-        """PEP 503 project page listing available versions."""
+        """PEP 503 project page listing available versions.
+
+        Args:
+            package_name: Requested package name from the URL path.
+
+        Returns:
+            HTML Simple API response (collection listing or passthrough).
+
+        Raises:
+            HTTPException: When passthrough is disabled for a non-collection
+                package, or Galaxy version listing fails.
+        """
         normalized = normalize_pep503(package_name)
 
         if not is_collection_package(normalized):
@@ -122,9 +152,20 @@ def create_app(
         html = "<!DOCTYPE html>\n<html><body>\n" + "\n".join(links) + "\n</body></html>\n"
         return HTMLResponse(content=html)
 
-    @app.get("/wheels/{filename}")
+    @app.get("/wheels/{filename}")  # type: ignore[untyped-decorator]
     async def serve_wheel(filename: str) -> Response:
-        """Serve a wheel file, converting from Galaxy tarball on cache miss."""
+        """Serve a wheel file, converting from Galaxy tarball on cache miss.
+
+        Args:
+            filename: Requested wheel filename from the URL path.
+
+        Returns:
+            Binary wheel response with appropriate content headers.
+
+        Raises:
+            HTTPException: When the filename is invalid, namespace/name cannot
+                be parsed, or Galaxy fetch fails.
+        """
         cached = cache.get_wheel(filename)
         if cached:
             logger.info("Cache hit: %s", filename)
