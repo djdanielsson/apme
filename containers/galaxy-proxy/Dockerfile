@@ -13,5 +13,5 @@ EXPOSE 8765
 
 VOLUME /cache
 
-ENTRYPOINT ["galaxy-proxy", "start"]
+ENTRYPOINT ["galaxy-proxy"]
 CMD ["--host", "0.0.0.0", "--port", "8765", "--cache-dir", "/cache"]

@@ -117,13 +117,10 @@ def generate_top_level(namespace: str) -> str:
 
 
 def generate_record(file_entries: list[tuple[str, str, int]]) -> str:
-    """Generate RECORD content from a list of (path, sha256_hex, size) tuples.
-
-    The RECORD file's own entry is appended with empty hash and size fields
-    per the wheel specification.
+    """Generate RECORD content from a list of (path, sha256_digest, size) tuples.
 
     Args:
-        file_entries: List of ``(wheel-relative path, SHA256 hex digest, size)``.
+        file_entries: List of ``(wheel-relative path, SHA256 urlsafe-base64 digest, size)``.
 
     Returns:
         CSV-formatted RECORD file body as a string.
@@ -132,34 +129,37 @@ def generate_record(file_entries: list[tuple[str, str, int]]) -> str:
     writer = csv.writer(buf, lineterminator="\n")
     for path, digest, size in file_entries:
         writer.writerow([path, f"sha256={digest}", str(size)])
-    # RECORD's own entry: no hash, no size
-    writer.writerow(["", "", ""])
     return buf.getvalue()
 
 
 def sha256_digest(data: bytes) -> str:
-    """Return hex SHA256 digest of raw bytes.
+    """Return urlsafe-base64 (no padding) SHA256 digest of raw bytes.
 
     Args:
         data: Raw bytes to hash.
 
     Returns:
-        Lowercase hex SHA256 digest string.
+        URL-safe base64 SHA256 digest string (no padding), per PEP 427.
     """
-    return hashlib.sha256(data).hexdigest()
+    import base64
+
+    raw = hashlib.sha256(data).digest()
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
 
 
 def sha256_file(path: Path) -> str:
-    """Return hex SHA256 digest of a file.
+    """Return urlsafe-base64 (no padding) SHA256 digest of a file.
 
     Args:
         path: Path to the file to read and hash.
 
     Returns:
-        Lowercase hex SHA256 digest string.
+        URL-safe base64 SHA256 digest string (no padding), per PEP 427.
     """
+    import base64
+
     h = hashlib.sha256()
     with open(path, "rb") as f:
         for chunk in iter(lambda: f.read(8192), b""):
             h.update(chunk)
-    return h.hexdigest()
+    return base64.urlsafe_b64encode(h.digest()).rstrip(b"=").decode("ascii")

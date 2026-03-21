@@ -115,7 +115,7 @@ def main(argv: list[str] | None = None) -> None:
     else:
         sys.stderr.write(f"Galaxy: {args.galaxy_url}\n")
     sys.stderr.write(f"PyPI passthrough: {'disabled' if args.no_passthrough else args.pypi_url}\n")
-    sys.stderr.write(f"Cache: {args.cache_dir or '~/.cache/galaxy-proxy'}\n")
+    sys.stderr.write(f"Cache: {args.cache_dir or '~/.cache/ansible-collection-proxy'}\n")
     sys.stderr.flush()
 
     uvicorn.run(app, host=host, port=port, log_level="info" if args.verbose else "warning")

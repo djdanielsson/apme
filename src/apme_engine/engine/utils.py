@@ -316,7 +316,7 @@ def get_hash_of_url(url: str) -> str:
         SHA-256 hash of the response body.
 
     """
-    response = httpx.get(url, follow_redirects=True)
+    response = httpx.get(url, follow_redirects=True, timeout=120.0)
     response.raise_for_status()
     hash = hashlib.sha256(response.content).hexdigest()
     return hash

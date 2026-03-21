@@ -67,9 +67,6 @@ spec:
           hostPort: 50056
     - name: galaxy-proxy
       image: apme-galaxy-proxy:latest
-      env:
-        - name: APME_GALAXY_PROXY_PORT
-          value: "8765"
       ports:
         - containerPort: 8765
           hostPort: 8765

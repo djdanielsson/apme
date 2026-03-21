@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -46,6 +47,25 @@ class ProxyCache:
         self.wheels_dir.mkdir(parents=True, exist_ok=True)
         self.metadata_dir.mkdir(parents=True, exist_ok=True)
 
+    def _safe_path(self, base: Path, filename: str) -> Path:
+        """Resolve a filename under base, rejecting traversal attempts.
+
+        Args:
+            base: Base directory the file must reside under.
+            filename: Untrusted filename to resolve.
+
+        Returns:
+            Resolved path confirmed to be under base.
+
+        Raises:
+            ValueError: When the resolved path escapes the base directory.
+        """
+        resolved = (base / filename).resolve()
+        if not resolved.is_relative_to(base.resolve()):
+            msg = f"Path escapes cache directory: {filename!r}"
+            raise ValueError(msg)
+        return resolved
+
     def get_wheel(self, filename: str) -> bytes | None:
         """Return cached wheel bytes, or None if not cached.
 
@@ -55,13 +75,13 @@ class ProxyCache:
         Returns:
             Cached wheel bytes, or None if the file is not present.
         """
-        path = self.wheels_dir / filename
+        path = self._safe_path(self.wheels_dir, filename)
         if path.exists():
             return path.read_bytes()
         return None
 
     def put_wheel(self, filename: str, data: bytes) -> Path:
-        """Write a wheel to the cache and return its path.
+        """Write a wheel to the cache atomically and return its path.
 
         Args:
             filename: Destination filename under the wheels cache.
@@ -69,9 +89,20 @@ class ProxyCache:
 
         Returns:
             Path to the written wheel file.
+
+        Raises:
+            OSError: When the temporary file cannot be written or renamed.
         """
-        path = self.wheels_dir / filename
-        path.write_bytes(data)
+        path = self._safe_path(self.wheels_dir, filename)
+        fd, tmp = tempfile.mkstemp(dir=self.wheels_dir, suffix=".tmp")
+        tmp_path = Path(tmp)
+        try:
+            with os.fdopen(fd, "wb") as f:
+                f.write(data)
+            tmp_path.rename(path)
+        except OSError:
+            tmp_path.unlink(missing_ok=True)
+            raise
         return path
 
     def wheel_path(self, filename: str) -> Path | None:
@@ -83,7 +114,7 @@ class ProxyCache:
         Returns:
             Path to the cached file, or None if it does not exist.
         """
-        path = self.wheels_dir / filename
+        path = self._safe_path(self.wheels_dir, filename)
         return path if path.exists() else None
 
     def get_metadata(self, namespace: str, name: str) -> CachedMetadata | None:

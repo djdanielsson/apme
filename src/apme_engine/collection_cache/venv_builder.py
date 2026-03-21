@@ -81,7 +81,7 @@ def _venv_site_packages(venv_root: Path) -> Path:
 def _venv_key(ansible_core_version: str, collection_specs: list[str]) -> str:
     """Stable key for (ansible-core version, collection set) to reuse venvs.
 
-    Includes a proxy marker when APME_GALAXY_PROXY_URL is set so that
+    Includes the proxy URL when APME_GALAXY_PROXY_URL is set so that
     symlink-based and pip-based venvs coexist without collision.
 
     Args:
@@ -92,8 +92,9 @@ def _venv_key(ansible_core_version: str, collection_specs: list[str]) -> str:
         Hex digest string (first 16 chars) for cache key.
     """
     parts = [ansible_core_version] + sorted(s.strip() for s in collection_specs)
-    if _proxy_url():
-        parts.append("proxy")
+    url = _proxy_url()
+    if url:
+        parts.append(f"proxy={url}")
     return hashlib.sha256("|".join(parts).encode()).hexdigest()[:16]
 
 
@@ -337,7 +338,7 @@ def build_venv(
             path = _resolve_collection_path(spec, root)
             if path is None:
                 raise FileNotFoundError(
-                    f"Collection not in cache: {spec}. Pull it first (e.g. apme-scan cache pull-galaxy {{spec}})."
+                    f"Collection not in cache: {spec}. Pull it first (e.g. apme-scan cache pull-galaxy {spec})."
                 )
             namespace, collection = _parse_collection_spec(spec)
             ns_dir = ac / namespace

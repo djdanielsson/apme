@@ -69,12 +69,9 @@ def tarball_to_wheel(tarball_data: bytes) -> tuple[str, bytes]:
             record_entries.append((arc_path, sha256_digest(meta_content), len(meta_content)))
 
         record_path = f"{dist_info}/RECORD"
-        # Append placeholder for RECORD itself before generating
-        record_entries.append((record_path, "", 0))
-        record_content = generate_record(record_entries[:-1])
-        # Replace the placeholder — RECORD's own entry has no hash
-        record_final = record_content + f"{record_path},,\n"
-        zf.writestr(record_path, record_final)
+        record_content = generate_record(record_entries)
+        record_content += f"{record_path},,\n"
+        zf.writestr(record_path, record_content)
 
     whl_name = wheel_filename(namespace, name, version)
     return whl_name, wheel_buf.getvalue()
@@ -138,6 +135,10 @@ def _extract_tarball(tarball_data: bytes) -> tuple[dict[str, Any], dict[str, byt
                 relative = member.name
 
             if not relative:
+                continue
+
+            # Reject unsafe archive paths (traversal, absolute, etc.)
+            if ".." in relative.split("/") or relative.startswith("/") or "\\" in relative:
                 continue
 
             data = tf.extractfile(member)
