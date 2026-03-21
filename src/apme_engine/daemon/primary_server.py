@@ -293,9 +293,7 @@ async def _ensure_collections_cached(collection_specs: list[str], scan_id: str) 
         scan_id: Request ID for log correlation.
     """
     if os.environ.get("APME_GALAXY_PROXY_URL", "").strip():
-        sys.stderr.write(
-            f"[req={scan_id}] Cache: skipping pre-pull (galaxy proxy handles on demand)\n"
-        )
+        sys.stderr.write(f"[req={scan_id}] Cache: skipping pre-pull (galaxy proxy handles on demand)\n")
         sys.stderr.flush()
         return
 

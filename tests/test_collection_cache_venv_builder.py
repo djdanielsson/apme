@@ -270,22 +270,27 @@ class TestBuildVenvProxyPath:
         return MagicMock(returncode=0)
 
     def setup_method(self) -> None:
+        """Reset subprocess call tracker."""
         self.subprocess_calls: list[list[str]] = []
 
     def test_proxy_path_calls_uv_pip_install_with_extra_index(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """When proxy is set, build_venv uses uv pip install --extra-index-url."""
         monkeypatch.setenv("APME_GALAXY_PROXY_URL", "http://localhost:8765")
 
-        with patch("subprocess.run", side_effect=self._mock_subprocess_run):
-            with patch("apme_engine.collection_cache.venv_builder._uv_available", return_value=True):
-                build_venv(
-                    "2.18.0",
-                    ["ansible.posix", "community.general:9.0.0"],
-                    cache_root=tmp_path,
-                    venvs_root=tmp_path / "venvs",
-                )
+        with (
+            patch("subprocess.run", side_effect=self._mock_subprocess_run),
+            patch("apme_engine.collection_cache.venv_builder._uv_available", return_value=True),
+        ):
+            build_venv(
+                "2.18.0",
+                ["ansible.posix", "community.general:9.0.0"],
+                cache_root=tmp_path,
+                venvs_root=tmp_path / "venvs",
+            )
 
         pip_calls = [c for c in self.subprocess_calls if "--extra-index-url" in c]
         assert len(pip_calls) == 1
@@ -295,7 +300,9 @@ class TestBuildVenvProxyPath:
         assert "ansible-collection-community-general==9.0.0" in pip_cmd
 
     def test_proxy_path_skips_symlink_logic(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """When proxy is set, build_venv does NOT call _resolve_collection_path."""
         monkeypatch.setenv("APME_GALAXY_PROXY_URL", "http://localhost:8765")
@@ -317,7 +324,9 @@ class TestBuildVenvProxyPath:
         mock_resolve.assert_not_called()
 
     def test_no_proxy_still_uses_symlink_path(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """When proxy is not set, build_venv uses the original symlink path."""
         monkeypatch.delenv("APME_GALAXY_PROXY_URL", raising=False)
