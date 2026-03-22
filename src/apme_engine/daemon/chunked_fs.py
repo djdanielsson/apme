@@ -2,6 +2,7 @@
 
 import fnmatch
 import os
+import uuid
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -205,8 +206,10 @@ def build_scan_request(
     if session_id:
         options.session_id = session_id
 
+    resolved_scan_id = scan_id or str(uuid.uuid4())
+
     return ScanRequest(
-        scan_id=scan_id or "",
+        scan_id=resolved_scan_id,
         project_root=project_root_name,
         files=files,
         options=options,

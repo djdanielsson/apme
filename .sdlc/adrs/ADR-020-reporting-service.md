@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Accepted
 
 ## Date
 
@@ -144,6 +144,36 @@ The reporting service chooses its own persistence technology. Candidates to eval
 
 Per ADR-018, all code must pass `mypy --strict`. Per ADR-019, any new dependency must pass the governance checklist.
 
+## Implementation Notes (2026-03)
+
+### Pluggable Event Sink Architecture
+
+Engine event emission is implemented via a pluggable `EventSink` protocol
+(`src/apme_engine/daemon/event_emitter.py`).  Sinks are registered at startup
+and receive fan-out calls on scan/fix completion.  Each sink is best-effort:
+failures are logged and never block the primary RPC path.
+
+The initial concrete sink is `GrpcReportingSink`
+(`src/apme_engine/daemon/sinks/grpc_reporting.py`), which pushes events to a
+gRPC `Reporting` service defined in `proto/apme/v1/reporting.proto`.
+
+Additional sinks (Elasticsearch, Prometheus, webhooks) can be added by
+implementing `EventSink` and registering in `start_sinks()`.
+
+### Event Types
+
+- `ScanCompletedEvent` — emitted after every `Scan()` RPC completes
+- `FixCompletedEvent` — emitted when a `FixSession` reaches COMPLETE status,
+  including `ProposalOutcome` entries for approved/rejected proposals
+
+Both events carry `repeated ProgressUpdate logs` for pipeline milestone
+capture (ADR-033).
+
+### Configuration
+
+Set `APME_REPORTING_ENDPOINT` (e.g. `localhost:50060`) to enable event
+emission.  When unset, no sinks are loaded and zero overhead is incurred.
+
 ## Related Decisions
 
 - ADR-001: gRPC for inter-service communication (the event delivery mechanism)
@@ -152,3 +182,4 @@ Per ADR-018, all code must pass `mypy --strict`. Per ADR-019, any new dependency
 - ADR-012: Scale pods, not services (multiple engine pods require centralized persistence)
 - ADR-018: mypy strict mode (reporting service must be fully typed)
 - ADR-019: Dependency governance (DB dependency must pass the checklist)
+- ADR-033: Centralized log bridge (pipeline logs included in event payloads)

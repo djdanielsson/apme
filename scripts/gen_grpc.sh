@@ -12,6 +12,7 @@ PROTOS=(
   apme/v1/primary.proto
   apme/v1/ansible.proto
   apme/v1/validate.proto
+  apme/v1/reporting.proto
 )
 if [ -d "$ROOT/.venv" ]; then
   PY="${ROOT}/.venv/bin/python"

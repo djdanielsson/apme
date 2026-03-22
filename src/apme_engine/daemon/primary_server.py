@@ -56,7 +56,13 @@ from apme.v1.primary_pb2 import (
     SessionResult,
     Tier1Summary,
 )
+from apme.v1.reporting_pb2 import (
+    FixCompletedEvent,
+    ProposalOutcome,
+    ScanCompletedEvent,
+)
 from apme.v1.validate_pb2 import ValidateRequest
+from apme_engine.daemon.event_emitter import emit_fix_completed, emit_scan_completed, start_sinks
 from apme_engine.daemon.session import ResourceExhaustedError, SessionState, SessionStore
 from apme_engine.daemon.violation_convert import violation_dict_to_proto, violation_proto_to_dict
 from apme_engine.engine.jsonpickle_handlers import register_engine_handlers
@@ -636,8 +642,25 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
                 )
 
                 all_logs = merge_logs(sink.entries, vlogs)
+                proto_violations = [violation_dict_to_proto(v) for v in violations]
+
+                asyncio.create_task(
+                    emit_scan_completed(
+                        ScanCompletedEvent(
+                            scan_id=scan_id,
+                            session_id=resolved_sid,
+                            project_path=request.project_root,
+                            source="cli",
+                            violations=proto_violations,
+                            diagnostics=diag,
+                            summary=summary,
+                            logs=all_logs,
+                        )
+                    )
+                )
+
                 return ScanResponse(
-                    violations=[violation_dict_to_proto(v) for v in violations],
+                    violations=proto_violations,
                     scan_id=scan_id,
                     diagnostics=diag,
                     summary=summary,
@@ -862,6 +885,8 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
             session.fix_options = first_chunk.fix_options
         if first_chunk.HasField("options"):
             session.scan_options = first_chunk.options
+        session.scan_id = scan_id
+        session.project_root = first_chunk.project_root or ""
         return session, scan_id
 
     @staticmethod
@@ -1183,7 +1208,17 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
                 continue
             new_text = text.replace(proposal.before_text, proposal.after_text, 1)
             session.working_files[proposal.file] = new_text.encode("utf-8")
+            session.approved_proposals.append(
+                {
+                    "proposal_id": pid,
+                    "rule_id": proposal.rule_id,
+                    "file": proposal.file,
+                    "tier": proposal.tier,
+                    "confidence": proposal.confidence,
+                }
+            )
             session.proposals.pop(pid)
+            session.approved_ids.add(pid)
             applied += 1
 
         if not session.proposals:
@@ -1231,6 +1266,58 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
                 report=session.report or FixReport(),
                 remaining_violations=remaining_violations,
             ),
+        )
+
+        asyncio.create_task(emit_fix_completed(self._build_fix_event(session, remaining_violations)))
+
+    @staticmethod
+    def _build_fix_event(
+        session: SessionState,
+        remaining_violations: Sequence[object],
+    ) -> FixCompletedEvent:
+        """Build a FixCompletedEvent from completed session state.
+
+        Args:
+            session: Completed session.
+            remaining_violations: Proto violations still open.
+
+        Returns:
+            FixCompletedEvent ready for emission.
+        """
+        proposal_outcomes: list[ProposalOutcome] = []
+        for meta in session.approved_proposals:
+            tier_val = meta.get("tier", 0)
+            conf_val = meta.get("confidence", 0.0)
+            proposal_outcomes.append(
+                ProposalOutcome(
+                    proposal_id=str(meta.get("proposal_id", "")),
+                    rule_id=str(meta.get("rule_id", "")),
+                    file=str(meta.get("file", "")),
+                    tier=int(tier_val) if isinstance(tier_val, (int, float, str)) else 0,
+                    confidence=float(conf_val) if isinstance(conf_val, (int, float, str)) else 0.0,
+                    status="approved",
+                )
+            )
+        for pid, p in session.proposals.items():
+            proposal_outcomes.append(
+                ProposalOutcome(
+                    proposal_id=pid,
+                    rule_id=p.rule_id,
+                    file=p.file,
+                    tier=p.tier,
+                    confidence=p.confidence,
+                    status="rejected",
+                )
+            )
+
+        return FixCompletedEvent(
+            scan_id=session.scan_id or session.session_id,
+            session_id=session.session_id,
+            project_path=session.project_root,
+            source="cli",
+            remaining_violations=remaining_violations,  # type: ignore[arg-type]
+            report=session.report or FixReport(),
+            proposals=proposal_outcomes,
         )
 
     async def _session_replay_state(
@@ -1326,4 +1413,5 @@ async def serve(listen_address: str = "0.0.0.0:50051") -> grpc.aio.Server:
     else:
         server.add_insecure_port(listen_address)
     await server.start()
+    await start_sinks()
     return server

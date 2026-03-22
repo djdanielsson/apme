@@ -16,7 +16,8 @@ dependencies = [
     "filelock",
     "rapidfuzz",
     "joblib",
-    "grpcio>=1.60",
+    "grpcio>=1.78.0",
+    "grpcio-health-checking>=1.78.0",
     "protobuf>=6.31.1,<7",
     "httpx",
 ]
@@ -40,7 +41,7 @@ dev = [
     "types-protobuf",
     "types-PyYAML",
     "grpc-stubs",
-    "grpcio-tools>=1.60",
+    "grpcio-tools>=1.78.0",
 ]
 
 [tool.pytest.ini_options]
@@ -120,6 +121,8 @@ module = [
     "yaml",
     "grpc",
     "grpc.*",
+    "grpc_health",
+    "grpc_health.*",
     "abbenay_grpc",
     "abbenay_grpc.*",
     "fastapi",
@@ -136,6 +139,7 @@ module = [
     "apme.v1.common_pb2_grpc",
     "apme.v1.primary_pb2_grpc",
     "apme.v1.validate_pb2_grpc",
+    "apme.v1.reporting_pb2_grpc",
 ]
 ignore_errors = true
 

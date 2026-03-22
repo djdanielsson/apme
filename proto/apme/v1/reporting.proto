@@ -1,0 +1,48 @@
+syntax = "proto3";
+
+package apme.v1;
+
+import "apme/v1/common.proto";
+import "apme/v1/primary.proto";
+
+// Reporting receives scan/fix events from engine pods (ADR-020).
+// The gateway implements this service; engine pods are gRPC clients.
+service Reporting {
+  rpc ReportScanCompleted(ScanCompletedEvent) returns (ReportAck);
+  rpc ReportFixCompleted(FixCompletedEvent) returns (ReportAck);
+}
+
+message ScanCompletedEvent {
+  string scan_id = 1;
+  string session_id = 2;
+  string project_path = 3;
+  string source = 4;                         // "cli", "ci", "gateway"
+  repeated Violation violations = 5;
+  ScanDiagnostics diagnostics = 6;
+  ScanSummary summary = 7;
+  repeated ProgressUpdate logs = 8;          // pipeline milestone logs (ADR-033)
+}
+
+message FixCompletedEvent {
+  string scan_id = 1;
+  string session_id = 2;
+  string project_path = 3;
+  string source = 4;
+  repeated Violation remaining_violations = 5;
+  ScanDiagnostics diagnostics = 6;
+  ScanSummary summary = 7;
+  FixReport report = 8;
+  repeated ProposalOutcome proposals = 9;
+  repeated ProgressUpdate logs = 10;         // pipeline milestone logs (ADR-033)
+}
+
+message ProposalOutcome {
+  string proposal_id = 1;
+  string rule_id = 2;
+  string file = 3;
+  int32 tier = 4;                            // 2 or 3
+  float confidence = 5;
+  string status = 6;                         // "approved", "rejected", "pending"
+}
+
+message ReportAck {}
