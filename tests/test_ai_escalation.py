@@ -446,9 +446,12 @@ class TestDiscoverAbbenay:
                 return orig_path(tmp_path / "no-run-user-sock" / "daemon.sock")
             return orig_path(*args, **kwargs)  # type: ignore[arg-type]
 
-        with patch.dict(os.environ, {}, clear=True), patch(
-            "apme_engine.remediation.abbenay_provider.Path",
-            side_effect=_path_factory,
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            patch(
+                "apme_engine.remediation.abbenay_provider.Path",
+                side_effect=_path_factory,
+            ),
         ):
             result = discover_abbenay()
 
@@ -467,9 +470,12 @@ class TestDiscoverAbbenay:
                 return orig_path(tmp_path / "missing" / "daemon.sock")
             return orig_path(*args, **kwargs)  # type: ignore[arg-type]
 
-        with patch.dict(os.environ, {"XDG_RUNTIME_DIR": str(tmp_path)}), patch(
-            "apme_engine.remediation.abbenay_provider.Path",
-            side_effect=_path_factory,
+        with (
+            patch.dict(os.environ, {"XDG_RUNTIME_DIR": str(tmp_path)}),
+            patch(
+                "apme_engine.remediation.abbenay_provider.Path",
+                side_effect=_path_factory,
+            ),
         ):
             result = discover_abbenay()
 
