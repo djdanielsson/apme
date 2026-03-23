@@ -48,6 +48,7 @@ dev = [
     "types-PyYAML",
     "grpc-stubs",
     "grpcio-tools>=1.78.0",
+    "pytest-playwright",
 ]
 
 [tool.pytest.ini_options]
@@ -147,6 +148,8 @@ module = [
     "aiosqlite.*",
     "pydantic",
     "pydantic.*",
+    "playwright",
+    "playwright.*",
 ]
 ignore_missing_imports = true
 
