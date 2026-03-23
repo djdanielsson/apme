@@ -58,7 +58,7 @@ def test_sidebar_nav_items(dashboard: Page) -> None:
     Args:
         dashboard: Page positioned on the dashboard.
     """
-    expected = ["New Scan", "Dashboard", "Scans", "Top Violations", "Fix Tracker", "AI Metrics", "Health"]
+    expected = ["New Scan", "Dashboard", "Scans", "Sessions", "Top Violations", "Fix Tracker", "AI Metrics", "Health"]
     items = dashboard.locator(".apme-nav .apme-nav-item")
     expect(items).to_have_count(len(expected))
     for i, label in enumerate(expected):
@@ -139,10 +139,10 @@ def test_theme_toggle(dashboard: Page) -> None:
     html = dashboard.locator("html")
     expect(html).to_have_attribute("data-theme", "dark")
 
-    dashboard.click(".apme-theme-btn")
+    dashboard.click(".apme-theme-icon-btn")
     expect(html).to_have_attribute("data-theme", "light")
 
-    dashboard.click(".apme-theme-btn")
+    dashboard.click(".apme-theme-icon-btn")
     expect(html).to_have_attribute("data-theme", "dark")
 
 

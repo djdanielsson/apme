@@ -124,6 +124,7 @@ class ReportingServicer(reporting_pb2_grpc.ReportingServicer):
                     auto_fixable=request.summary.auto_fixable if request.summary else 0,
                     ai_candidate=request.summary.ai_candidate if request.summary else 0,
                     manual_review=request.summary.manual_review if request.summary else 0,
+                    fixed_count=request.report.fixed if request.report else 0,
                     diagnostics_json=_diagnostics_to_json(request.diagnostics),
                 )
                 db.add(scan)

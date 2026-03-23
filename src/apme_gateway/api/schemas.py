@@ -35,6 +35,7 @@ class ScanSummary(BaseModel):  # type: ignore[misc]
         auto_fixable: Count of tier-1 fixable violations.
         ai_candidate: Count of tier-2 AI-candidate violations.
         manual_review: Count of tier-3 manual violations.
+        fixed_count: Number of violations fixed (fix scans only).
     """
 
     scan_id: str
@@ -47,6 +48,7 @@ class ScanSummary(BaseModel):  # type: ignore[misc]
     auto_fixable: int
     ai_candidate: int
     manual_review: int
+    fixed_count: int = 0
 
 
 class ViolationDetail(BaseModel):  # type: ignore[misc]
@@ -129,6 +131,7 @@ class ScanDetail(BaseModel):  # type: ignore[misc]
         auto_fixable: Count of tier-1 fixable violations.
         ai_candidate: Count of tier-2 AI-candidate violations.
         manual_review: Count of tier-3 manual violations.
+        fixed_count: Number of violations fixed (fix scans only).
         diagnostics_json: Raw diagnostics JSON string.
         violations: List of violation rows.
         proposals: List of proposal rows.
@@ -145,6 +148,7 @@ class ScanDetail(BaseModel):  # type: ignore[misc]
     auto_fixable: int
     ai_candidate: int
     manual_review: int
+    fixed_count: int = 0
     diagnostics_json: str | None
     violations: list[ViolationDetail]
     proposals: list[ProposalDetail]

@@ -252,6 +252,7 @@ async def get_scan_detail(scan_id: str) -> ScanDetail:
         auto_fixable=scan.auto_fixable,
         ai_candidate=scan.ai_candidate,
         manual_review=scan.manual_review,
+        fixed_count=scan.fixed_count,
         diagnostics_json=scan.diagnostics_json,
         violations=[
             ViolationDetail(
@@ -413,6 +414,7 @@ def _scan_to_summary(scan: Scan) -> ScanSummary:
         auto_fixable=scan.auto_fixable,
         ai_candidate=scan.ai_candidate,
         manual_review=scan.manual_review,
+        fixed_count=scan.fixed_count,
     )
 
 

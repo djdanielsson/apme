@@ -39,6 +39,7 @@ export interface ScanSummary {
   auto_fixable: number;
   ai_candidate: number;
   manual_review: number;
+  fixed_count: number;
 }
 
 export interface ScanDetail extends ScanSummary {

@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
+from apme.v1.common_pb2 import ProgressUpdate
 from apme.v1.primary_pb2 import (
     FileDiff,
     FilePatch,
@@ -61,6 +62,7 @@ class SessionState:
         approved_proposals: Metadata snapshots of approved proposals.
         scan_id: Client-provided scan identifier for event correlation.
         project_root: Project root path from the first upload chunk.
+        progress_logs: Pipeline milestone logs collected during processing.
     """
 
     session_id: str
@@ -94,6 +96,9 @@ class SessionState:
     # Identifiers captured from the first upload chunk for event emission
     scan_id: str = ""
     project_root: str = ""
+
+    # Pipeline milestone logs collected during processing for FixCompletedEvent
+    progress_logs: list[ProgressUpdate] = field(default_factory=list)
 
     @property
     def ttl_seconds(self) -> int:

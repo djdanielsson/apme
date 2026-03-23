@@ -159,14 +159,28 @@ async def _ws_command_reader(
 ) -> None:
     """Read interactive commands from the WebSocket and enqueue for gRPC.
 
+    Keeps the command stream alive until ``done`` is set so a browser
+    disconnect during scan processing does not prematurely terminate the
+    gRPC FixSession stream.
+
     Args:
         ws: Active WebSocket connection.
         queue: Queue feeding the gRPC command stream.
         done: Event signalling the session is finished.
     """
+    ws_alive = True
     try:
         while not done.is_set():
-            msg = await ws.receive_json()
+            if not ws_alive:
+                await asyncio.sleep(0.5)
+                continue
+            try:
+                msg = await ws.receive_json()
+            except WebSocketDisconnect:
+                ws_alive = False
+                logger.info("WebSocket disconnected; keeping gRPC stream alive until session completes")
+                continue
+
             msg_type = msg.get("type")
 
             if msg_type == "approve":
@@ -182,8 +196,8 @@ async def _ws_command_reader(
                 break
             else:
                 logger.warning("Ignoring unknown WS command: %s", msg_type)
-    except WebSocketDisconnect:
-        await queue.put(SessionCommand(close=CloseRequest()))
+    except Exception:
+        logger.debug("WS reader stopped", exc_info=True)
     finally:
         await queue.put(None)
 
@@ -211,6 +225,23 @@ async def _command_stream(
         yield cmd
 
 
+async def _safe_send(ws: WebSocket, data: dict[str, Any]) -> bool:
+    """Send JSON to the WebSocket, returning False on disconnect.
+
+    Args:
+        ws: WebSocket connection.
+        data: JSON-serialisable dict.
+
+    Returns:
+        True if the message was sent, False if the socket is closed.
+    """
+    try:
+        await ws.send_json(data)
+        return True
+    except (WebSocketDisconnect, RuntimeError):
+        return False
+
+
 async def _forward_events(
     response_stream: Any,
     ws: WebSocket,
@@ -218,6 +249,9 @@ async def _forward_events(
     done: asyncio.Event,
 ) -> None:
     """Read SessionEvents from gRPC and forward as JSON to the WebSocket.
+
+    Tolerates a closed WebSocket: continues draining gRPC events so the
+    Primary finishes normally and persists scan results to the gateway.
 
     Args:
         response_stream: Async iterator of gRPC SessionEvent messages.
@@ -229,29 +263,32 @@ async def _forward_events(
         oneof = event.WhichOneof("event")
 
         if oneof == "created":
-            await ws.send_json(
+            await _safe_send(
+                ws,
                 {
                     "type": "session_created",
                     "session_id": event.created.session_id,
                     "scan_id": scan_id,
                     "ttl_seconds": event.created.ttl_seconds,
-                }
+                },
             )
 
         elif oneof == "progress":
             p = event.progress
-            await ws.send_json(
+            await _safe_send(
+                ws,
                 {
                     "type": "progress",
                     "phase": p.phase,
                     "message": p.message,
                     "level": p.level,
-                }
+                },
             )
 
         elif oneof == "tier1_complete":
             t1 = event.tier1_complete
-            await ws.send_json(
+            await _safe_send(
+                ws,
                 {
                     "type": "tier1_complete",
                     "idempotency_ok": t1.idempotency_ok,
@@ -266,12 +303,13 @@ async def _forward_events(
                     ],
                     "format_diffs": [{"file": d.path, "diff": d.diff} for d in t1.format_diffs],
                     "report": MessageToDict(t1.report) if t1.HasField("report") else None,
-                }
+                },
             )
 
         elif oneof == "proposals":
             pr = event.proposals
-            await ws.send_json(
+            await _safe_send(
+                ws,
                 {
                     "type": "proposals",
                     "tier": pr.tier,
@@ -292,23 +330,25 @@ async def _forward_events(
                         }
                         for p in pr.proposals
                     ],
-                }
+                },
             )
 
         elif oneof == "approval_ack":
             ack = event.approval_ack
-            await ws.send_json(
+            await _safe_send(
+                ws,
                 {
                     "type": "approval_ack",
                     "applied_count": ack.applied_count,
                     "status": _status_name(ack.status),
                     "ttl_seconds": ack.ttl_seconds,
-                }
+                },
             )
 
         elif oneof == "result":
             r = event.result
-            await ws.send_json(
+            await _safe_send(
+                ws,
                 {
                     "type": "result",
                     "scan_id": scan_id,
@@ -331,22 +371,23 @@ async def _forward_events(
                         }
                         for v in r.remaining_violations
                     ],
-                }
+                },
             )
-            await ws.send_json({"type": "closed"})
+            await _safe_send(ws, {"type": "closed"})
             done.set()
             break
 
         elif oneof == "expiring":
-            await ws.send_json(
+            await _safe_send(
+                ws,
                 {
                     "type": "expiring",
                     "ttl_seconds": event.expiring.ttl_seconds,
-                }
+                },
             )
 
         elif oneof == "closed":
-            await ws.send_json({"type": "closed"})
+            await _safe_send(ws, {"type": "closed"})
             done.set()
             break
 

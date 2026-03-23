@@ -431,6 +431,9 @@ function ProposalApproval({
           <button className="apme-btn-secondary" onClick={toggleAll}>
             {allSelected ? "Deselect All" : "Select All"}
           </button>
+          <button className="apme-btn-secondary" onClick={() => onApprove([])} style={{ color: "var(--apme-text-muted)" }}>
+            Skip All
+          </button>
           <button className="apme-btn-primary" onClick={handleSubmit}>
             Apply {selected.size} Selected
           </button>

@@ -5,6 +5,7 @@ import type {
   PaginatedResponse,
   ScanDetail,
   ScanSummary,
+  SessionDetail,
   SessionSummary,
   TopViolation,
   TrendPoint,
@@ -12,9 +13,10 @@ import type {
 
 const BASE = "/api/v1";
 
-async function request<T>(path: string): Promise<T> {
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     headers: { Accept: "application/json" },
+    ...init,
   });
   if (!res.ok) {
     const text = await res.text();
@@ -46,6 +48,15 @@ export function listScans(
 
 export function getScan(scanId: string): Promise<ScanDetail> {
   return request(`/scans/${scanId}`);
+}
+
+export async function deleteScan(scanId: string): Promise<void> {
+  const res = await fetch(`${BASE}/scans/${scanId}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(`${res.status}`);
+}
+
+export function getSession(sessionId: string): Promise<SessionDetail> {
+  return request(`/sessions/${sessionId}`);
 }
 
 export function getTopViolations(limit = 20): Promise<TopViolation[]> {

@@ -1076,13 +1076,13 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
             return
 
         # Phase 1: Format
-        yield SessionEvent(
-            progress=ProgressUpdate(
-                message=f"Formatting {len(all_files)} file(s)...",
-                phase="format",
-                level=2,  # INFO
-            ),
+        _fmt_start = ProgressUpdate(
+            message=f"Formatting {len(all_files)} file(s)...",
+            phase="format",
+            level=2,  # INFO
         )
+        session.progress_logs.append(_fmt_start)
+        yield SessionEvent(progress=_fmt_start)
         format_diffs = await asyncio.get_event_loop().run_in_executor(
             None,
             self._format_files,
@@ -1112,13 +1112,13 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
                     formatted_files.append(f)
 
         if format_diffs:
-            yield SessionEvent(
-                progress=ProgressUpdate(
-                    message=f"Formatted {len(format_diffs)} file(s)",
-                    phase="format",
-                    level=2,
-                ),
+            _fmt_done = ProgressUpdate(
+                message=f"Formatted {len(format_diffs)} file(s)",
+                phase="format",
+                level=2,
             )
+            session.progress_logs.append(_fmt_done)
+            yield SessionEvent(progress=_fmt_done)
 
         # Phase 2: Idempotency check
         idem_diffs = await asyncio.get_event_loop().run_in_executor(
@@ -1128,22 +1128,22 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
         )
         session.idempotency_ok = len(idem_diffs) == 0
         if not session.idempotency_ok:
-            yield SessionEvent(
-                progress=ProgressUpdate(
-                    message="Formatter is not idempotent on this input",
-                    phase="format",
-                    level=3,  # WARNING
-                ),
+            _idem_warn = ProgressUpdate(
+                message="Formatter is not idempotent on this input",
+                phase="format",
+                level=3,  # WARNING
             )
+            session.progress_logs.append(_idem_warn)
+            yield SessionEvent(progress=_idem_warn)
 
         # Phase 3+4: Scan + Remediate via convergence loop
-        yield SessionEvent(
-            progress=ProgressUpdate(
-                message="Running Tier 1 remediation...",
-                phase="tier1",
-                level=2,
-            ),
+        _t1_start = ProgressUpdate(
+            message="Running Tier 1 remediation...",
+            phase="tier1",
+            level=2,
         )
+        session.progress_logs.append(_t1_start)
+        yield SessionEvent(progress=_t1_start)
 
         loop = asyncio.get_event_loop()
 
@@ -1229,13 +1229,13 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
             remaining_violations=remaining_violations,
         )
 
-        yield SessionEvent(
-            progress=ProgressUpdate(
-                message=(f"Tier 1 converged: {report.passes} pass(es), {report.fixed} fixed"),
-                phase="tier1",
-                level=2,
-            ),
+        _t1_done = ProgressUpdate(
+            message=(f"Tier 1 converged: {report.passes} pass(es), {report.fixed} fixed"),
+            phase="tier1",
+            level=2,
         )
+        session.progress_logs.append(_t1_done)
+        yield SessionEvent(progress=_t1_done)
 
         yield SessionEvent(
             tier1_complete=Tier1Summary(
@@ -1327,6 +1327,11 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
         Returns:
             Number of proposals successfully applied.
         """
+        if not approved_ids:
+            session.proposals.clear()
+            session.status = 3  # COMPLETE
+            return 0
+
         applied = 0
         for pid in approved_ids:
             proposal = session.proposals.get(pid)
@@ -1440,14 +1445,27 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
                 )
             )
 
+        from apme_engine.remediation.partition import count_by_remediation_class
+
+        all_remaining = list(session.remaining_ai) + list(session.remaining_manual)
+        rem_counts = count_by_remediation_class(all_remaining)  # type: ignore[arg-type]
+        summary = ScanSummary(
+            total=len(all_remaining),
+            auto_fixable=rem_counts.get("auto-fixable", 0),
+            ai_candidate=rem_counts.get("ai-candidate", 0),
+            manual_review=rem_counts.get("manual-review", 0),
+        )
+
         return FixCompletedEvent(
             scan_id=session.scan_id or session.session_id,
             session_id=session.session_id,
             project_path=session.project_root,
             source="cli",
             remaining_violations=remaining_violations,  # type: ignore[arg-type]
+            summary=summary,
             report=session.report or FixReport(),
             proposals=proposal_outcomes,
+            logs=session.progress_logs,
         )
 
     async def _session_replay_state(

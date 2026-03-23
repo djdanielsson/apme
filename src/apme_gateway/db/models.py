@@ -50,6 +50,7 @@ class Scan(Base):
         auto_fixable: Count of tier-1 fixable violations.
         ai_candidate: Count of tier-2 AI-candidate violations.
         manual_review: Count of tier-3 manual violations.
+        fixed_count: Number of violations fixed (fix scans only).
         diagnostics_json: JSON-serialised ScanDiagnostics.
         session: Back-reference to owning Session.
         violations: Related violation rows.
@@ -69,6 +70,7 @@ class Scan(Base):
     auto_fixable: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     ai_candidate: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     manual_review: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    fixed_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     diagnostics_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     session: Mapped[Session] = relationship(back_populates="scans")
