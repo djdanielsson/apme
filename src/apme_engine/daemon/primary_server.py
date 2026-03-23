@@ -1328,7 +1328,6 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
             Number of proposals successfully applied.
         """
         if not approved_ids:
-            session.proposals.clear()
             session.status = 3  # COMPLETE
             return 0
 

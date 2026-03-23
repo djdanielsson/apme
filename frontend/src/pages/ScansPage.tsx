@@ -68,9 +68,9 @@ export function ScansPage() {
                   </td>
                   <td><StatusBadge violations={scan.total_violations} scanType={scan.scan_type} /></td>
                   <td>{scan.total_violations}</td>
-                  <td><span className="apme-count-success">{scan.auto_fixable || ""}</span></td>
-                  <td>{scan.ai_candidate || ""}</td>
-                  <td><span className="apme-count-error">{scan.manual_review || ""}</span></td>
+                  <td><span className="apme-count-success">{scan.auto_fixable ?? ""}</span></td>
+                  <td>{scan.ai_candidate ?? ""}</td>
+                  <td><span className="apme-count-error">{scan.manual_review ?? ""}</span></td>
                   <td className="apme-time-ago">{timeAgo(scan.created_at)}</td>
                 </tr>
               ))}
