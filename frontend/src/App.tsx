@@ -1,33 +1,28 @@
-import { BrowserRouter, Route, Routes } from "react-router-dom";
-import { Layout } from "./components/Layout";
-import { DashboardPage } from "./pages/DashboardPage";
-import { NewScanPage } from "./pages/NewScanPage";
-import { ScanDetailPage } from "./pages/ScanDetailPage";
-import { ScansPage } from "./pages/ScansPage";
-import { SessionsPage } from "./pages/SessionsPage";
-import { SessionDetailPage } from "./pages/SessionDetailPage";
-import { TopViolationsPage } from "./pages/TopViolationsPage";
-import { FixTrackerPage } from "./pages/FixTrackerPage";
-import { AiMetricsPage } from "./pages/AiMetricsPage";
-import { HealthPage } from "./pages/HealthPage";
+import { Suspense } from 'react';
+import { BrowserRouter } from 'react-router-dom';
+import { PageApp, PageFramework } from '@ansible/ansible-ui-framework';
+import { ApmeMasthead } from './components/ApmeMasthead';
+import { useApmeNavigation } from './hooks/useApmeNavigation';
 
 export function App() {
   return (
     <BrowserRouter>
-      <Layout>
-        <Routes>
-          <Route path="/" element={<DashboardPage />} />
-          <Route path="/new-scan" element={<NewScanPage />} />
-          <Route path="/scans" element={<ScansPage />} />
-          <Route path="/scans/:scanId" element={<ScanDetailPage />} />
-          <Route path="/sessions" element={<SessionsPage />} />
-          <Route path="/sessions/:sessionId" element={<SessionDetailPage />} />
-          <Route path="/violations" element={<TopViolationsPage />} />
-          <Route path="/fix-tracker" element={<FixTrackerPage />} />
-          <Route path="/ai-metrics" element={<AiMetricsPage />} />
-          <Route path="/health" element={<HealthPage />} />
-        </Routes>
-      </Layout>
+      <PageFramework defaultRefreshInterval={30}>
+        <Suspense fallback={<div style={{ padding: 48, textAlign: 'center' }}>Loading...</div>}>
+          <ApmeApp />
+        </Suspense>
+      </PageFramework>
     </BrowserRouter>
+  );
+}
+
+function ApmeApp() {
+  const navigation = useApmeNavigation();
+  return (
+    <PageApp
+      masthead={<ApmeMasthead />}
+      navigation={navigation}
+      defaultRefreshInterval={30}
+    />
   );
 }

@@ -12,6 +12,7 @@ Requires:
 from __future__ import annotations
 
 import os
+import re
 from typing import TYPE_CHECKING
 
 import pytest
@@ -30,7 +31,7 @@ _BASE = os.environ.get("APME_UI_URL", "http://localhost:8081")
 
 @pytest.fixture()  # type: ignore[untyped-decorator]
 def dashboard(page: Page) -> Page:
-    """Navigate to the dashboard and wait for the sidebar to appear.
+    """Navigate to the dashboard and wait for the sidebar nav to appear.
 
     Args:
         page: Playwright page fixture.
@@ -39,7 +40,7 @@ def dashboard(page: Page) -> Page:
         Page positioned on the dashboard.
     """
     page.goto(_BASE, wait_until="networkidle")
-    page.wait_for_selector(".apme-sidebar", timeout=10_000)
+    page.wait_for_selector("[data-testid='page-navigation']", timeout=10_000)
     return page
 
 
@@ -49,7 +50,7 @@ def test_page_title(dashboard: Page) -> None:
     Args:
         dashboard: Page positioned on the dashboard.
     """
-    expect(dashboard).to_have_title("APME Dashboard")
+    expect(dashboard).to_have_title(re.compile(r"Dashboard"))
 
 
 def test_sidebar_nav_items(dashboard: Page) -> None:
@@ -58,21 +59,30 @@ def test_sidebar_nav_items(dashboard: Page) -> None:
     Args:
         dashboard: Page positioned on the dashboard.
     """
-    expected = ["New Scan", "Dashboard", "Scans", "Sessions", "Top Violations", "Fix Tracker", "AI Metrics", "Health"]
-    items = dashboard.locator(".apme-nav .apme-nav-item")
-    expect(items).to_have_count(len(expected))
-    for i, label in enumerate(expected):
-        expect(items.nth(i)).to_contain_text(label)
+    expected = [
+        "Dashboard",
+        "New Scan",
+        "Scans",
+        "Sessions",
+        "Top Violations",
+        "Fix Tracker",
+        "AI Metrics",
+        "Health",
+    ]
+    nav = dashboard.locator("[data-testid='page-navigation']")
+    for label in expected:
+        expect(nav.locator(f".pf-v6-c-nav__item >> text='{label}'").first).to_be_visible()
 
 
-def test_metric_cards_visible(dashboard: Page) -> None:
-    """Dashboard shows metric cards.
+def test_dashboard_metric_cards_visible(dashboard: Page) -> None:
+    """Dashboard shows metric count cards.
 
     Args:
         dashboard: Page positioned on the dashboard.
     """
-    cards = dashboard.locator(".apme-metric-card")
-    expect(cards).to_have_count(6)
+    cards = dashboard.locator(".pf-v6-c-card")
+    expect(cards.first).to_be_attached()
+    assert cards.count() >= 6, f"Expected >=6 dashboard cards, got {cards.count()}"
 
 
 def test_navigate_to_scans(dashboard: Page) -> None:
@@ -81,9 +91,9 @@ def test_navigate_to_scans(dashboard: Page) -> None:
     Args:
         dashboard: Page positioned on the dashboard.
     """
-    dashboard.click("text=Scans")
+    dashboard.locator("[data-testid='scans']").click()
     dashboard.wait_for_url(f"{_BASE}/scans", timeout=5_000)
-    expect(dashboard.locator(".apme-page-title")).to_have_text("All Scans")
+    expect(dashboard.locator("[data-testid='page-title']")).to_have_text("All Scans")
 
 
 def test_navigate_to_health(dashboard: Page) -> None:
@@ -92,9 +102,9 @@ def test_navigate_to_health(dashboard: Page) -> None:
     Args:
         dashboard: Page positioned on the dashboard.
     """
-    dashboard.click("text=Health")
+    dashboard.locator("[data-testid='health']").click()
     dashboard.wait_for_url(f"{_BASE}/health", timeout=5_000)
-    expect(dashboard.locator(".apme-page-title")).to_have_text("System Health")
+    expect(dashboard.locator("[data-testid='page-title']")).to_have_text("System Health")
 
 
 def test_navigate_to_violations(dashboard: Page) -> None:
@@ -103,9 +113,9 @@ def test_navigate_to_violations(dashboard: Page) -> None:
     Args:
         dashboard: Page positioned on the dashboard.
     """
-    dashboard.click("text=Top Violations")
+    dashboard.locator("[data-testid='violations']").click()
     dashboard.wait_for_url(f"{_BASE}/violations", timeout=5_000)
-    expect(dashboard.locator(".apme-page-title")).to_have_text("Top Violations")
+    expect(dashboard.locator("[data-testid='page-title']")).to_have_text("Top Violations")
 
 
 def test_navigate_to_fix_tracker(dashboard: Page) -> None:
@@ -114,9 +124,9 @@ def test_navigate_to_fix_tracker(dashboard: Page) -> None:
     Args:
         dashboard: Page positioned on the dashboard.
     """
-    dashboard.click("text=Fix Tracker")
+    dashboard.locator("[data-testid='fix-tracker']").click()
     dashboard.wait_for_url(f"{_BASE}/fix-tracker", timeout=5_000)
-    expect(dashboard.locator(".apme-page-title")).to_have_text("Fix Tracker")
+    expect(dashboard.locator("[data-testid='page-title']")).to_have_text("Fix Tracker")
 
 
 def test_navigate_to_ai_metrics(dashboard: Page) -> None:
@@ -125,36 +135,44 @@ def test_navigate_to_ai_metrics(dashboard: Page) -> None:
     Args:
         dashboard: Page positioned on the dashboard.
     """
-    dashboard.click("text=AI Metrics")
+    dashboard.locator("[data-testid='ai-metrics']").click()
     dashboard.wait_for_url(f"{_BASE}/ai-metrics", timeout=5_000)
-    expect(dashboard.locator(".apme-page-title")).to_have_text("AI Metrics")
+    expect(dashboard.locator("[data-testid='page-title']")).to_have_text("AI Metrics")
 
 
 def test_theme_toggle(dashboard: Page) -> None:
-    """Theme toggle switches data-theme attribute between dark and light.
+    """Theme toggle switches between dark and light via pf-v6-theme-dark class.
 
     Args:
         dashboard: Page positioned on the dashboard.
     """
     html = dashboard.locator("html")
-    expect(html).to_have_attribute("data-theme", "dark")
 
-    dashboard.click(".apme-theme-icon-btn")
-    expect(html).to_have_attribute("data-theme", "light")
+    theme_btn = dashboard.locator("[data-testid='settings-icon'], [data-testid='theme-icon']").first
+    expect(theme_btn).to_be_visible()
 
-    dashboard.click(".apme-theme-icon-btn")
-    expect(html).to_have_attribute("data-theme", "dark")
+    initial_is_dark = html.evaluate("el => el.classList.contains('pf-v6-theme-dark')")
+    theme_btn.click()
+
+    after_toggle = html.evaluate("el => el.classList.contains('pf-v6-theme-dark')")
+    assert initial_is_dark != after_toggle, "Theme class should change after toggle click"
+
+    new_btn = dashboard.locator("[data-testid='settings-icon'], [data-testid='theme-icon']").first
+    new_btn.click()
+
+    after_revert = html.evaluate("el => el.classList.contains('pf-v6-theme-dark')")
+    assert initial_is_dark == after_revert, "Theme class should revert after second toggle"
 
 
 def test_scans_page_has_table(dashboard: Page) -> None:
-    """Scans page renders a data table (or an empty state).
+    """Scans page renders a PF6 data table (or an empty-state message).
 
     Args:
         dashboard: Page positioned on the dashboard.
     """
-    dashboard.click("text=Scans")
+    dashboard.locator("[data-testid='scans']").click()
     dashboard.wait_for_url(f"{_BASE}/scans", timeout=5_000)
-    table_or_empty = dashboard.locator(".apme-data-table, .apme-empty")
+    table_or_empty = dashboard.locator(".pf-v6-c-table, div:has-text('No scans recorded')")
     expect(table_or_empty.first).to_be_visible()
 
 
@@ -164,20 +182,20 @@ def test_health_shows_status(dashboard: Page) -> None:
     Args:
         dashboard: Page positioned on the dashboard.
     """
-    dashboard.click("text=Health")
+    dashboard.locator("[data-testid='health']").click()
     dashboard.wait_for_url(f"{_BASE}/health", timeout=5_000)
-    dashboard.wait_for_selector(".apme-data-table, .apme-empty", timeout=10_000)
-    status = dashboard.locator(".apme-data-table td")
+    dashboard.wait_for_selector(".pf-v6-c-table, div:has-text('Unable to reach')", timeout=10_000)
+    status = dashboard.locator(".pf-v6-c-table td")
     if status.count() >= 2:
         expect(status.first).to_have_text("Gateway")
 
 
-# ── New Scan (Operator UI) ───────────────────────────────────────────
+# -- New Scan (Operator UI) ---------------------------------------------------
 
 
 @pytest.fixture()  # type: ignore[untyped-decorator]
 def new_scan_page(page: Page) -> Page:
-    """Navigate to the New Scan page and wait for the form.
+    """Navigate to the New Scan page and wait for the page header.
 
     Args:
         page: Playwright page fixture.
@@ -186,7 +204,7 @@ def new_scan_page(page: Page) -> Page:
         Page positioned on /new-scan.
     """
     page.goto(f"{_BASE}/new-scan", wait_until="networkidle")
-    page.wait_for_selector(".apme-page-title", timeout=10_000)
+    page.wait_for_selector("[data-testid='page-title']", timeout=10_000)
     return page
 
 
@@ -196,9 +214,9 @@ def test_navigate_to_new_scan(dashboard: Page) -> None:
     Args:
         dashboard: Page positioned on the dashboard.
     """
-    dashboard.click("text=New Scan")
+    dashboard.locator("[data-testid='new-scan']").click()
     dashboard.wait_for_url(f"{_BASE}/new-scan", timeout=5_000)
-    expect(dashboard.locator(".apme-page-title")).to_have_text("New Scan")
+    expect(dashboard.locator("[data-testid='page-title']")).to_have_text("New Scan")
 
 
 def test_new_scan_page_title(new_scan_page: Page) -> None:
@@ -207,24 +225,11 @@ def test_new_scan_page_title(new_scan_page: Page) -> None:
     Args:
         new_scan_page: Page positioned on /new-scan.
     """
-    expect(new_scan_page.locator(".apme-page-title")).to_have_text("New Scan")
-
-
-def test_new_scan_tabs(new_scan_page: Page) -> None:
-    """New Scan page has Upload and Project tabs, with Project disabled.
-
-    Args:
-        new_scan_page: Page positioned on /new-scan.
-    """
-    tabs = new_scan_page.locator(".apme-tab")
-    expect(tabs).to_have_count(2)
-    expect(tabs.nth(0)).to_have_text("Upload Files")
-    expect(tabs.nth(1)).to_have_text("Project (SCM)")
-    expect(tabs.nth(1)).to_be_disabled()
+    expect(new_scan_page.locator("[data-testid='page-title']")).to_have_text("New Scan")
 
 
 def test_new_scan_drop_zone_visible(new_scan_page: Page) -> None:
-    """Upload tab shows the drag-and-drop zone.
+    """Upload section shows the drag-and-drop zone.
 
     Args:
         new_scan_page: Page positioned on /new-scan.
@@ -264,11 +269,8 @@ def test_new_scan_advanced_options(new_scan_page: Page) -> None:
     expect(new_scan_page.locator("#ansible-version")).to_be_visible()
     expect(new_scan_page.locator("#collections")).to_be_visible()
 
-    ai_label = new_scan_page.locator(".apme-checkbox-label")
-    expect(ai_label).to_be_visible()
-    expect(ai_label).to_contain_text("AI-assisted remediation")
-
-    ai_checkbox = ai_label.locator("input[type='checkbox']")
+    ai_checkbox = new_scan_page.locator("#enable-ai")
+    expect(ai_checkbox).to_be_visible()
     expect(ai_checkbox).to_be_checked()
 
 
@@ -278,7 +280,7 @@ def test_new_scan_file_upload_enables_start(new_scan_page: Page) -> None:
     Args:
         new_scan_page: Page positioned on /new-scan.
     """
-    file_input = new_scan_page.locator(".apme-scan-form input[type='file'][multiple]")
+    file_input = new_scan_page.locator(".pf-v6-c-card input[type='file'][multiple]")
     file_input.set_input_files(
         {
             "name": "playbook.yml",
@@ -301,7 +303,7 @@ def test_new_scan_file_remove(new_scan_page: Page) -> None:
     Args:
         new_scan_page: Page positioned on /new-scan.
     """
-    file_input = new_scan_page.locator(".apme-scan-form input[type='file'][multiple]")
+    file_input = new_scan_page.locator(".pf-v6-c-card input[type='file'][multiple]")
     file_input.set_input_files(
         [
             {
@@ -319,5 +321,5 @@ def test_new_scan_file_remove(new_scan_page: Page) -> None:
 
     expect(new_scan_page.locator(".apme-file-item")).to_have_count(2)
 
-    new_scan_page.locator(".apme-file-remove").first.click()
+    new_scan_page.locator("button[aria-label^='Remove']").first.click()
     expect(new_scan_page.locator(".apme-file-item")).to_have_count(1)

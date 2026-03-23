@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
-import { getSession, getSessionTrend } from "../services/api";
-import type { SessionDetail, TrendPoint } from "../types/api";
-import { StatusBadge } from "../components/StatusBadge";
-import { timeAgo } from "../services/format";
+import { useEffect, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { PageLayout, PageHeader } from '@ansible/ansible-ui-framework';
+import { getSession, getSessionTrend } from '../services/api';
+import type { SessionDetail, TrendPoint } from '../types/api';
+import { StatusBadge } from '../components/StatusBadge';
+import { timeAgo } from '../services/format';
 
 export function SessionDetailPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -21,101 +22,101 @@ export function SessionDetailPage() {
       .finally(() => setLoading(false));
   }, [sessionId]);
 
-  if (loading) return <div className="apme-empty">Loading...</div>;
-  if (!session) return <div className="apme-empty">Session not found.</div>;
+  if (loading) return <PageLayout><div style={{ padding: 48, textAlign: 'center', opacity: 0.6 }}>Loading...</div></PageLayout>;
+  if (!session) return <PageLayout><div style={{ padding: 48, textAlign: 'center', opacity: 0.6 }}>Session not found.</div></PageLayout>;
 
   return (
-    <>
-      <nav className="apme-breadcrumb">
-        <Link to="/sessions">Sessions</Link>
-        <span className="apme-breadcrumb-sep">/</span>
-        <span>{session.project_path}</span>
-      </nav>
+    <PageLayout>
+      <PageHeader
+        title={session.project_path}
+        breadcrumbs={[
+          { label: 'Sessions', to: '/sessions' },
+          { label: session.project_path },
+        ]}
+        description={`Session ${session.session_id} \u00b7 First seen ${timeAgo(session.first_seen)} \u00b7 Last seen ${timeAgo(session.last_seen)}`}
+      />
 
-      <header className="apme-page-header">
-        <div>
-          <h1 className="apme-page-title" style={{ fontFamily: "var(--pf-v5-global--FontFamily--monospace, monospace)" }}>
-            {session.project_path}
-          </h1>
-          <p style={{ color: "var(--apme-text-muted)", fontSize: 14, margin: 0 }}>
-            Session {session.session_id} &middot; First seen {timeAgo(session.first_seen)} &middot; Last seen {timeAgo(session.last_seen)}
-          </p>
-        </div>
-      </header>
-
-      {/* Trend */}
-      {trend.length > 0 && (
-        <div className="apme-table-container" style={{ marginBottom: 24 }}>
-          <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--apme-border)" }}>
-            <span style={{ fontSize: 16, fontWeight: 600 }}>Violation Trend</span>
-          </div>
-          <table className="apme-data-table">
-            <thead>
-              <tr>
-                <th>Time</th>
-                <th>Type</th>
-                <th>Total Violations</th>
-                <th>Auto-Fixable</th>
-              </tr>
-            </thead>
-            <tbody>
-              {trend.map((pt) => (
-                <tr
-                  key={pt.scan_id}
-                  onClick={() => navigate(`/scans/${pt.scan_id}`)}
-                  style={{ cursor: "pointer" }}
-                >
-                  <td className="apme-time-ago">{new Date(pt.created_at).toLocaleString()}</td>
-                  <td>
-                    <span className={`apme-badge ${pt.scan_type === "fix" ? "passed" : "running"}`}>{pt.scan_type}</span>
-                  </td>
-                  <td>{pt.total_violations}</td>
-                  <td>{pt.auto_fixable}</td>
+      <div style={{ padding: '0 24px 24px' }}>
+        {/* Trend */}
+        {trend.length > 0 && (
+          <div style={{ marginBottom: 24 }}>
+            <h3 style={{ marginBottom: 12 }}>Violation Trend</h3>
+            <table className="pf-v6-c-table pf-m-compact" role="grid">
+              <thead>
+                <tr role="row">
+                  <th role="columnheader">Time</th>
+                  <th role="columnheader">Type</th>
+                  <th role="columnheader">Total Violations</th>
+                  <th role="columnheader">Auto-Fixable</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+              </thead>
+              <tbody>
+                {trend.map((pt) => (
+                  <tr
+                    key={pt.scan_id}
+                    role="row"
+                    tabIndex={0}
+                    onClick={() => navigate(`/scans/${pt.scan_id}`)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(`/scans/${pt.scan_id}`); } }}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <td role="cell" style={{ opacity: 0.7 }}>{new Date(pt.created_at).toLocaleString()}</td>
+                    <td role="cell">
+                      <span className={`apme-badge ${pt.scan_type === 'fix' ? 'passed' : 'running'}`}>{pt.scan_type}</span>
+                    </td>
+                    <td role="cell">{pt.total_violations}</td>
+                    <td role="cell">{pt.auto_fixable}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
 
-      {/* Scans for this session */}
-      <div className="apme-table-container">
-        <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--apme-border)" }}>
-          <span style={{ fontSize: 16, fontWeight: 600 }}>Scans ({session.scans.length})</span>
-        </div>
+        {/* Scans for this session */}
+        <h3 style={{ marginBottom: 12 }}>Scans ({session.scans.length})</h3>
         {session.scans.length === 0 ? (
-          <div className="apme-empty">No scans in this session.</div>
+          <div style={{ padding: 24, textAlign: 'center', opacity: 0.6 }}>No scans in this session.</div>
         ) : (
-          <table className="apme-data-table">
+          <table className="pf-v6-c-table pf-m-compact pf-m-grid-md" role="grid">
             <thead>
-              <tr>
-                <th>Type</th>
-                <th>Status</th>
-                <th>Violations</th>
-                <th>Auto-Fix</th>
-                <th>AI</th>
-                <th>Manual</th>
-                <th>Time</th>
+              <tr role="row">
+                <th role="columnheader">Type</th>
+                <th role="columnheader">Status</th>
+                <th role="columnheader">Violations</th>
+                <th role="columnheader">Auto-Fix</th>
+                <th role="columnheader">AI</th>
+                <th role="columnheader">Manual</th>
+                <th role="columnheader">Time</th>
               </tr>
             </thead>
             <tbody>
               {session.scans.map((scan) => (
-                <tr key={scan.scan_id} onClick={() => navigate(`/scans/${scan.scan_id}`)} style={{ cursor: "pointer" }}>
-                  <td>
-                    <span className={`apme-badge ${scan.scan_type === "fix" ? "passed" : "running"}`}>{scan.scan_type}</span>
+                <tr
+                  key={scan.scan_id}
+                  role="row"
+                  tabIndex={0}
+                  onClick={() => navigate(`/scans/${scan.scan_id}`)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(`/scans/${scan.scan_id}`); } }}
+                  style={{ cursor: 'pointer' }}
+                >
+                  <td role="cell">
+                    <span className={`apme-badge ${scan.scan_type === 'fix' ? 'passed' : 'running'}`}>{scan.scan_type}</span>
                   </td>
-                  <td><StatusBadge violations={scan.total_violations} scanType={scan.scan_type} /></td>
-                  <td>{scan.total_violations}</td>
-                  <td><span className="apme-count-success">{scan.auto_fixable ?? ""}</span></td>
-                  <td>{scan.ai_candidate ?? ""}</td>
-                  <td><span className="apme-count-error">{scan.manual_review ?? ""}</span></td>
-                  <td className="apme-time-ago">{timeAgo(scan.created_at)}</td>
+                  <td role="cell">
+                    <StatusBadge violations={scan.total_violations} scanType={scan.scan_type} />
+                  </td>
+                  <td role="cell">{scan.total_violations}</td>
+                  <td role="cell"><span className="apme-count-success">{scan.auto_fixable ?? ''}</span></td>
+                  <td role="cell">{scan.ai_candidate ?? ''}</td>
+                  <td role="cell"><span className="apme-count-error">{scan.manual_review ?? ''}</span></td>
+                  <td role="cell" style={{ opacity: 0.7 }}>{timeAgo(scan.created_at)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         )}
       </div>
-    </>
+    </PageLayout>
   );
 }

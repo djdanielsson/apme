@@ -1,6 +1,9 @@
-import { useEffect, useState } from "react";
-import { getHealth } from "../services/api";
-import type { HealthStatus } from "../types/api";
+import { useEffect, useState } from 'react';
+import { PageLayout, PageHeader } from '@ansible/ansible-ui-framework';
+import { Button, Label } from '@patternfly/react-core';
+import { SyncAltIcon } from '@patternfly/react-icons';
+import { getHealth } from '../services/api';
+import type { HealthStatus } from '../types/api';
 
 export function HealthPage() {
   const [health, setHealth] = useState<HealthStatus | null>(null);
@@ -16,54 +19,60 @@ export function HealthPage() {
 
   useEffect(() => { load(); }, []);
 
-  const isOk = (status: string) => status === "ok";
-  const statusColor = (status: string) => isOk(status) ? "var(--apme-green)" : "var(--apme-sev-critical)";
-  const statusIcon = (status: string) => isOk(status) ? "\u2714" : "\u2718";
+  const isOk = (status: string) => status === 'ok';
 
   return (
-    <>
-      <header className="apme-page-header">
-        <h1 className="apme-page-title">System Health</h1>
-        <button className="apme-btn apme-btn-secondary" onClick={load}>
-          Refresh
-        </button>
-      </header>
+    <PageLayout>
+      <PageHeader
+        title="System Health"
+        headerActions={
+          <Button variant="secondary" icon={<SyncAltIcon />} onClick={load}>
+            Refresh
+          </Button>
+        }
+      />
 
       {loading ? (
-        <div className="apme-empty">Checking health...</div>
+        <div style={{ padding: 48, textAlign: 'center', opacity: 0.6 }}>Checking health...</div>
       ) : !health ? (
-        <div className="apme-empty">Unable to reach gateway.</div>
+        <div style={{ padding: 48, textAlign: 'center', opacity: 0.6 }}>Unable to reach gateway.</div>
       ) : (
-        <div className="apme-table-container">
-          <table className="apme-data-table">
+        <div style={{ padding: '0 24px 24px' }}>
+          <table className="pf-v6-c-table pf-m-compact" role="grid">
             <thead>
-              <tr>
-                <th>Component</th>
-                <th>Address</th>
-                <th>Status</th>
+              <tr role="row">
+                <th role="columnheader">Component</th>
+                <th role="columnheader">Address</th>
+                <th role="columnheader">Status</th>
               </tr>
             </thead>
             <tbody>
-              <tr>
-                <td>Gateway</td>
-                <td style={{ color: "var(--apme-text-secondary)" }}>this service</td>
-                <td style={{ color: statusColor(health.status) }}>
-                  {statusIcon(health.status)} {health.status}
+              <tr role="row">
+                <td role="cell">Gateway</td>
+                <td role="cell" style={{ opacity: 0.7 }}>this service</td>
+                <td role="cell">
+                  <Label color={isOk(health.status) ? 'green' : 'red'} isCompact>
+                    {health.status}
+                  </Label>
                 </td>
               </tr>
-              <tr>
-                <td>Database</td>
-                <td style={{ color: "var(--apme-text-secondary)" }}>SQLite</td>
-                <td style={{ color: statusColor(health.database) }}>
-                  {statusIcon(health.database)} {health.database}
+              <tr role="row">
+                <td role="cell">Database</td>
+                <td role="cell" style={{ opacity: 0.7 }}>SQLite</td>
+                <td role="cell">
+                  <Label color={isOk(health.database) ? 'green' : 'red'} isCompact>
+                    {health.database}
+                  </Label>
                 </td>
               </tr>
               {health.components.map((c) => (
-                <tr key={c.name}>
-                  <td>{c.name}</td>
-                  <td style={{ color: "var(--apme-text-secondary)", fontFamily: "var(--pf-v5-global--FontFamily--monospace)" }}>{c.address}</td>
-                  <td style={{ color: statusColor(c.status) }}>
-                    {statusIcon(c.status)} {c.status}
+                <tr key={c.name} role="row">
+                  <td role="cell">{c.name}</td>
+                  <td role="cell" style={{ fontFamily: 'var(--pf-t--global--font--family--mono)', opacity: 0.7 }}>{c.address}</td>
+                  <td role="cell">
+                    <Label color={isOk(c.status) ? 'green' : 'red'} isCompact>
+                      {c.status}
+                    </Label>
                   </td>
                 </tr>
               ))}
@@ -71,6 +80,6 @@ export function HealthPage() {
           </table>
         </div>
       )}
-    </>
+    </PageLayout>
   );
 }

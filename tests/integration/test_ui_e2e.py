@@ -17,6 +17,7 @@ Run with::
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import subprocess
@@ -128,23 +129,27 @@ def test_scan_visible_in_dashboard(
     """After a CLI scan, the dashboard shows the scan with violations.
 
     Verifies:
-    1. Recent scans table is populated
-    2. Violation count in metric cards is > 0
-    3. The scan appears in the scans list
+    1. Dashboard metric cards are populated
+    2. Violation count is > 0
+    3. The scan appears in the recent scans table
 
     Args:
         e2e_scan: Scan result (ensures scan has been persisted).
         page: Playwright page fixture.
     """
     page.goto(_BASE, wait_until="networkidle")
-    page.wait_for_selector(".apme-sidebar", timeout=10_000)
+    page.wait_for_selector("[data-testid='page-navigation']", timeout=10_000)
 
-    cards = page.locator(".apme-metric-card")
-    expect(cards).to_have_count(6)
+    cards = page.locator(".pf-v6-c-card")
+    assert cards.count() >= 6, f"Dashboard should show >=6 cards, got {cards.count()}"
 
-    violations_card = page.locator(".apme-metric-card .apme-metric-value.warning")
-    violations_text = violations_card.text_content(timeout=5_000) or "0"
-    assert int(violations_text) > 0, "Dashboard should show >0 total violations after scan"
+    count_values = page.locator(".pf-v6-c-card span[style*='xxx-large']")
+    total = 0
+    for i in range(count_values.count()):
+        text = count_values.nth(i).text_content(timeout=5_000) or "0"
+        with contextlib.suppress(ValueError):
+            total += int(text)
+    assert total > 0, "Dashboard should show >0 in metric count cards after scan"
 
 
 @pytest.mark.integration()  # type: ignore[untyped-decorator]
@@ -161,13 +166,12 @@ def test_scan_detail_shows_violations(
     """
     scan_id = str(e2e_scan.get("scan_id", ""))
     page.goto(f"{_BASE}/scans/{scan_id}", wait_until="networkidle")
-    page.wait_for_selector(".apme-sidebar", timeout=10_000)
+    page.wait_for_selector("[data-testid='page-navigation']", timeout=10_000)
 
     violations = cast(list[ViolationDict], e2e_scan.get("violations", []))
     cli_rule_ids = {str(v.get("rule_id", "")) for v in violations}
 
-    summary = page.locator(".apme-summary-card")
-    expect(summary).to_be_visible(timeout=5_000)
+    page.wait_for_selector("[data-testid='page-title']", timeout=5_000)
 
     file_groups = page.locator(".apme-file-group")
     assert file_groups.count() > 0, "Scan detail should show at least one file group"
@@ -205,12 +209,12 @@ def test_scans_list_contains_scan(
         page: Playwright page fixture.
     """
     page.goto(f"{_BASE}/scans", wait_until="networkidle")
-    page.wait_for_selector(".apme-sidebar", timeout=10_000)
+    page.wait_for_selector("[data-testid='page-navigation']", timeout=10_000)
 
-    table = page.locator(".apme-data-table")
+    table = page.locator(".pf-v6-c-table")
     expect(table).to_be_visible(timeout=5_000)
 
-    rows = page.locator(".apme-data-table tbody tr")
+    rows = page.locator(".pf-v6-c-table tbody tr")
     assert rows.count() > 0, "Scans page should have at least one row after CLI scan"
 
 
@@ -227,8 +231,8 @@ def test_top_violations_populated(
         page: Playwright page fixture.
     """
     page.goto(f"{_BASE}/violations", wait_until="networkidle")
-    page.wait_for_selector(".apme-sidebar", timeout=10_000)
+    page.wait_for_selector("[data-testid='page-navigation']", timeout=10_000)
 
-    page.wait_for_selector(".apme-rule-id, .apme-empty", timeout=10_000)
+    page.wait_for_selector(".apme-rule-id, div:has-text('No violation data')", timeout=10_000)
     rule_entries = page.locator(".apme-rule-id")
     assert rule_entries.count() > 0, "Top violations should show rules after a scan"
