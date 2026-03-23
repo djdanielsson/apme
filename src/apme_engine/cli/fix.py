@@ -7,6 +7,7 @@ review (or --auto-approve), and writes patched files on completion.
 from __future__ import annotations
 
 import argparse
+import os
 import queue
 import sys
 import threading
@@ -64,7 +65,7 @@ def run_fix(args: argparse.Namespace) -> None:
         ansible_core_version=getattr(args, "ansible_version", None) or "",
         collection_specs=getattr(args, "collections", None) or [],
         enable_ai=getattr(args, "ai", False),
-        ai_model=getattr(args, "model", None) or "",
+        ai_model=getattr(args, "model", None) or os.environ.get("APME_AI_MODEL", ""),
         session_id=session_id,
     )
 

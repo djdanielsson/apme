@@ -421,31 +421,38 @@ class TestDiscoverAbbenay:
 
         assert result == f"unix://{sock_file}"
 
-    def test_discover_from_home(self, tmp_path: Path) -> None:
-        """Falls back to ~/.abbenay/daemon.sock.
+    def test_discover_from_tmp(self, tmp_path: Path) -> None:
+        """Falls back to /tmp/abbenay/daemon.sock when XDG and /run/user paths miss.
 
         Args:
             tmp_path: Pytest temporary directory fixture.
         """
-        sock_dir = tmp_path / ".abbenay"
-        sock_dir.mkdir()
+        sock_dir = tmp_path / "abbenay"
+        sock_dir.mkdir(parents=True)
         sock_file = sock_dir / "daemon.sock"
         sock_file.touch()
 
-        with (
-            patch.dict(os.environ, {}, clear=True),
-            patch(
-                "apme_engine.remediation.abbenay_provider.Path.home",
-                return_value=tmp_path,
-            ),
-        ):
-            env = dict(os.environ)
-            env.pop("XDG_RUNTIME_DIR", None)
-            with patch.dict(os.environ, env, clear=True):
-                result = discover_abbenay()
+        orig_path = Path
 
-        assert result is not None
-        assert "daemon.sock" in result
+        def _path_factory(*args: object, **kwargs: object) -> Path:
+            if args == ("/tmp/abbenay/daemon.sock",):
+                return sock_file
+            if (
+                len(args) == 1
+                and isinstance(args[0], str)
+                and "/run/user/" in args[0]
+                and args[0].endswith("/abbenay/daemon.sock")
+            ):
+                return orig_path(tmp_path / "no-run-user-sock" / "daemon.sock")
+            return orig_path(*args, **kwargs)  # type: ignore[arg-type]
+
+        with patch.dict(os.environ, {}, clear=True), patch(
+            "apme_engine.remediation.abbenay_provider.Path",
+            side_effect=_path_factory,
+        ):
+            result = discover_abbenay()
+
+        assert result == f"unix://{sock_file}"
 
     def test_discover_returns_none(self, tmp_path: Path) -> None:
         """Returns None when no socket exists.
@@ -453,12 +460,16 @@ class TestDiscoverAbbenay:
         Args:
             tmp_path: Pytest temporary directory fixture.
         """
-        with (
-            patch.dict(os.environ, {"XDG_RUNTIME_DIR": str(tmp_path)}),
-            patch(
-                "apme_engine.remediation.abbenay_provider.Path.home",
-                return_value=tmp_path,
-            ),
+        orig_path = Path
+
+        def _path_factory(*args: object, **kwargs: object) -> Path:
+            if len(args) == 1 and isinstance(args[0], str) and args[0].endswith("/abbenay/daemon.sock"):
+                return orig_path(tmp_path / "missing" / "daemon.sock")
+            return orig_path(*args, **kwargs)  # type: ignore[arg-type]
+
+        with patch.dict(os.environ, {"XDG_RUNTIME_DIR": str(tmp_path)}), patch(
+            "apme_engine.remediation.abbenay_provider.Path",
+            side_effect=_path_factory,
         ):
             result = discover_abbenay()
 

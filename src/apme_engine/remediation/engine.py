@@ -800,6 +800,13 @@ def _find_truly_new_violations(
     different line numbers.  Instead of exact (rule_id, line) matching,
     compare per-rule counts: only violations whose rule_id count *exceeds*
     the baseline are considered new.
+
+    Args:
+        post_violations: Violations from the post-patch scan.
+        baseline_counts: Per-rule violation counts from the pre-patch baseline.
+
+    Returns:
+        Violations whose rule count increased after patching.
     """
     from collections import Counter  # noqa: PLC0415
 

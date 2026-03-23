@@ -114,17 +114,7 @@ def build_parser() -> argparse.ArgumentParser:
     fix_p.add_argument(
         "--model",
         default=None,
-        help="AI model identifier (e.g. 'openai/gpt-4o'); required when --ai is set",
-    )
-    fix_p.add_argument(
-        "--abbenay-addr",
-        default=None,
-        help="Abbenay daemon address (auto-discovered if omitted)",
-    )
-    fix_p.add_argument(
-        "--abbenay-token",
-        default=None,
-        help="Consumer auth token for Abbenay policy access",
+        help=("AI model identifier (e.g. 'openai/gpt-4o'); falls back to APME_AI_MODEL env var"),
     )
     fix_p.add_argument(
         "--json",

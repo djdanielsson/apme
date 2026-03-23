@@ -443,8 +443,8 @@ class TestSessionApplyApproved:
         assert session.status == 3  # COMPLETE
         assert session.proposals == {}
 
-    def test_partial_approval_stays_awaiting(self) -> None:
-        """Partial approval leaves status awaiting and remaining proposals."""
+    def test_partial_approval_completes_session(self) -> None:
+        """Partial approval completes the session; unapproved proposals remain listed."""
         from apme_engine.daemon.primary_server import PrimaryServicer
 
         session = SessionState(session_id="test")
@@ -457,7 +457,7 @@ class TestSessionApplyApproved:
 
         applied = PrimaryServicer._session_apply_approved(session, {"p1"})
         assert applied == 1
-        assert session.status == 1  # still awaiting
+        assert session.status == 3  # COMPLETE after approval processing
         assert "p2" in session.proposals
 
     def test_approval_modifies_working_files(self) -> None:

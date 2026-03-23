@@ -1341,6 +1341,10 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
                 end_idx = patch.line_end
                 before_text = "".join(orig_lines[start_idx:end_idx])
 
+                after_text = patch.fixed_lines
+                if before_text.endswith("\n") and after_text and not after_text.endswith("\n"):
+                    after_text += "\n"
+
                 proposals.append(
                     Proposal(
                         id=f"t2-{idx:04d}",
@@ -1349,7 +1353,7 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
                         line_start=patch.line_start,
                         line_end=patch.line_end,
                         before_text=before_text,
-                        after_text=patch.fixed_lines,
+                        after_text=after_text,
                         diff_hunk=patch.diff_hunk,
                         confidence=patch.confidence,
                         explanation=patch.explanation,
