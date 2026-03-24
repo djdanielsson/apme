@@ -18,7 +18,7 @@ From the repo root:
 ./containers/podman/build.sh
 ```
 
-This builds nine images:
+This builds ten images:
 
 | Image | Dockerfile | Purpose |
 |-------|------------|---------|
@@ -30,7 +30,21 @@ This builds nine images:
 | `apme-galaxy-proxy:latest` | `containers/galaxy-proxy/Dockerfile` | PEP 503 proxy: Galaxy tarballs → Python wheels |
 | `apme-gateway:latest` | `containers/gateway/Dockerfile` | REST API + gRPC Reporting service (SQLite) |
 | `apme-ui:latest` | `containers/ui/Dockerfile` | React SPA served by nginx (proxies API to Gateway) |
+| `apme-abbenay:latest` | `containers/abbenay/Dockerfile` | Abbenay AI daemon (LLM gateway for Tier 2 remediation) |
 | `apme-cli:latest` | `containers/cli/Dockerfile` | CLI client |
+
+### Configure Abbenay AI (optional)
+
+Abbenay provides LLM-backed AI remediation (Tier 2). Each developer supplies their own API key:
+
+```bash
+cp containers/abbenay/.env.example containers/abbenay/.env
+# Edit .env and set your LLM provider API key (e.g., OPENROUTER_API_KEY)
+```
+
+The `.env` file is gitignored. The default `config.yaml` configures OpenRouter with the `apme-dev-token` consumer. To use a different provider or model, edit `containers/abbenay/config.yaml`.
+
+If `.env` is missing or the key is empty, the Abbenay container starts but model queries return empty results. AI remediation gracefully degrades — Tier 1 deterministic fixes still work.
 
 ### Start the pod
 
@@ -38,7 +52,7 @@ This builds nine images:
 ./containers/podman/up.sh
 ```
 
-This runs `podman play kube containers/podman/pod.yaml`, which starts the pod `apme-pod` with six containers (Primary, Native, OPA, Ansible, Gitleaks, Galaxy Proxy). A sessions directory is created for session-scoped venvs.
+This runs `podman play kube containers/podman/pod.yaml`, which starts the pod `apme-pod` with all service containers (Primary, Native, OPA, Ansible, Gitleaks, Galaxy Proxy, Gateway, UI, Abbenay). The `up.sh` script sources `containers/abbenay/.env` to inject LLM API keys into the Abbenay container. A sessions directory is created for session-scoped venvs.
 
 ### Run CLI commands
 
@@ -95,8 +109,11 @@ Reports status of all services (Primary, Native, OPA, Ansible, Gitleaks) with la
 | `ANSIBLE_GRPC_ADDRESS` | — | Ansible validator address (e.g., `127.0.0.1:50053`) |
 | `GITLEAKS_GRPC_ADDRESS` | — | Gitleaks validator address (e.g., `127.0.0.1:50056`) |
 | `APME_REPORTING_ENDPOINT` | — | Gateway gRPC Reporting address (e.g., `127.0.0.1:50060`). Events are pushed after each scan/fix. |
+| `APME_ABBENAY_ADDR` | — | Abbenay AI daemon address (e.g., `127.0.0.1:50057`). Supports `host:port` and `unix://` formats. |
+| `APME_ABBENAY_TOKEN` | — | Consumer token for Abbenay authentication. Must match a token in Abbenay's `config.yaml`. |
+| `APME_AI_MODEL` | — | Default AI model ID (e.g., `anthropic/claude-sonnet-4`). Overridden by UI Settings or CLI `--model`. |
 
-If a validator address is unset, that validator is skipped during fan-out.
+If a validator address is unset, that validator is skipped during fan-out. If Abbenay is unreachable, AI remediation is skipped (Tier 1 deterministic fixes still run).
 
 #### Native
 
@@ -133,9 +150,22 @@ The OPA binary runs internally on `localhost:8181`; the gRPC wrapper proxies to 
 | `APME_GATEWAY_HTTP_HOST` | `0.0.0.0` | REST API bind host |
 | `APME_GATEWAY_HTTP_PORT` | `8080` | REST API bind port |
 
+#### Abbenay AI
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OPENROUTER_API_KEY` | — | LLM provider API key (from `containers/abbenay/.env`) |
+| `APME_ABBENAY_TOKEN` | `apme-dev-token` | Consumer token (must match `config.yaml` consumers section) |
+
+Abbenay is configured via `containers/abbenay/config.yaml`. The default config uses OpenRouter as the LLM provider. To add providers or models, edit the `providers` section. API keys are injected from environment variables — never committed to the config file.
+
+The Abbenay daemon exposes a gRPC API on port 50057. Primary connects to it for AI model listing (`ListAIModels`) and batch remediation requests.
+
 #### UI
 
 The UI container has no environment variables. It serves the React SPA via nginx and proxies `/api/` requests to the Gateway at `127.0.0.1:8080` (same pod network namespace).
+
+The Settings page (`/settings`) provides a model picker that queries available AI models from Abbenay via the gateway. The selected model is stored in the browser's `localStorage`.
 
 ### Volumes
 
@@ -210,6 +240,7 @@ See [PODMAN_OPA_ISSUES.md](PODMAN_OPA_ISSUES.md) for common Podman rootless issu
 | 50054 | OPA | `APME_OPA_VALIDATOR_LISTEN` |
 | 50055 | Native | `APME_NATIVE_VALIDATOR_LISTEN` |
 | 50056 | Gitleaks | `APME_GITLEAKS_VALIDATOR_LISTEN` |
+| 50057 | Abbenay AI | `--grpc-port` (CLI flag) |
 | 50060 | Gateway (gRPC) | `APME_GATEWAY_GRPC_LISTEN` |
 | 8080 | Gateway (HTTP) | `APME_GATEWAY_HTTP_PORT` |
 | 8081 | UI (nginx) | — |
