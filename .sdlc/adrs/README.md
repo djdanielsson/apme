@@ -40,6 +40,8 @@ This directory contains the Architecture Decision Records (ADRs) for APME.
 | [ADR-032](ADR-032-fqcn-collection-auto-discovery.md) | FQCN-Based Collection Auto-Discovery | Accepted | 2026-03 |
 | [ADR-033](ADR-033-centralized-log-bridge.md) | Centralized Log Bridge | Accepted | 2026-03 |
 | [ADR-034](ADR-034-multi-pod-health-registration.md) | Multi-Pod Health Registration | Proposed | 2026-03 |
+| [ADR-035](ADR-035-secret-externalization.md) | Secret Externalization for Ansible Content | Proposed (impl. superseded by ADR-036) | 2026-03 |
+| [ADR-036](ADR-036-two-pass-remediation-engine.md) | Two-Pass Remediation Engine with Project-Level Transforms | Proposed | 2026-03 |
 
 ## Categories
 
@@ -76,6 +78,11 @@ This directory contains the Architecture Decision Records (ADRs) for APME.
 - ADR-025: AIProvider protocol abstraction
 - ADR-027: Agentic project-level AI remediation (proposed)
 - ADR-028: Session-based fix workflow with bidirectional streaming
+- ADR-036: Two-pass remediation engine with project-level transforms (proposed)
+
+### Secrets & Security
+- ADR-010: Gitleaks validator
+- ADR-035: Secret externalization for Ansible content (proposed)
 
 ### Dashboard & Presentation
 - ADR-029: Web gateway architecture (proposed)
@@ -104,7 +111,7 @@ Original planning ADRs that were superseded by implementation decisions:
 ## Creating New ADRs
 
 1. Copy the template from `../.sdlc/templates/adr.md`
-2. Use the next available number (currently ADR-035)
+2. Use the next available number (currently ADR-037)
 3. Include:
    - Status (Proposed → Accepted)
    - Date
@@ -154,3 +161,5 @@ Original planning ADRs that were superseded by implementation decisions:
 | 032 | 2026-03 | FQCN-based collection auto-discovery |
 | 033 | 2026-03 | Centralized log bridge |
 | 034 | 2026-03 | Multi-pod health registration (proposed) |
+| 035 | 2026-03 | Secret externalization for Ansible content (proposed, impl. superseded by ADR-036) |
+| 036 | 2026-03 | Two-pass remediation engine with project-level transforms (proposed) |
