@@ -1,26 +1,36 @@
-"""REST and WebSocket API endpoints for the gateway.
+"""REST and WebSocket API endpoints for the gateway (ADR-029, ADR-037).
 
 Read endpoints serve persisted scan data.  Write operations happen via the
 gRPC Reporting servicer (engine push model, ADR-020).  The ``WS /ws/session``
 endpoint bridges the browser to Primary's FixSession gRPC stream for the
-full scan + fix lifecycle (ADR-029).
+playground scan + fix lifecycle (ADR-029).  Project operations use the new
+``WS /projects/{id}/ws/operate`` endpoint (ADR-037).
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import logging
 import os
+import uuid
 
 from fastapi import APIRouter, HTTPException, Query, WebSocket
+from starlette.websockets import WebSocketDisconnect  # type: ignore[import-not-found]
 
 from apme_gateway.api.schemas import (
     AiAcceptanceEntry,
     AiModelInfo,
     ComponentHealth,
+    CreateProjectRequest,
+    DashboardSummary,
     FixRateEntry,
     HealthStatus,
     LogEntry,
     PaginatedResponse,
+    ProjectDetail,
+    ProjectRanking,
+    ProjectSummary,
     ProposalDetail,
     ScanDetail,
     ScanSummary,
@@ -28,11 +38,14 @@ from apme_gateway.api.schemas import (
     SessionSummary,
     TopViolation,
     TrendPoint,
+    UpdateProjectRequest,
     ViolationDetail,
 )
 from apme_gateway.db import get_session
 from apme_gateway.db import queries as q
 from apme_gateway.db.models import Scan
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1")
 
@@ -173,6 +186,362 @@ async def list_ai_models() -> list[AiModelInfo]:
         return []
     finally:
         await channel.close(grace=None)
+
+
+# ── Project CRUD (ADR-037) ───────────────────────────────────────────
+
+
+@router.post("/projects", status_code=201)  # type: ignore[untyped-decorator]
+async def create_project(body: CreateProjectRequest) -> ProjectSummary:
+    """Create a new project.
+
+    Args:
+        body: Project creation payload.
+
+    Returns:
+        Newly created project summary.
+    """
+    project_id = uuid.uuid4().hex
+    async with get_session() as db:
+        proj = await q.create_project(
+            db,
+            project_id=project_id,
+            name=body.name,
+            repo_url=body.repo_url,
+            branch=body.branch,
+        )
+    return ProjectSummary(
+        id=proj.id,
+        name=proj.name,
+        repo_url=proj.repo_url,
+        branch=proj.branch,
+        created_at=proj.created_at,
+        health_score=proj.health_score,
+    )
+
+
+@router.get("/projects")  # type: ignore[untyped-decorator]
+async def list_projects(
+    sort_by: str = Query(default="created_at"),
+    order: str = Query(default="desc"),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+) -> PaginatedResponse:
+    """List all projects with summary data.
+
+    Args:
+        sort_by: Column to sort by.
+        order: Sort direction (asc or desc).
+        limit: Page size.
+        offset: Page offset.
+
+    Returns:
+        Paginated list of project summaries.
+    """
+    async with get_session() as db:
+        projects = await q.list_projects(db, limit=limit, offset=offset)
+        total = await q.project_count(db)
+        items: list[ProjectSummary] = []
+        for proj in projects:
+            scan_cnt = await q.project_scan_count(db, proj.id)
+            trend_scans = await q.project_trend(db, proj.id, limit=5)
+            last_scan_at = trend_scans[-1].created_at if trend_scans else None
+            vt = _compute_violation_trend(trend_scans)
+            violations = await q.project_violations(db, proj.id)
+            items.append(
+                ProjectSummary(
+                    id=proj.id,
+                    name=proj.name,
+                    repo_url=proj.repo_url,
+                    branch=proj.branch,
+                    created_at=proj.created_at,
+                    health_score=proj.health_score,
+                    total_violations=len(violations),
+                    violation_trend=vt,
+                    scan_count=scan_cnt,
+                    last_scanned_at=last_scan_at,
+                )
+            )
+    return PaginatedResponse(total=total, limit=limit, offset=offset, items=items)
+
+
+def _compute_violation_trend(scans: list[Scan]) -> str:
+    """Derive a trend direction from recent scan violation counts.
+
+    Args:
+        scans: Recent Scan ORM objects ordered oldest-first (asc).
+
+    Returns:
+        One of ``"improving"``, ``"declining"``, or ``"stable"``.
+    """
+    if len(scans) < 2:
+        return "stable"
+    counts = [s.total_violations for s in scans]
+    if counts[-1] < counts[0]:
+        return "improving"
+    if counts[-1] > counts[0]:
+        return "declining"
+    return "stable"
+
+
+@router.get("/projects/{project_id}")  # type: ignore[untyped-decorator]
+async def get_project_detail(project_id: str) -> ProjectDetail:
+    """Fetch a project with latest scan info.
+
+    Args:
+        project_id: Project UUID.
+
+    Returns:
+        Full project detail.
+
+    Raises:
+        HTTPException: 404 if project not found.
+    """
+    async with get_session() as db:
+        proj = await q.get_project(db, project_id)
+        if not proj:
+            raise HTTPException(status_code=404, detail="Project not found")
+        violations = await q.project_violations(db, project_id)
+        trend = await q.project_trend(db, project_id, limit=5)
+        scan_cnt = await q.project_scan_count(db, project_id)
+        scans = await q.project_scans(db, project_id, limit=1)
+        latest = scans[0] if scans else None
+        severity: dict[str, int] = {}
+        for v in violations:
+            severity[v.level] = severity.get(v.level, 0) + 1
+    latest_summary = None
+    if latest:
+        latest_summary = ScanSummary(
+            scan_id=latest.scan_id,
+            session_id=latest.session_id,
+            project_path=latest.project_path,
+            source=latest.source,
+            created_at=latest.created_at,
+            scan_type=latest.scan_type,
+            total_violations=latest.total_violations,
+            auto_fixable=latest.auto_fixable,
+        )
+    vt = _compute_violation_trend(trend)
+    last_scan_at = trend[-1].created_at if trend else None
+    return ProjectDetail(
+        id=proj.id,
+        name=proj.name,
+        repo_url=proj.repo_url,
+        branch=proj.branch,
+        created_at=proj.created_at,
+        health_score=proj.health_score,
+        total_violations=len(violations),
+        violation_trend=vt,
+        scan_count=scan_cnt,
+        last_scanned_at=last_scan_at,
+        latest_scan=latest_summary,
+        severity_breakdown=severity,
+    )
+
+
+@router.patch("/projects/{project_id}")  # type: ignore[untyped-decorator]
+async def update_project(
+    project_id: str,
+    body: UpdateProjectRequest,
+) -> ProjectSummary:
+    """Update project metadata.
+
+    Args:
+        project_id: Project UUID.
+        body: Fields to update.
+
+    Returns:
+        Updated project summary.
+
+    Raises:
+        HTTPException: 400 if no fields provided, 404 if not found.
+    """
+    updates: dict[str, str] = {}
+    if body.name is not None:
+        updates["name"] = body.name
+    if body.repo_url is not None:
+        updates["repo_url"] = body.repo_url
+    if body.branch is not None:
+        updates["branch"] = body.branch
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    async with get_session() as db:
+        proj = await q.update_project(db, project_id, **updates)
+        if not proj:
+            raise HTTPException(status_code=404, detail="Project not found")
+    return ProjectSummary(
+        id=proj.id,
+        name=proj.name,
+        repo_url=proj.repo_url,
+        branch=proj.branch,
+        created_at=proj.created_at,
+        health_score=proj.health_score,
+    )
+
+
+@router.delete("/projects/{project_id}", status_code=204)  # type: ignore[untyped-decorator]
+async def delete_project_endpoint(project_id: str) -> None:
+    """Delete a project and cascade to its scans.
+
+    Args:
+        project_id: Project UUID.
+
+    Raises:
+        HTTPException: 404 if not found.
+    """
+    async with get_session() as db:
+        ok = await q.delete_project(db, project_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+
+# ── Project-scoped endpoints (ADR-037) ───────────────────────────────
+
+
+@router.get("/projects/{project_id}/scans")  # type: ignore[untyped-decorator]
+async def list_project_scans(
+    project_id: str,
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+) -> PaginatedResponse:
+    """Return scans belonging to a project.
+
+    Args:
+        project_id: Project UUID.
+        limit: Page size.
+        offset: Page offset.
+
+    Returns:
+        Paginated scan summaries.
+
+    Raises:
+        HTTPException: 404 if project not found.
+    """
+    async with get_session() as db:
+        proj = await q.get_project(db, project_id)
+        if not proj:
+            raise HTTPException(status_code=404, detail="Project not found")
+        scans = await q.project_scans(db, project_id, limit=limit, offset=offset)
+        total = await q.project_scan_count(db, project_id)
+    items = [
+        ScanSummary(
+            scan_id=s.scan_id,
+            session_id=s.session_id,
+            project_path=s.project_path,
+            source=s.source,
+            created_at=s.created_at,
+            scan_type=s.scan_type,
+            total_violations=s.total_violations,
+            auto_fixable=s.auto_fixable,
+        )
+        for s in scans
+    ]
+    return PaginatedResponse(total=total, limit=limit, offset=offset, items=items)
+
+
+@router.get("/projects/{project_id}/violations")  # type: ignore[untyped-decorator]
+async def list_project_violations(
+    project_id: str,
+    severity: str | None = Query(default=None),
+) -> list[ViolationDetail]:
+    """Return violations from the latest scan of a project.
+
+    Args:
+        project_id: Project UUID.
+        severity: Optional severity filter.
+
+    Returns:
+        List of violation details.
+
+    Raises:
+        HTTPException: 404 if project not found.
+    """
+    async with get_session() as db:
+        proj = await q.get_project(db, project_id)
+        if not proj:
+            raise HTTPException(status_code=404, detail="Project not found")
+        violations = await q.project_violations(db, project_id)
+    result = [
+        ViolationDetail(
+            rule_id=v.rule_id,
+            level=v.level,
+            message=v.message,
+            file=v.file,
+            line=v.line,
+            column=v.column,
+        )
+        for v in violations
+        if severity is None or v.level == severity
+    ]
+    return result
+
+
+@router.get("/projects/{project_id}/trend")  # type: ignore[untyped-decorator]
+async def project_trend_endpoint(
+    project_id: str,
+    limit: int = Query(default=20, ge=1, le=100),
+) -> list[TrendPoint]:
+    """Return violation trend for a project over time.
+
+    Args:
+        project_id: Project UUID.
+        limit: Max number of data points.
+
+    Returns:
+        List of trend points ordered newest-first.
+
+    Raises:
+        HTTPException: 404 if project not found.
+    """
+    async with get_session() as db:
+        proj = await q.get_project(db, project_id)
+        if not proj:
+            raise HTTPException(status_code=404, detail="Project not found")
+        trend = await q.project_trend(db, project_id, limit=limit)
+    return [
+        TrendPoint(
+            scan_id=t.scan_id,
+            created_at=t.created_at,
+            total_violations=t.total_violations,
+        )
+        for t in trend
+    ]
+
+
+# ── Dashboard (ADR-037) ─────────────────────────────────────────────
+
+
+@router.get("/dashboard/summary")  # type: ignore[untyped-decorator]
+async def dashboard_summary_endpoint() -> DashboardSummary:
+    """Return cross-project aggregate statistics.
+
+    Returns:
+        Dashboard summary with totals and averages.
+    """
+    async with get_session() as db:
+        summary = await q.dashboard_summary(db)
+    return DashboardSummary(**summary)
+
+
+@router.get("/dashboard/rankings")  # type: ignore[untyped-decorator]
+async def dashboard_rankings(
+    sort_by: str = Query(default="health_score"),
+    order: str = Query(default="desc"),
+    limit: int = Query(default=10, ge=1, le=50),
+) -> list[ProjectRanking]:
+    """Return ranked projects for dashboard tables.
+
+    Args:
+        sort_by: Ranking criterion.
+        order: Sort direction.
+        limit: Max results.
+
+    Returns:
+        Ranked list of projects.
+    """
+    async with get_session() as db:
+        rankings = await q.project_rankings(db, sort_by=sort_by, order=order, limit=limit)
+    return [ProjectRanking(**r) for r in rankings]
 
 
 @router.get("/sessions")  # type: ignore[untyped-decorator]
@@ -447,7 +816,91 @@ def _scan_to_summary(scan: Scan) -> ScanSummary:
     )
 
 
-# ── Session WebSocket (ADR-028 / ADR-029) ────────────────────────────
+# ── Project WebSocket (ADR-037) ──────────────────────────────────────
+
+
+@router.websocket("/projects/{project_id}/ws/operate")  # type: ignore[untyped-decorator]
+async def project_operate_ws(
+    websocket: WebSocket,
+    project_id: str,
+) -> None:
+    """Bidirectional WebSocket for project scan/fix operations (ADR-037).
+
+    The client sends ``{"action": "scan"|"fix", "options": {...}}`` to start
+    an operation.  The gateway clones the repo, drives Primary via gRPC, and
+    streams progress back over the WebSocket.
+
+    Args:
+        websocket: Incoming WebSocket connection.
+        project_id: Target project UUID.
+    """
+    from apme_gateway.config import load_config
+    from apme_gateway.scan.driver import run_project_fix, run_project_scan
+
+    await websocket.accept()
+
+    try:
+        msg = await websocket.receive_json()
+        action = msg.get("action", "scan")
+        options: dict[str, object] = msg.get("options", {})
+
+        async with get_session() as db:
+            proj = await q.get_project(db, project_id)
+        if not proj:
+            await websocket.send_json({"type": "error", "message": "Project not found"})
+            return
+
+        cfg = load_config()
+
+        async def _progress_cb(event: object) -> None:
+            """Forward gRPC events to the WebSocket.
+
+            Args:
+                event: gRPC ScanEvent or SessionEvent.
+            """
+            await websocket.send_json({"type": "progress", "data": str(event)})
+
+        raw_specs = options.get("collection_specs", [])
+        specs = [str(s) for s in raw_specs] if isinstance(raw_specs, list) else []
+
+        if action == "fix":
+            approval_queue: asyncio.Queue[list[str]] = asyncio.Queue()
+            await run_project_fix(
+                project_id=proj.id,
+                repo_url=proj.repo_url,
+                branch=proj.branch,
+                primary_address=cfg.primary_address,
+                ansible_version=str(options.get("ansible_version", "")),
+                collection_specs=specs,
+                enable_ai=bool(options.get("enable_ai", True)),
+                ai_model=str(options.get("ai_model", "")),
+                progress_callback=_progress_cb,
+                approval_queue=approval_queue,
+            )
+        else:
+            await run_project_scan(
+                project_id=proj.id,
+                repo_url=proj.repo_url,
+                branch=proj.branch,
+                primary_address=cfg.primary_address,
+                ansible_version=str(options.get("ansible_version", "")),
+                collection_specs=specs,
+                progress_callback=_progress_cb,
+            )
+
+        await websocket.send_json({"type": "closed"})
+    except WebSocketDisconnect:
+        logger.info("WebSocket disconnected for project %s", project_id)
+    except Exception:
+        logger.exception("Error during project operation for %s", project_id)
+        with contextlib.suppress(Exception):
+            await websocket.send_json({"type": "error", "message": "Internal server error"})
+    finally:
+        with contextlib.suppress(Exception):
+            await websocket.close()
+
+
+# ── Playground WebSocket (ADR-028 / ADR-029) ─────────────────────────
 
 
 @router.websocket("/ws/session")  # type: ignore[untyped-decorator]

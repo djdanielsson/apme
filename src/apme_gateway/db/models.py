@@ -1,8 +1,8 @@
-"""SQLAlchemy ORM models for gateway persistence.
+"""SQLAlchemy ORM models for gateway persistence (ADR-029, ADR-037).
 
-Schema supports the executive dashboard (PR 3) and future operator workbench
-(PR 4).  The ``sessions`` table groups scans by project via the deterministic
-``session_id`` (SHA-256 of the project root).
+The ``projects`` table is the top-level user-facing entity (ADR-037).
+The ``sessions`` table remains for reporting-servicer compatibility with
+CLI-initiated scans but is not exposed in user-facing APIs.
 """
 
 from __future__ import annotations
@@ -13,6 +13,31 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 class Base(DeclarativeBase):  # type: ignore[misc]
     """Declarative base for all gateway models."""
+
+
+class Project(Base):
+    """An SCM-backed project — the top-level user entity (ADR-037).
+
+    Attributes:
+        id: UUID hex primary key.
+        name: User-facing display label.
+        repo_url: HTTPS clone URL for the repository.
+        branch: Branch to clone (default ``main``).
+        created_at: ISO 8601 creation timestamp.
+        health_score: Computed 0-100 health score from latest scan.
+        scans: Related scan rows.
+    """
+
+    __tablename__ = "projects"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    repo_url: Mapped[str] = mapped_column(Text, nullable=False)
+    branch: Mapped[str] = mapped_column(Text, nullable=False, default="main")
+    created_at: Mapped[str] = mapped_column(Text, nullable=False)
+    health_score: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
+
+    scans: Mapped[list[Scan]] = relationship(back_populates="project", cascade="all, delete-orphan")
 
 
 class Session(Base):
@@ -42,8 +67,10 @@ class Scan(Base):
     Attributes:
         scan_id: UUID of the scan run.
         session_id: Owning session hash (FK to sessions).
+        project_id: Owning project UUID (FK to projects, nullable for CLI/playground).
         project_path: Project root path.
         source: Origin of the scan (cli, ci, gateway).
+        trigger: How the scan was initiated (cli, ui, playground).
         created_at: ISO 8601 timestamp of creation.
         scan_type: Either "scan" or "fix".
         total_violations: Total violation count.
@@ -53,6 +80,7 @@ class Scan(Base):
         fixed_count: Number of violations fixed (fix scans only).
         diagnostics_json: JSON-serialised ScanDiagnostics.
         session: Back-reference to owning Session.
+        project: Back-reference to owning Project (ADR-037).
         violations: Related violation rows.
         proposals: Related proposal rows.
         logs: Related log rows.
@@ -62,8 +90,10 @@ class Scan(Base):
 
     scan_id: Mapped[str] = mapped_column(Text, primary_key=True)
     session_id: Mapped[str] = mapped_column(Text, ForeignKey("sessions.session_id"), nullable=False)
+    project_id: Mapped[str | None] = mapped_column(Text, ForeignKey("projects.id"), nullable=True)
     project_path: Mapped[str] = mapped_column(Text, nullable=False)
     source: Mapped[str] = mapped_column(Text, nullable=False, default="cli")
+    trigger: Mapped[str] = mapped_column(Text, nullable=False, default="cli")
     created_at: Mapped[str] = mapped_column(Text, nullable=False)
     scan_type: Mapped[str] = mapped_column(Text, nullable=False, default="scan")
     total_violations: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -74,6 +104,7 @@ class Scan(Base):
     diagnostics_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     session: Mapped[Session] = relationship(back_populates="scans")
+    project: Mapped[Project | None] = relationship(back_populates="scans")
     violations: Mapped[list[Violation]] = relationship(back_populates="scan", cascade="all, delete-orphan")
     proposals: Mapped[list[Proposal]] = relationship(back_populates="scan", cascade="all, delete-orphan")
     logs: Mapped[list[ScanLog]] = relationship(back_populates="scan", cascade="all, delete-orphan")

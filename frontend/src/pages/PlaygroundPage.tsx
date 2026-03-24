@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { PageLayout, PageHeader } from '@ansible/ansible-ui-framework';
 import {
   Button,
@@ -27,7 +26,7 @@ import {
   type SessionResult,
 } from '../hooks/useSessionStream';
 
-export function NewScanPage() {
+export function PlaygroundPage() {
   const [files, setFiles] = useState<File[]>([]);
   const [ansibleVersion, setAnsibleVersion] = useState('');
   const [collections, setCollections] = useState('');
@@ -39,15 +38,12 @@ export function NewScanPage() {
   const {
     status,
     progress,
-    sessionId,
     scanId,
     tier1,
     proposals,
     result,
     error,
-    canReconnect,
     startSession,
-    resumeSession,
     approve,
     cancel,
     reset,
@@ -96,12 +92,6 @@ export function NewScanPage() {
     setFiles([]);
   }, [reset]);
 
-  const handleReconnect = useCallback(() => {
-    if (sessionId) {
-      resumeSession(sessionId, scanId ?? undefined);
-    }
-  }, [sessionId, scanId, resumeSession]);
-
   const isRunning =
     status === 'connecting' ||
     status === 'uploading' ||
@@ -110,10 +100,12 @@ export function NewScanPage() {
 
   return (
     <PageLayout>
-      <PageHeader title="New Scan" />
+      <PageHeader
+        title="Playground"
+        description="Ad-hoc scan — upload files directly for a quick lint check. Results are not persisted to any project."
+      />
 
       <div style={{ padding: '0 24px 24px' }}>
-        {/* File upload form */}
         {status === 'idle' && (
           <Card>
             <CardBody>
@@ -226,17 +218,14 @@ export function NewScanPage() {
           </Card>
         )}
 
-        {/* Progress */}
         {isRunning && (
           <ScanProgress status={status} progress={progress} onCancel={cancel} />
         )}
 
-        {/* Tier 1 results */}
         {status === 'tier1_done' && tier1 && (
           <Tier1Results tier1={tier1} />
         )}
 
-        {/* AI proposals for approval */}
         {status === 'awaiting_approval' && proposals.length > 0 && (
           <>
             {tier1 && <Tier1Results tier1={tier1} />}
@@ -244,43 +233,6 @@ export function NewScanPage() {
           </>
         )}
 
-        {/* Disconnected — session still alive on server, offer reconnect */}
-        {status === 'disconnected' && (
-          <>
-            <Card style={{ marginBottom: 16, border: '1px solid var(--pf-t--global--color--status--warning--default)' }}>
-              <CardBody>
-                <Split hasGutter>
-                  <SplitItem isFilled>
-                    <h3 style={{ color: 'var(--pf-t--global--color--status--warning--default)', margin: 0 }}>
-                      Connection Lost
-                    </h3>
-                    <p style={{ opacity: 0.7, margin: '4px 0 0' }}>
-                      {error || 'The connection was interrupted. Your session is still active on the server.'}
-                    </p>
-                  </SplitItem>
-                  <SplitItem>
-                    <Flex gap={{ default: 'gapSm' }}>
-                      {canReconnect && sessionId && (
-                        <Button variant="primary" onClick={handleReconnect}>
-                          Reconnect
-                        </Button>
-                      )}
-                      <Button variant="secondary" onClick={handleReset}>
-                        Start Over
-                      </Button>
-                    </Flex>
-                  </SplitItem>
-                </Split>
-              </CardBody>
-            </Card>
-            {tier1 && <Tier1Results tier1={tier1} />}
-            {proposals.length > 0 && (
-              <ProposalApproval proposals={proposals} onApprove={approve} />
-            )}
-          </>
-        )}
-
-        {/* Final result */}
         {status === 'complete' && result && (
           <SessionComplete result={result} scanId={scanId} tier1={tier1} />
         )}
@@ -288,32 +240,22 @@ export function NewScanPage() {
           <Card style={{ textAlign: 'center', padding: 48 }}>
             <CardBody>
               <div style={{ fontSize: 48, color: 'var(--pf-t--global--color--status--success--default)' }}>&#10003;</div>
-              <h2>Session Complete</h2>
-              {scanId && (
-                <Link to={`/scans/${scanId}`} style={{ marginTop: 16, display: 'inline-block' }}>
-                  View scan details
-                </Link>
-              )}
+              <h2>Scan Complete</h2>
+              <Button variant="primary" onClick={handleReset} style={{ marginTop: 16 }}>
+                Scan More Files
+              </Button>
             </CardBody>
           </Card>
         )}
 
-        {/* Error */}
         {status === 'error' && (
           <Card style={{ textAlign: 'center', padding: 48 }}>
             <CardBody>
-              <h2 style={{ color: 'var(--pf-t--global--color--status--danger--default)' }}>Session Failed</h2>
+              <h2 style={{ color: 'var(--pf-t--global--color--status--danger--default)' }}>Scan Failed</h2>
               <p style={{ opacity: 0.7 }}>{error}</p>
-              <Flex gap={{ default: 'gapSm' }} justifyContent={{ default: 'justifyContentCenter' }}>
-                {canReconnect && sessionId && (
-                  <Button variant="primary" onClick={handleReconnect}>
-                    Reconnect
-                  </Button>
-                )}
-                <Button variant={canReconnect ? 'secondary' : 'primary'} onClick={handleReset}>
-                  {canReconnect ? 'Start Over' : 'Try Again'}
-                </Button>
-              </Flex>
+              <Button variant="primary" onClick={handleReset}>
+                Try Again
+              </Button>
             </CardBody>
           </Card>
         )}
@@ -321,6 +263,7 @@ export function NewScanPage() {
     </PageLayout>
   );
 }
+
 
 function ScanProgress({
   status,
@@ -353,9 +296,7 @@ function ScanProgress({
           <SplitItem isFilled><h2>{label}</h2></SplitItem>
           <SplitItem><Button variant="secondary" onClick={onCancel}>Cancel</Button></SplitItem>
         </Split>
-
         <Progress value={undefined} style={{ marginTop: 16 }} />
-
         <div className="apme-timeline" style={{ marginTop: 16 }}>
           {progress.map((entry, i) => (
             <div key={i} className="apme-timeline-entry">
@@ -396,7 +337,6 @@ function Tier1Results({ tier1 }: { tier1: Tier1Result }) {
             </Button>
           </SplitItem>
         </Split>
-
         {expanded && (
           <div className="apme-tier1-diffs" style={{ marginTop: 16 }}>
             {tier1.patches.map((p, i) => (
@@ -408,15 +348,6 @@ function Tier1Results({ tier1 }: { tier1: Tier1Result }) {
                   )}
                 </div>
                 {p.diff && <pre className="apme-diff-content">{p.diff}</pre>}
-              </div>
-            ))}
-            {tier1.format_diffs.map((d, i) => (
-              <div key={`fmt-${i}`} className="apme-diff-block">
-                <div className="apme-diff-file">
-                  <span className="apme-file-name">{d.file}</span>
-                  <Label isCompact variant="outline">format</Label>
-                </div>
-                {d.diff && <pre className="apme-diff-content">{d.diff}</pre>}
               </div>
             ))}
           </div>
@@ -452,10 +383,6 @@ function ProposalApproval({
     });
   }, []);
 
-  const handleSubmit = useCallback(() => {
-    onApprove(Array.from(selected));
-  }, [selected, onApprove]);
-
   const allSelected = selected.size === proposals.length;
 
   return (
@@ -467,155 +394,36 @@ function ProposalApproval({
             <h3 style={{ marginTop: 4 }}>
               {proposals.length} AI Proposal{proposals.length !== 1 ? 's' : ''}
             </h3>
-            <p style={{ opacity: 0.7, margin: 0 }}>
-              Review each proposed change and select which to apply.
-            </p>
           </SplitItem>
           <SplitItem>
             <Flex gap={{ default: 'gapSm' }}>
               <Button variant="secondary" onClick={toggleAll} size="sm">
                 {allSelected ? 'Deselect All' : 'Select All'}
               </Button>
-              <Button variant="link" onClick={() => onApprove([])} size="sm">
-                Skip All
-              </Button>
-              <Button variant="primary" onClick={handleSubmit} size="sm">
+              <Button variant="link" onClick={() => onApprove([])} size="sm">Skip All</Button>
+              <Button variant="primary" onClick={() => onApprove(Array.from(selected))} size="sm">
                 Apply {selected.size} Selected
               </Button>
             </Flex>
           </SplitItem>
         </Split>
-
         <div className="apme-proposals-list">
           {proposals.map((p) => (
-            <ProposalCard
+            <div
               key={p.id}
-              proposal={p}
-              selected={selected.has(p.id)}
-              onToggle={() => toggle(p.id)}
-            />
+              className={`apme-proposal-card ${selected.has(p.id) ? 'selected' : ''}`}
+              onClick={() => toggle(p.id)}
+            >
+              <input type="checkbox" checked={selected.has(p.id)} readOnly className="apme-proposal-checkbox" />
+              <span className="apme-rule-id">{p.rule_id}</span>
+              <span className="apme-proposal-file">{p.file}</span>
+              <Label isCompact variant="outline">Tier {p.tier}</Label>
+              <span className="apme-confidence-label">{Math.round(p.confidence * 100)}%</span>
+            </div>
           ))}
         </div>
       </CardBody>
     </Card>
-  );
-}
-
-function ProposalCard({
-  proposal,
-  selected,
-  onToggle,
-}: {
-  proposal: Proposal;
-  selected: boolean;
-  onToggle: () => void;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const hasDiff = Boolean(proposal.before_text || proposal.diff_hunk);
-  const confidencePct = Math.round(proposal.confidence * 100);
-
-  return (
-    <div className={`apme-proposal-card ${selected ? 'selected' : ''}`}>
-      <div className="apme-proposal-header" onClick={onToggle}>
-        <input
-          type="checkbox"
-          checked={selected}
-          onChange={onToggle}
-          onClick={(e) => e.stopPropagation()}
-          className="apme-proposal-checkbox"
-        />
-        <div className="apme-proposal-meta">
-          <span className="apme-rule-id">{proposal.rule_id}</span>
-          <span className="apme-proposal-file">
-            {proposal.file}
-            {proposal.line_start > 0 && (
-              <span className="apme-line-number">
-                :{proposal.line_start}
-                {proposal.line_end > proposal.line_start && `-${proposal.line_end}`}
-              </span>
-            )}
-          </span>
-          <Label isCompact variant="outline">Tier {proposal.tier}</Label>
-        </div>
-        <div className="apme-proposal-confidence">
-          <div className="apme-confidence-bar">
-            <div
-              className="apme-confidence-fill"
-              style={{
-                width: `${confidencePct}%`,
-                backgroundColor:
-                  confidencePct >= 80
-                    ? 'var(--pf-t--global--color--status--success--default)'
-                    : confidencePct >= 50
-                      ? 'var(--pf-t--global--color--status--warning--default)'
-                      : 'var(--pf-t--global--color--status--danger--default)',
-              }}
-            />
-          </div>
-          <span className="apme-confidence-label">{confidencePct}%</span>
-        </div>
-        {hasDiff && (
-          <Button
-            variant="secondary"
-            onClick={(e) => {
-              e.stopPropagation();
-              setExpanded(!expanded);
-            }}
-            size="sm"
-          >
-            {expanded ? 'Hide' : 'Diff'}
-          </Button>
-        )}
-      </div>
-
-      {proposal.explanation && (
-        <div className="apme-proposal-explanation">{proposal.explanation}</div>
-      )}
-
-      {expanded && hasDiff && (
-        <div className="apme-proposal-diff">
-          {proposal.diff_hunk ? (
-            <pre className="apme-diff-content">{proposal.diff_hunk}</pre>
-          ) : (
-            <DiffView before={proposal.before_text} after={proposal.after_text} />
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function DiffView({ before, after }: { before: string; after: string }) {
-  const beforeLines = useMemo(() => before.split('\n'), [before]);
-  const afterLines = useMemo(() => after.split('\n'), [after]);
-
-  return (
-    <div className="apme-side-by-side">
-      <div className="apme-diff-pane">
-        <div className="apme-diff-pane-header">Before</div>
-        <pre className="apme-diff-content apme-diff-remove">
-          {beforeLines.map((line, i) => (
-            <span key={i} className="apme-diff-line">
-              <span className="apme-diff-linenum">{i + 1}</span>
-              {line}
-              {'\n'}
-            </span>
-          ))}
-        </pre>
-      </div>
-      <div className="apme-diff-pane">
-        <div className="apme-diff-pane-header">After</div>
-        <pre className="apme-diff-content apme-diff-add">
-          {afterLines.map((line, i) => (
-            <span key={i} className="apme-diff-line">
-              <span className="apme-diff-linenum">{i + 1}</span>
-              {line}
-              {'\n'}
-            </span>
-          ))}
-        </pre>
-      </div>
-    </div>
   );
 }
 
@@ -671,8 +479,7 @@ function SessionComplete({
     <Card style={{ textAlign: 'center', padding: 32 }}>
       <CardBody>
         <div style={{ fontSize: 48, color: 'var(--pf-t--global--color--status--success--default)' }}>&#10003;</div>
-        <h2>Session Complete</h2>
-
+        <h2>Scan Complete</h2>
         <Split hasGutter style={{ justifyContent: 'center', margin: '16px 0' }}>
           <SplitItem>
             <div style={{ fontSize: 32, fontWeight: 700, color: 'var(--pf-t--global--color--status--success--default)' }}>{totalPatches}</div>
@@ -691,26 +498,11 @@ function SessionComplete({
             <div style={{ opacity: 0.7 }}>Remaining</div>
           </SplitItem>
         </Split>
-
         {patchedFiles.size > 0 && (
           <Button variant="primary" onClick={handleDownload} isDisabled={downloading} style={{ marginBottom: 16 }}>
-            {downloading ? 'Preparing download...' : `Download Fixed Files (${patchedFiles.size})`}
+            {downloading ? 'Preparing...' : `Download Fixed Files (${patchedFiles.size})`}
           </Button>
         )}
-
-        {result.patches.length > 0 && (
-          <ExpandableSection toggleText={`Applied Patches (${result.patches.length})`} style={{ textAlign: 'left', maxWidth: 700, margin: '0 auto' }}>
-            {result.patches.map((p, i) => (
-              <div key={i} className="apme-diff-block">
-                <div className="apme-diff-file">
-                  <span className="apme-file-name">{p.file}</span>
-                </div>
-                {p.diff && <pre className="apme-diff-content">{p.diff}</pre>}
-              </div>
-            ))}
-          </ExpandableSection>
-        )}
-
         {remaining > 0 && (
           <ExpandableSection toggleText={`Remaining Violations (${remaining})`} style={{ textAlign: 'left', maxWidth: 700, margin: '8px auto 0' }}>
             <div className="apme-remaining-list">
@@ -723,14 +515,6 @@ function SessionComplete({
               ))}
             </div>
           </ExpandableSection>
-        )}
-
-        {scanId && (
-          <div style={{ marginTop: 16 }}>
-            <Button variant="primary" component={(props) => <Link {...props} to={`/scans/${scanId}`} />}>
-              View Full Report
-            </Button>
-          </div>
         )}
       </CardBody>
     </Card>

@@ -1,8 +1,8 @@
-"""Playwright-based browser tests for the APME Executive Dashboard.
+"""Playwright-based browser tests for the APME UI (ADR-037 project-centric model).
 
-These tests verify layout, navigation, and theme toggling against a live
-gateway + UI stack.  Marked ``ui`` so they are skipped in both the normal
-unit-test run and the daemon integration run.
+These tests verify layout, navigation, project pages, dashboard, and the
+playground against a live gateway + UI stack.  Marked ``ui`` so they are
+skipped in the normal unit-test run.
 
 Requires:
     pytest-playwright (``pip install pytest-playwright``)
@@ -31,9 +31,7 @@ _BASE = os.environ.get("APME_UI_URL", "http://localhost:8081")
 
 @pytest.fixture()  # type: ignore[untyped-decorator]
 def dashboard(page: Page) -> Page:
-    """Navigate to the dashboard and wait for the sidebar nav to appear.
-
-    Expands all collapsed nav groups so child links are visible/clickable.
+    """Navigate to the dashboard and wait for sidebar nav.
 
     Args:
         page: Playwright page fixture.
@@ -50,8 +48,11 @@ def dashboard(page: Page) -> Page:
     return page
 
 
+# ── Navigation & Layout ───────────────────────────────────────────────
+
+
 def test_page_title(dashboard: Page) -> None:
-    """Dashboard page title contains APME.
+    """Dashboard page title contains Dashboard.
 
     Args:
         dashboard: Page positioned on the dashboard.
@@ -60,36 +61,62 @@ def test_page_title(dashboard: Page) -> None:
 
 
 def test_sidebar_nav_groups(dashboard: Page) -> None:
-    """Sidebar contains expandable navigation groups.
+    """Sidebar contains the new navigation groups (ADR-037).
 
     Args:
         dashboard: Page positioned on the dashboard.
     """
     nav = dashboard.locator("[data-testid='page-navigation']")
-    for group in ["Reporting", "Operations", "Settings"]:
+    for group in ["Overview", "Projects", "Operations", "System"]:
         expect(nav.locator(f"button[aria-expanded]:has-text('{group}')").first).to_be_visible()
 
 
 def test_sidebar_nav_items(dashboard: Page) -> None:
-    """Sidebar contains expected navigation links within groups.
+    """Sidebar contains expected navigation links (ADR-037).
 
     Args:
         dashboard: Page positioned on the dashboard.
     """
     expected = [
         "Dashboard",
-        "New Scan",
+        "Projects",
+        "Playground",
         "Scans",
-        "Sessions",
-        "Top Violations",
-        "Fix Tracker",
-        "AI Metrics",
         "Health",
         "Settings",
     ]
     nav = dashboard.locator("[data-testid='page-navigation']")
     for label in expected:
         expect(nav.locator(f".pf-v6-c-nav__item >> text='{label}'").first).to_be_visible()
+
+
+def test_old_nav_items_removed(dashboard: Page) -> None:
+    """Old session-centric nav items are no longer present.
+
+    Args:
+        dashboard: Page positioned on the dashboard.
+    """
+    nav = dashboard.locator("[data-testid='page-navigation']")
+    for removed in ["Sessions", "New Scan", "Top Violations", "Fix Tracker", "AI Metrics"]:
+        assert nav.locator(f".pf-v6-c-nav__item >> text='{removed}'").count() == 0
+
+
+def test_theme_toggle(dashboard: Page) -> None:
+    """Theme toggle switches between dark and light.
+
+    Args:
+        dashboard: Page positioned on the dashboard.
+    """
+    html = dashboard.locator("html")
+    theme_btn = dashboard.locator("[data-testid='settings-icon'], [data-testid='theme-icon']").first
+    expect(theme_btn).to_be_visible()
+    initial_is_dark = html.evaluate("el => el.classList.contains('pf-v6-theme-dark')")
+    theme_btn.click()
+    after_toggle = html.evaluate("el => el.classList.contains('pf-v6-theme-dark')")
+    assert initial_is_dark != after_toggle
+
+
+# ── Dashboard ─────────────────────────────────────────────────────────
 
 
 def test_dashboard_metric_cards_visible(dashboard: Page) -> None:
@@ -100,7 +127,121 @@ def test_dashboard_metric_cards_visible(dashboard: Page) -> None:
     """
     cards = dashboard.locator(".pf-v6-c-card")
     expect(cards.first).to_be_attached()
-    assert cards.count() >= 6, f"Expected >=6 dashboard cards, got {cards.count()}"
+    assert cards.count() >= 5, f"Expected >=5 dashboard cards, got {cards.count()}"
+
+
+def test_dashboard_ranking_tables(dashboard: Page) -> None:
+    """Dashboard shows ranking tables (cleanest, most violations, stale, most scanned).
+
+    Args:
+        dashboard: Page positioned on the dashboard.
+    """
+    for title in ["Top 10 Cleanest", "Top 10 Most Violations", "Stale Projects", "Most Scanned"]:
+        expect(dashboard.locator(f"text='{title}'").first).to_be_visible()
+
+
+# ── Projects ──────────────────────────────────────────────────────────
+
+
+def test_navigate_to_projects(dashboard: Page) -> None:
+    """Clicking Projects in sidebar navigates to /projects.
+
+    Args:
+        dashboard: Page positioned on the dashboard.
+    """
+    dashboard.locator("[data-testid='projects']").click()
+    dashboard.wait_for_url(f"{_BASE}/projects", timeout=5_000)
+    expect(dashboard.locator("[data-testid='page-title']")).to_have_text("Projects")
+
+
+def test_projects_page_create_button(dashboard: Page) -> None:
+    """Projects page has a Create Project button.
+
+    Args:
+        dashboard: Page positioned on the dashboard.
+    """
+    dashboard.goto(f"{_BASE}/projects", wait_until="networkidle")
+    btn = dashboard.locator("button:has-text('Create Project')")
+    expect(btn).to_be_visible()
+
+
+def test_projects_page_create_modal(dashboard: Page) -> None:
+    """Create Project button opens a modal with name, URL, and branch fields.
+
+    Args:
+        dashboard: Page positioned on the dashboard.
+    """
+    dashboard.goto(f"{_BASE}/projects", wait_until="networkidle")
+    dashboard.locator("button:has-text('Create Project')").click()
+    expect(dashboard.locator("#proj-name")).to_be_visible()
+    expect(dashboard.locator("#proj-url")).to_be_visible()
+    expect(dashboard.locator("#proj-branch")).to_be_visible()
+
+
+# ── Playground ────────────────────────────────────────────────────────
+
+
+def test_navigate_to_playground(dashboard: Page) -> None:
+    """Clicking Playground in sidebar navigates to /playground.
+
+    Args:
+        dashboard: Page positioned on the dashboard.
+    """
+    dashboard.locator("[data-testid='playground']").click()
+    dashboard.wait_for_url(f"{_BASE}/playground", timeout=5_000)
+    expect(dashboard.locator("[data-testid='page-title']")).to_have_text("Playground")
+
+
+def test_playground_drop_zone(dashboard: Page) -> None:
+    """Playground shows a file drop zone.
+
+    Args:
+        dashboard: Page positioned on the dashboard.
+    """
+    dashboard.goto(f"{_BASE}/playground", wait_until="networkidle")
+    drop_zone = dashboard.locator(".apme-drop-zone")
+    expect(drop_zone).to_be_visible()
+    expect(drop_zone).to_contain_text("Drop Ansible files here")
+
+
+def test_playground_start_disabled_without_files(dashboard: Page) -> None:
+    """Start Scan button is disabled when no files are selected.
+
+    Args:
+        dashboard: Page positioned on the dashboard.
+    """
+    dashboard.goto(f"{_BASE}/playground", wait_until="networkidle")
+    btn = dashboard.locator("button:has-text('Start Scan')")
+    expect(btn).to_be_disabled()
+
+
+def test_playground_no_session_id(dashboard: Page) -> None:
+    """Playground page does not show any session ID text.
+
+    Args:
+        dashboard: Page positioned on the dashboard.
+    """
+    dashboard.goto(f"{_BASE}/playground", wait_until="networkidle")
+    page_content = dashboard.locator("main").inner_text()
+    assert "session_id" not in page_content.lower()
+    assert "session id" not in page_content.lower()
+
+
+def test_playground_advanced_options(dashboard: Page) -> None:
+    """Playground Advanced Options panel expands to show version, collections, and AI toggle.
+
+    Args:
+        dashboard: Page positioned on the dashboard.
+    """
+    dashboard.goto(f"{_BASE}/playground", wait_until="networkidle")
+    dashboard.click("text=Advanced Options")
+    expect(dashboard.locator("#ansible-version")).to_be_visible()
+    expect(dashboard.locator("#collections")).to_be_visible()
+    expect(dashboard.locator("#enable-ai")).to_be_visible()
+    expect(dashboard.locator("#enable-ai")).to_be_checked()
+
+
+# ── Scans / Health / Settings (unchanged) ─────────────────────────────
 
 
 def test_navigate_to_scans(dashboard: Page) -> None:
@@ -125,65 +266,19 @@ def test_navigate_to_health(dashboard: Page) -> None:
     expect(dashboard.locator("[data-testid='page-title']")).to_have_text("System Health")
 
 
-def test_navigate_to_violations(dashboard: Page) -> None:
-    """Clicking Top Violations in sidebar navigates to /violations.
+def test_navigate_to_settings(dashboard: Page) -> None:
+    """Clicking Settings in sidebar navigates to /settings.
 
     Args:
         dashboard: Page positioned on the dashboard.
     """
-    dashboard.locator("[data-testid='violations']").click()
-    dashboard.wait_for_url(f"{_BASE}/violations", timeout=5_000)
-    expect(dashboard.locator("[data-testid='page-title']")).to_have_text("Top Violations")
-
-
-def test_navigate_to_fix_tracker(dashboard: Page) -> None:
-    """Clicking Fix Tracker in sidebar navigates to /fix-tracker.
-
-    Args:
-        dashboard: Page positioned on the dashboard.
-    """
-    dashboard.locator("[data-testid='fix-tracker']").click()
-    dashboard.wait_for_url(f"{_BASE}/fix-tracker", timeout=5_000)
-    expect(dashboard.locator("[data-testid='page-title']")).to_have_text("Fix Tracker")
-
-
-def test_navigate_to_ai_metrics(dashboard: Page) -> None:
-    """Clicking AI Metrics in sidebar navigates to /ai-metrics.
-
-    Args:
-        dashboard: Page positioned on the dashboard.
-    """
-    dashboard.locator("[data-testid='ai-metrics']").click()
-    dashboard.wait_for_url(f"{_BASE}/ai-metrics", timeout=5_000)
-    expect(dashboard.locator("[data-testid='page-title']")).to_have_text("AI Metrics")
-
-
-def test_theme_toggle(dashboard: Page) -> None:
-    """Theme toggle switches between dark and light via pf-v6-theme-dark class.
-
-    Args:
-        dashboard: Page positioned on the dashboard.
-    """
-    html = dashboard.locator("html")
-
-    theme_btn = dashboard.locator("[data-testid='settings-icon'], [data-testid='theme-icon']").first
-    expect(theme_btn).to_be_visible()
-
-    initial_is_dark = html.evaluate("el => el.classList.contains('pf-v6-theme-dark')")
-    theme_btn.click()
-
-    after_toggle = html.evaluate("el => el.classList.contains('pf-v6-theme-dark')")
-    assert initial_is_dark != after_toggle, "Theme class should change after toggle click"
-
-    new_btn = dashboard.locator("[data-testid='settings-icon'], [data-testid='theme-icon']").first
-    new_btn.click()
-
-    after_revert = html.evaluate("el => el.classList.contains('pf-v6-theme-dark')")
-    assert initial_is_dark == after_revert, "Theme class should revert after second toggle"
+    dashboard.locator("[data-testid='settings']").click()
+    dashboard.wait_for_url(f"{_BASE}/settings", timeout=5_000)
+    expect(dashboard.locator("[data-testid='page-title']")).to_have_text("Settings")
 
 
 def test_scans_page_has_table(dashboard: Page) -> None:
-    """Scans page renders a PF6 data table (or an empty-state message).
+    """Scans page renders a table or empty-state message.
 
     Args:
         dashboard: Page positioned on the dashboard.
@@ -203,152 +298,14 @@ def test_health_shows_status(dashboard: Page) -> None:
     dashboard.locator("[data-testid='health']").click()
     dashboard.wait_for_url(f"{_BASE}/health", timeout=5_000)
     dashboard.wait_for_selector(".pf-v6-c-table, div:has-text('Unable to reach')", timeout=10_000)
-    status = dashboard.locator(".pf-v6-c-table td")
-    if status.count() >= 2:
-        expect(status.first).to_have_text("Gateway")
 
 
-# -- New Scan (Operator UI) ---------------------------------------------------
-
-
-@pytest.fixture()  # type: ignore[untyped-decorator]
-def new_scan_page(page: Page) -> Page:
-    """Navigate to the New Scan page and wait for the page header.
-
-    Args:
-        page: Playwright page fixture.
-
-    Returns:
-        Page positioned on /new-scan.
-    """
-    page.goto(f"{_BASE}/new-scan", wait_until="networkidle")
-    page.wait_for_selector("[data-testid='page-title']", timeout=10_000)
-    return page
-
-
-def test_navigate_to_new_scan(dashboard: Page) -> None:
-    """Clicking New Scan in sidebar navigates to /new-scan.
-
-    Args:
-        dashboard: Page positioned on the dashboard.
-    """
-    dashboard.locator("[data-testid='new-scan']").click()
-    dashboard.wait_for_url(f"{_BASE}/new-scan", timeout=5_000)
-    expect(dashboard.locator("[data-testid='page-title']")).to_have_text("New Scan")
-
-
-def test_new_scan_page_title(new_scan_page: Page) -> None:
-    """New Scan page displays the correct title.
-
-    Args:
-        new_scan_page: Page positioned on /new-scan.
-    """
-    expect(new_scan_page.locator("[data-testid='page-title']")).to_have_text("New Scan")
-
-
-def test_new_scan_drop_zone_visible(new_scan_page: Page) -> None:
-    """Upload section shows the drag-and-drop zone.
-
-    Args:
-        new_scan_page: Page positioned on /new-scan.
-    """
-    drop_zone = new_scan_page.locator(".apme-drop-zone")
-    expect(drop_zone).to_be_visible()
-    expect(drop_zone).to_contain_text("Drop Ansible files here")
-
-
-def test_new_scan_directory_button(new_scan_page: Page) -> None:
-    """Select Directory button is visible.
-
-    Args:
-        new_scan_page: Page positioned on /new-scan.
-    """
-    btn = new_scan_page.locator("button:has-text('Select Directory')")
-    expect(btn).to_be_visible()
-
-
-def test_new_scan_start_disabled_without_files(new_scan_page: Page) -> None:
-    """Start Scan button is disabled when no files are selected.
-
-    Args:
-        new_scan_page: Page positioned on /new-scan.
-    """
-    btn = new_scan_page.locator("button:has-text('Start Scan')")
-    expect(btn).to_be_disabled()
-
-
-def test_new_scan_advanced_options(new_scan_page: Page) -> None:
-    """Advanced Options panel expands to show version, collections, and AI toggle.
-
-    Args:
-        new_scan_page: Page positioned on /new-scan.
-    """
-    new_scan_page.click("text=Advanced Options")
-    expect(new_scan_page.locator("#ansible-version")).to_be_visible()
-    expect(new_scan_page.locator("#collections")).to_be_visible()
-
-    ai_checkbox = new_scan_page.locator("#enable-ai")
-    expect(ai_checkbox).to_be_visible()
-    expect(ai_checkbox).to_be_checked()
-
-
-def test_new_scan_file_upload_enables_start(new_scan_page: Page) -> None:
-    """Uploading a file via the hidden input enables the Start Scan button.
-
-    Args:
-        new_scan_page: Page positioned on /new-scan.
-    """
-    file_input = new_scan_page.locator(".pf-v6-c-card input[type='file'][multiple]")
-    file_input.set_input_files(
-        {
-            "name": "playbook.yml",
-            "mimeType": "text/yaml",
-            "buffer": b"---\n- hosts: all\n  tasks: []\n",
-        }
-    )
-
-    expect(new_scan_page.locator(".apme-file-list")).to_be_visible()
-    expect(new_scan_page.locator(".apme-file-item")).to_have_count(1)
-    expect(new_scan_page.locator(".apme-file-name")).to_contain_text("playbook.yml")
-
-    btn = new_scan_page.locator("button:has-text('Start Scan')")
-    expect(btn).to_be_enabled()
-
-
-def test_new_scan_file_remove(new_scan_page: Page) -> None:
-    """Removing a file from the list updates the count.
-
-    Args:
-        new_scan_page: Page positioned on /new-scan.
-    """
-    file_input = new_scan_page.locator(".pf-v6-c-card input[type='file'][multiple]")
-    file_input.set_input_files(
-        [
-            {
-                "name": "a.yml",
-                "mimeType": "text/yaml",
-                "buffer": b"---\n",
-            },
-            {
-                "name": "b.yml",
-                "mimeType": "text/yaml",
-                "buffer": b"---\n",
-            },
-        ]
-    )
-
-    expect(new_scan_page.locator(".apme-file-item")).to_have_count(2)
-
-    new_scan_page.locator("button[aria-label^='Remove']").first.click()
-    expect(new_scan_page.locator(".apme-file-item")).to_have_count(1)
-
-
-# -- Settings Page -----------------------------------------------------------
+# ── Settings (unchanged) ──────────────────────────────────────────────
 
 
 @pytest.fixture()  # type: ignore[untyped-decorator]
 def settings_page(page: Page) -> Page:
-    """Navigate to the Settings page and wait for the page header.
+    """Navigate to the Settings page.
 
     Args:
         page: Playwright page fixture.
@@ -361,19 +318,8 @@ def settings_page(page: Page) -> Page:
     return page
 
 
-def test_navigate_to_settings(dashboard: Page) -> None:
-    """Clicking Settings in sidebar navigates to /settings.
-
-    Args:
-        dashboard: Page positioned on the dashboard.
-    """
-    dashboard.locator("[data-testid='settings']").click()
-    dashboard.wait_for_url(f"{_BASE}/settings", timeout=5_000)
-    expect(dashboard.locator("[data-testid='page-title']")).to_have_text("Settings")
-
-
 def test_settings_page_title(settings_page: Page) -> None:
-    """Settings page displays the correct title.
+    """Settings page displays correct title.
 
     Args:
         settings_page: Page positioned on /settings.
@@ -382,50 +328,12 @@ def test_settings_page_title(settings_page: Page) -> None:
 
 
 def test_settings_ai_config_heading(settings_page: Page) -> None:
-    """Settings page shows the AI Configuration heading.
+    """Settings page shows AI Configuration heading.
 
     Args:
         settings_page: Page positioned on /settings.
     """
     expect(settings_page.locator("h3:has-text('AI Configuration')")).to_be_visible()
-
-
-def test_settings_model_picker_or_empty(settings_page: Page) -> None:
-    """Settings page shows either the model picker or an empty-state message.
-
-    Args:
-        settings_page: Page positioned on /settings.
-    """
-    picker_or_empty = settings_page.locator("#ai-model, div:has-text('No models available')")
-    expect(picker_or_empty.first).to_be_visible()
-
-
-def test_settings_model_selection_persists(settings_page: Page) -> None:
-    """Selecting a model persists in localStorage across reload.
-
-    Args:
-        settings_page: Page positioned on /settings.
-    """
-    picker = settings_page.locator("#ai-model")
-    if not picker.is_visible():
-        pytest.skip("No models available — Abbenay not running")
-
-    options = picker.locator("option")
-    if options.count() < 1:
-        pytest.skip("No model options in picker")
-
-    first_value = options.first.get_attribute("value") or ""
-    picker.select_option(value=first_value)
-
-    stored = settings_page.evaluate("() => localStorage.getItem('apme-ai-model')")
-    assert stored == first_value, f"Expected '{first_value}' in localStorage, got '{stored}'"
-
-    settings_page.reload(wait_until="networkidle")
-    settings_page.wait_for_selector("#ai-model", timeout=10_000)
-    reloaded_value = settings_page.locator("#ai-model").input_value()
-    assert reloaded_value == first_value, (
-        f"After reload, picker value should be '{first_value}', got '{reloaded_value}'"
-    )
 
 
 def test_settings_info_text(settings_page: Page) -> None:

@@ -7,110 +7,157 @@ import {
   PageDashboardCount,
   PageDashboardCard,
 } from '@ansible/ansible-ui-framework';
-import { listScans, listSessions } from '../services/api';
-import type { ScanSummary } from '../types/api';
-import { StatusBadge } from '../components/StatusBadge';
+import { Label } from '@patternfly/react-core';
+import { getDashboardSummary, getDashboardRankings } from '../services/api';
+import type { DashboardSummary, ProjectRanking } from '../types/api';
 import { timeAgo } from '../services/format';
 
-function deduplicateBySession(scans: ScanSummary[]): ScanSummary[] {
-  const seen = new Map<string, ScanSummary>();
-  for (const scan of scans) {
-    if (!seen.has(scan.session_id)) {
-      seen.set(scan.session_id, scan);
-    }
-  }
-  return Array.from(seen.values());
+function HealthBadge({ score }: { score: number }) {
+  let color: 'green' | 'orange' | 'red' = 'green';
+  if (score < 50) color = 'red';
+  else if (score < 80) color = 'orange';
+  return <Label color={color} isCompact>{score}</Label>;
 }
 
 export function DashboardPage() {
   const navigate = useNavigate();
-  const [scans, setScans] = useState<ScanSummary[]>([]);
-  const [totalScansCount, setTotalScansCount] = useState(0);
-  const [totalSessionsCount, setTotalSessionsCount] = useState(0);
+  const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const [cleanest, setCleanest] = useState<ProjectRanking[]>([]);
+  const [dirtiest, setDirtiest] = useState<ProjectRanking[]>([]);
+  const [stale, setStale] = useState<ProjectRanking[]>([]);
+  const [mostScanned, setMostScanned] = useState<ProjectRanking[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    Promise.all([listScans(50, 0), listSessions(50, 0)])
-      .then(([scanData, sessionData]) => {
-        setScans(scanData.items);
-        setTotalScansCount(scanData.total);
-        setTotalSessionsCount(sessionData.total);
+    Promise.all([
+      getDashboardSummary(),
+      getDashboardRankings('health_score', 'desc', 10),
+      getDashboardRankings('health_score', 'asc', 10),
+      getDashboardRankings('last_scanned_at', 'desc', 10),
+      getDashboardRankings('scan_count', 'desc', 10),
+    ])
+      .then(([sum, clean, dirty, staleProjects, scanned]) => {
+        setSummary(sum);
+        setCleanest(clean);
+        setDirtiest(dirty);
+        setStale(staleProjects);
+        setMostScanned(scanned);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
 
-  const latestPerProject = deduplicateBySession(scans);
-  const totalViolations = latestPerProject.reduce((s, sc) => s + sc.total_violations, 0);
-  const totalAutoFix = latestPerProject.reduce((s, sc) => s + sc.auto_fixable, 0);
-  const totalAi = latestPerProject.reduce((s, sc) => s + sc.ai_candidate, 0);
-  const totalManual = latestPerProject.reduce((s, sc) => s + sc.manual_review, 0);
-
-  const recentScans = scans.slice(0, 10);
-
   return (
     <PageLayout>
       <PageHeader title="Dashboard" />
       <PageDashboard>
-        <PageDashboardCount title="Projects" count={totalSessionsCount} />
-        <PageDashboardCount title="Total Violations" count={totalViolations} />
-        <PageDashboardCount title="Auto-Fixable" count={totalAutoFix} />
-        <PageDashboardCount title="AI Candidates" count={totalAi} />
-        <PageDashboardCount title="Manual Review" count={totalManual} />
-        <PageDashboardCount title="Total Scans" count={totalScansCount} />
+        <PageDashboardCount title="Projects" count={summary?.total_projects ?? 0} />
+        <PageDashboardCount title="Total Scans" count={summary?.total_scans ?? 0} />
+        <PageDashboardCount title="Total Violations" count={summary?.total_violations ?? 0} />
+        <PageDashboardCount title="Total Fixed" count={summary?.total_fixed ?? 0} />
+        <PageDashboardCount
+          title="Avg Health"
+          count={summary ? Math.round(summary.avg_health_score) : 0}
+        />
 
-        <PageDashboardCard title="Recent Scans" width="xxl" height="md" to="/scans" linkText="View all">
+        <PageDashboardCard title="Top 10 Cleanest" width="lg" height="md" to="/projects" linkText="View all">
           {loading ? (
-            <div style={{ padding: 24, textAlign: 'center', opacity: 0.6 }}>Loading...</div>
-          ) : recentScans.length === 0 ? (
-            <div style={{ padding: 24, textAlign: 'center', opacity: 0.6 }}>No scans recorded yet.</div>
+            <LoadingPlaceholder />
+          ) : cleanest.length === 0 ? (
+            <EmptyPlaceholder />
           ) : (
-            <table className="pf-v6-c-table pf-m-compact pf-m-grid-md" role="grid">
-              <thead>
-                <tr role="row">
-                  <th role="columnheader">Project</th>
-                  <th role="columnheader">Type</th>
-                  <th role="columnheader">Status</th>
-                  <th role="columnheader">Violations</th>
-                  <th role="columnheader">Auto-Fix</th>
-                  <th role="columnheader">AI</th>
-                  <th role="columnheader">Manual</th>
-                  <th role="columnheader">Time</th>
-                </tr>
-              </thead>
-              <tbody>
-                {recentScans.map((scan) => (
-                  <tr
-                    key={scan.scan_id}
-                    role="row"
-                    tabIndex={0}
-                    onClick={() => navigate(`/scans/${scan.scan_id}`)}
-                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(`/scans/${scan.scan_id}`); } }}
-                    style={{ cursor: 'pointer' }}
-                  >
-                    <td role="cell" style={{ fontFamily: 'var(--pf-t--global--font--family--mono)' }}>
-                      {scan.project_path}
-                    </td>
-                    <td role="cell">
-                      <span className={`apme-badge ${scan.scan_type === 'fix' ? 'passed' : 'running'}`}>
-                        {scan.scan_type}
-                      </span>
-                    </td>
-                    <td role="cell">
-                      <StatusBadge violations={scan.total_violations} scanType={scan.scan_type} />
-                    </td>
-                    <td role="cell">{scan.total_violations}</td>
-                    <td role="cell"><span className="apme-count-success">{scan.auto_fixable ?? ''}</span></td>
-                    <td role="cell">{scan.ai_candidate ?? ''}</td>
-                    <td role="cell"><span className="apme-count-error">{scan.manual_review ?? ''}</span></td>
-                    <td role="cell" style={{ opacity: 0.7 }}>{timeAgo(scan.created_at)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <RankingTable rankings={cleanest} navigate={navigate} />
+          )}
+        </PageDashboardCard>
+
+        <PageDashboardCard title="Top 10 Most Violations" width="lg" height="md" to="/projects" linkText="View all">
+          {loading ? (
+            <LoadingPlaceholder />
+          ) : dirtiest.length === 0 ? (
+            <EmptyPlaceholder />
+          ) : (
+            <RankingTable rankings={dirtiest} navigate={navigate} />
+          )}
+        </PageDashboardCard>
+
+        <PageDashboardCard title="Stale Projects" width="lg" height="md" to="/projects" linkText="View all">
+          {loading ? (
+            <LoadingPlaceholder />
+          ) : stale.length === 0 ? (
+            <EmptyPlaceholder />
+          ) : (
+            <RankingTable rankings={stale} navigate={navigate} showDaysSince />
+          )}
+        </PageDashboardCard>
+
+        <PageDashboardCard title="Most Scanned" width="lg" height="md" to="/projects" linkText="View all">
+          {loading ? (
+            <LoadingPlaceholder />
+          ) : mostScanned.length === 0 ? (
+            <EmptyPlaceholder />
+          ) : (
+            <RankingTable rankings={mostScanned} navigate={navigate} showScanCount />
           )}
         </PageDashboardCard>
       </PageDashboard>
     </PageLayout>
+  );
+}
+
+function LoadingPlaceholder() {
+  return <div style={{ padding: 24, textAlign: 'center', opacity: 0.6 }}>Loading...</div>;
+}
+
+function EmptyPlaceholder() {
+  return <div style={{ padding: 24, textAlign: 'center', opacity: 0.6 }}>No project data yet.</div>;
+}
+
+function RankingTable({
+  rankings,
+  navigate,
+  showDaysSince,
+  showScanCount,
+}: {
+  rankings: ProjectRanking[];
+  navigate: ReturnType<typeof useNavigate>;
+  showDaysSince?: boolean;
+  showScanCount?: boolean;
+}) {
+  return (
+    <table className="pf-v6-c-table pf-m-compact pf-m-grid-md" role="grid">
+      <thead>
+        <tr role="row">
+          <th role="columnheader">Project</th>
+          <th role="columnheader">Health</th>
+          <th role="columnheader">Violations</th>
+          {showDaysSince && <th role="columnheader">Days Since Scan</th>}
+          {showScanCount && <th role="columnheader">Scans</th>}
+          <th role="columnheader">Last Scanned</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rankings.map((r) => (
+          <tr
+            key={r.id}
+            role="row"
+            tabIndex={0}
+            onClick={() => navigate(`/projects/${r.id}`)}
+            onKeyDown={(e) => { if (e.key === 'Enter') navigate(`/projects/${r.id}`); }}
+            style={{ cursor: 'pointer' }}
+          >
+            <td role="cell" style={{ fontWeight: 600 }}>{r.name}</td>
+            <td role="cell"><HealthBadge score={r.health_score} /></td>
+            <td role="cell">{r.total_violations}</td>
+            {showDaysSince && (
+              <td role="cell">{r.days_since_last_scan != null ? r.days_since_last_scan : '—'}</td>
+            )}
+            {showScanCount && <td role="cell">{r.scan_count}</td>}
+            <td role="cell" style={{ opacity: 0.7 }}>
+              {r.last_scanned_at ? timeAgo(r.last_scanned_at) : 'Never'}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }

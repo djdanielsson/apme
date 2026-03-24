@@ -246,7 +246,7 @@ class PaginatedResponse(BaseModel):  # type: ignore[misc]
     total: int
     limit: int
     offset: int
-    items: list[SessionSummary] | list[ScanSummary] | list[TopViolation]
+    items: list[SessionSummary] | list[ScanSummary] | list[TopViolation] | list[ProjectSummary]
 
 
 class AiModelInfo(BaseModel):  # type: ignore[misc]
@@ -289,3 +289,130 @@ class HealthStatus(BaseModel):  # type: ignore[misc]
     status: str
     database: str
     components: list[ComponentHealth] = Field(default_factory=list)
+
+
+# ── Project schemas (ADR-037) ────────────────────────────────────────
+
+
+class ProjectSummary(BaseModel):  # type: ignore[misc]
+    """Summary representation of a project for list views.
+
+    Attributes:
+        id: Unique identifier.
+        name: Display label.
+        repo_url: SCM clone URL.
+        branch: Target branch.
+        created_at: ISO-8601 creation timestamp.
+        health_score: Computed 0-100 score.
+        total_violations: Count from latest scan.
+        violation_trend: Direction indicator.
+        scan_count: Number of completed scans.
+        last_scanned_at: ISO timestamp of most recent scan.
+    """
+
+    id: str
+    name: str
+    repo_url: str
+    branch: str
+    created_at: str
+    health_score: int
+    total_violations: int = 0
+    violation_trend: str = "stable"
+    scan_count: int = 0
+    last_scanned_at: str | None = None
+
+
+class ProjectDetail(ProjectSummary):
+    """Full project representation with latest scan detail.
+
+    Attributes:
+        latest_scan: Summary of the most recent scan, if any.
+        severity_breakdown: Violation counts keyed by severity level.
+    """
+
+    latest_scan: ScanSummary | None = None
+    severity_breakdown: dict[str, int] = Field(default_factory=dict)
+
+
+class CreateProjectRequest(BaseModel):  # type: ignore[misc]
+    """Request body for creating a project.
+
+    Attributes:
+        name: Display label.
+        repo_url: HTTPS clone URL.
+        branch: Branch to clone (default main).
+    """
+
+    name: str
+    repo_url: str
+    branch: str = "main"
+
+
+class UpdateProjectRequest(BaseModel):  # type: ignore[misc]
+    """Partial update for project fields.
+
+    Attributes:
+        name: New display label.
+        repo_url: New clone URL.
+        branch: New branch.
+    """
+
+    name: str | None = None
+    repo_url: str | None = None
+    branch: str | None = None
+
+
+class ScanRequestOptions(BaseModel):  # type: ignore[misc]
+    """Per-operation scan/fix options (ADR-037).
+
+    Attributes:
+        ansible_version: Target ansible-core version.
+        collection_specs: Galaxy collection install specs.
+        enable_ai: Enable AI remediation tier.
+        ai_model: Specific model identifier.
+    """
+
+    ansible_version: str = ""
+    collection_specs: list[str] = Field(default_factory=list)
+    enable_ai: bool = False
+    ai_model: str = ""
+
+
+class DashboardSummary(BaseModel):  # type: ignore[misc]
+    """Cross-project aggregate statistics (ADR-037).
+
+    Attributes:
+        total_projects: Number of defined projects.
+        total_scans: Number of completed scans across all projects.
+        total_violations: Sum of violations across all latest scans.
+        total_fixed: Sum of auto-fixable violations.
+        avg_health_score: Mean health score across projects.
+    """
+
+    total_projects: int
+    total_scans: int
+    total_violations: int
+    total_fixed: int
+    avg_health_score: int
+
+
+class ProjectRanking(BaseModel):  # type: ignore[misc]
+    """Project ranking entry for dashboard tables (ADR-037).
+
+    Attributes:
+        id: Project identifier.
+        name: Display label.
+        health_score: Computed 0-100 score.
+        total_violations: Latest scan violation count.
+        scan_count: Number of completed scans.
+        last_scanned_at: ISO timestamp of most recent scan.
+        days_since_last_scan: Age in days since last scan.
+    """
+
+    id: str
+    name: str
+    health_score: int
+    total_violations: int
+    scan_count: int
+    last_scanned_at: str | None = None
+    days_since_last_scan: int | None = None
