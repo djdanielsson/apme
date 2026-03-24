@@ -364,6 +364,95 @@ def _build_batch_prompt(
     )
 
 
+def _extract_json_object(text: str) -> dict | None:  # type: ignore[type-arg]
+    """Extract the first top-level JSON object from *text*.
+
+    LLMs sometimes emit reasoning text before or after the JSON payload,
+    or wrap the response in markdown fences.  This function strips all of
+    that and returns the parsed ``dict``, or ``None`` on failure.
+
+    Args:
+        text: Raw LLM response text.
+
+    Returns:
+        Parsed dict or None if no valid JSON object is found.
+    """
+    cleaned = text.strip()
+
+    if cleaned.startswith("```"):
+        lines = cleaned.split("\n")
+        lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        cleaned = "\n".join(lines).strip()
+
+    try:
+        data = json.loads(cleaned)
+        if isinstance(data, dict):
+            return data
+    except (json.JSONDecodeError, TypeError):
+        pass
+
+    brace_start = cleaned.find("{")
+    if brace_start == -1:
+        logger.warning(
+            "No JSON object found in AI response (first 300 chars): %.300s",
+            cleaned,
+        )
+        return None
+
+    depth = 0
+    in_string = False
+    escape_next = False
+    brace_end = -1
+
+    for i in range(brace_start, len(cleaned)):
+        ch = cleaned[i]
+        if escape_next:
+            escape_next = False
+            continue
+        if ch == "\\":
+            escape_next = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                brace_end = i
+                break
+
+    if brace_end == -1:
+        logger.warning(
+            "Unterminated JSON object in AI response (first 300 chars): %.300s",
+            cleaned,
+        )
+        return None
+
+    json_str = cleaned[brace_start : brace_end + 1]
+    try:
+        data = json.loads(json_str)
+        if isinstance(data, dict):
+            if brace_start > 0:
+                logger.debug(
+                    "Stripped %d chars of preamble from AI response",
+                    brace_start,
+                )
+            return data
+    except (json.JSONDecodeError, TypeError):
+        logger.warning(
+            "Extracted JSON region is invalid (first 300 chars): %.300s",
+            json_str,
+        )
+
+    return None
+
+
 def _parse_batch_response(
     response_text: str,
     file_content: str,
@@ -387,23 +476,17 @@ def _parse_batch_response(
     Returns:
         Tuple of (patches or None on failure, skipped violations).
     """
-    cleaned = response_text.strip()
-    if cleaned.startswith("```"):
-        lines = cleaned.split("\n")
-        lines = lines[1:]
-        if lines and lines[-1].strip() == "```":
-            lines = lines[:-1]
-        cleaned = "\n".join(lines)
-
-    try:
-        data = json.loads(cleaned)
-    except (json.JSONDecodeError, TypeError):
-        logger.warning("Failed to parse batch AI response as JSON")
+    data = _extract_json_object(response_text)
+    if data is None:
         return None, []
 
     raw_patches = data.get("patches")
     if not isinstance(raw_patches, list):
-        logger.warning("AI response missing or invalid 'patches' field")
+        skipped = _parse_skipped(data)
+        if skipped:
+            logger.info("AI response has no patches but %d skipped entries", len(skipped))
+            return None, skipped
+        logger.warning("AI response missing 'patches' field and has no skipped entries")
         return None, []
 
     min_line = min_line_override if min_line_override else 1

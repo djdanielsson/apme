@@ -11,6 +11,7 @@ from apme_engine.engine.models import ViolationDict
 from apme_engine.remediation.abbenay_provider import (
     _build_batch_prompt,
     _extract_code_window,
+    _extract_json_object,
     _get_best_practices_for_rule,
     _get_best_practices_for_rules,
     _load_best_practices,
@@ -584,11 +585,30 @@ class TestBatchResponseParsing:
         assert skipped == []
 
     def test_parse_missing_patches_key(self) -> None:
-        """Returns None when 'patches' key is missing."""
+        """Returns None when 'patches' key is missing and no skipped."""
         response = json.dumps({"explanation": "hi"})
         patches, skipped = _parse_batch_response(response, "content\n")
         assert patches is None
         assert skipped == []
+
+    def test_parse_missing_patches_key_with_skipped(self) -> None:
+        """Returns skipped entries even when 'patches' key is absent."""
+        response = json.dumps(
+            {
+                "skipped": [
+                    {
+                        "rule_id": "R101",
+                        "line": 5,
+                        "reason": "Cannot fix automatically.",
+                        "suggestion": "Review manually.",
+                    },
+                ],
+            }
+        )
+        patches, skipped = _parse_batch_response(response, "content\n")
+        assert patches is None
+        assert len(skipped) == 1
+        assert skipped[0].rule_id == "R101"
 
     def test_parse_skips_malformed_entries(self) -> None:
         """Skips entries missing required fields."""
@@ -704,6 +724,108 @@ class TestBatchResponseParsing:
         assert patches is None
         assert len(skipped) == 1
         assert skipped[0].rule_id == "R101"
+
+
+# ---------------------------------------------------------------------------
+# JSON extraction tests
+# ---------------------------------------------------------------------------
+
+
+class TestExtractJsonObject:
+    """Tests for _extract_json_object which handles LLM preamble stripping."""
+
+    def test_clean_json(self) -> None:
+        """Parses clean JSON directly."""
+        data = _extract_json_object('{"patches": []}')
+        assert data == {"patches": []}
+
+    def test_markdown_fences(self) -> None:
+        """Strips markdown code fences."""
+        data = _extract_json_object('```json\n{"patches": []}\n```')
+        assert data == {"patches": []}
+
+    def test_thinking_preamble(self) -> None:
+        """Strips reasoning text before the JSON object."""
+        text = (
+            "Looking at the violations, I need to analyze the task context.\n\n"
+            '{"patches": [{"rule_id": "M001", "line_start": 1, "line_end": 1, '
+            '"fixed_lines": "fixed\\n", "explanation": "ok", "confidence": 0.9}]}'
+        )
+        data = _extract_json_object(text)
+        assert data is not None
+        assert len(data["patches"]) == 1
+        assert data["patches"][0]["rule_id"] == "M001"
+
+    def test_trailing_text(self) -> None:
+        """Ignores text after the JSON object."""
+        text = '{"patches": []} \n\nLet me know if you need anything else.'
+        data = _extract_json_object(text)
+        assert data == {"patches": []}
+
+    def test_preamble_and_trailing(self) -> None:
+        """Strips both preamble and trailing text."""
+        text = 'Here is the fix:\n{"skipped": []}\nHope that helps!'
+        data = _extract_json_object(text)
+        assert data == {"skipped": []}
+
+    def test_nested_braces(self) -> None:
+        """Handles nested objects correctly."""
+        inner = json.dumps(
+            {
+                "patches": [
+                    {
+                        "rule_id": "L026",
+                        "line_start": 1,
+                        "line_end": 2,
+                        "fixed_lines": "- name: test\n",
+                        "explanation": "ok",
+                        "confidence": 0.9,
+                    }
+                ]
+            }
+        )
+        text = f"Analysis complete.\n{inner}\nDone."
+        data = _extract_json_object(text)
+        assert data is not None
+        assert data["patches"][0]["rule_id"] == "L026"
+
+    def test_no_json(self) -> None:
+        """Returns None when no JSON object is found."""
+        assert _extract_json_object("no json here at all") is None
+
+    def test_braces_in_strings(self) -> None:
+        """Does not split on braces inside JSON string values."""
+        text = '{"patches": [], "note": "use {item} syntax"}'
+        data = _extract_json_object(text)
+        assert data is not None
+        assert data["note"] == "use {item} syntax"
+
+    def test_empty_response(self) -> None:
+        """Returns None for empty input."""
+        assert _extract_json_object("") is None
+        assert _extract_json_object("   ") is None
+
+    def test_end_to_end_with_parse(self) -> None:
+        """Full round-trip: preamble + JSON parsed into patches."""
+        inner = json.dumps(
+            {
+                "patches": [
+                    {
+                        "rule_id": "M001",
+                        "line_start": 1,
+                        "line_end": 1,
+                        "fixed_lines": "- ansible.builtin.debug:\n",
+                        "explanation": "FQCN",
+                        "confidence": 0.95,
+                    }
+                ]
+            }
+        )
+        text = f"I need to analyze the violations carefully.\n\n{inner}"
+        patches, skipped = _parse_batch_response(text, "line1\n")
+        assert patches is not None
+        assert len(patches) == 1
+        assert patches[0].rule_id == "M001"
 
 
 # ---------------------------------------------------------------------------
