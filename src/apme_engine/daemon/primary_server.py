@@ -1577,12 +1577,19 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
             logger.debug("abbenay_grpc not installed — returning empty model list")
             return ListAIModelsResponse(models=[])
 
-        addr = os.environ.get("APME_ABBENAY_ADDR", "")
+        addr = os.environ.get("APME_ABBENAY_ADDR", "").strip()
         if not addr:
             return ListAIModelsResponse(models=[])
 
         try:
-            client = AbbenayClient(host=addr.split(":")[0], port=int(addr.split(":")[1]))
+            if addr.startswith("unix://"):
+                client = AbbenayClient(addr)
+            else:
+                host, sep, port_str = addr.rpartition(":")
+                if sep:
+                    client = AbbenayClient(host=host or "localhost", port=int(port_str))
+                else:
+                    client = AbbenayClient(host=addr)
             await client.connect()
             try:
                 raw_models = await client.list_models()

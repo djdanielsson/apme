@@ -37,7 +37,7 @@ spec:
         - name: APME_ABBENAY_TOKEN
           value: "apme-dev-token"
         - name: APME_AI_MODEL
-          value: "__APME_AI_MODEL__"
+          value: "${APME_AI_MODEL}"
       ports:
         - containerPort: 50051
           hostPort: 50051
@@ -110,7 +110,7 @@ spec:
       image: apme-abbenay:latest
       env:
         - name: OPENROUTER_API_KEY
-          value: "__OPENROUTER_API_KEY__"
+          value: "${OPENROUTER_API_KEY}"
         - name: APME_ABBENAY_TOKEN
           value: "apme-dev-token"
       ports:

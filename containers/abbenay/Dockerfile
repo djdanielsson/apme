@@ -4,15 +4,24 @@
 FROM node:22-alpine
 
 ARG ABBENAY_VERSION=v2026.3.6-alpha
-ARG TARGETARCH=x64
+ARG ABBENAY_SHA256=e28cae23a3c4eac3d389b460268a76527ca27050fe5488bdd594e62bb040c2e2
 
 WORKDIR /opt/abbenay
 
-# Download and extract the release binary + proto files.
-ADD https://github.com/redhat-developer/abbenay/releases/download/${ABBENAY_VERSION}/abbenay-${ABBENAY_VERSION#v}-linux-${TARGETARCH}.tar.gz /tmp/abbenay.tar.gz
-RUN tar xzf /tmp/abbenay.tar.gz -C /opt/abbenay && rm /tmp/abbenay.tar.gz \
-    && chmod +x /opt/abbenay/abbenay-daemon-linux-${TARGETARCH} \
-    && ln -s /opt/abbenay/abbenay-daemon-linux-${TARGETARCH} /usr/local/bin/abbenay
+# Download, verify, and extract the release binary + proto files.
+RUN set -eux; \
+    case "$(uname -m)" in \
+      x86_64)  ABBENAY_ARCH="x64"  ;; \
+      aarch64) ABBENAY_ARCH="arm64" ;; \
+      *) echo "Unsupported arch: $(uname -m)" >&2; exit 1 ;; \
+    esac; \
+    wget -O /tmp/abbenay.tar.gz \
+      "https://github.com/redhat-developer/abbenay/releases/download/${ABBENAY_VERSION}/abbenay-${ABBENAY_VERSION#v}-linux-${ABBENAY_ARCH}.tar.gz"; \
+    echo "${ABBENAY_SHA256}  /tmp/abbenay.tar.gz" | sha256sum -c -; \
+    tar xzf /tmp/abbenay.tar.gz -C /opt/abbenay; \
+    rm /tmp/abbenay.tar.gz; \
+    chmod +x "/opt/abbenay/abbenay-daemon-linux-${ABBENAY_ARCH}"; \
+    ln -s "/opt/abbenay/abbenay-daemon-linux-${ABBENAY_ARCH}" /usr/local/bin/abbenay
 
 COPY containers/abbenay/config.yaml /root/.config/abbenay/config.yaml
 

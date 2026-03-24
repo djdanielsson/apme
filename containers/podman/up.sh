@@ -41,12 +41,13 @@ if podman pod exists apme-pod 2>/dev/null; then
   podman pod rm apme-pod 2>/dev/null || true
 fi
 
-# Pod YAML cannot use env vars; we always inject the resolved path.
-# Escape \, &, and the | delimiter so sed substitution is safe.
+# Pod YAML cannot use env vars; we inject values via envsubst.
+# CACHE_PATH is escaped for sed since it may contain special chars;
+# everything else goes through envsubst so secrets stay out of argv.
 ESCAPED_PATH=$(printf '%s\n' "$CACHE_PATH" | sed -e 's/\\/\\\\/g' -e 's/[&|]/\\&/g')
+export OPENROUTER_API_KEY APME_AI_MODEL
 sed "s|path: __APME_CACHE_PATH__|path: ${ESCAPED_PATH}|" containers/podman/pod.yaml \
-  | sed "s|__OPENROUTER_API_KEY__|${OPENROUTER_API_KEY}|" \
-  | sed "s|__APME_AI_MODEL__|${APME_AI_MODEL}|" \
+  | envsubst '$OPENROUTER_API_KEY $APME_AI_MODEL' \
   | podman play kube -
 
 echo "Pod apme-pod started (cache: $CACHE_PATH). Run a scan: containers/podman/run-cli.sh"

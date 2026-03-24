@@ -1,11 +1,13 @@
-"""Tests for the ListAIModels gRPC RPC and gateway REST endpoint."""
+"""Tests for the ListAIModels gRPC RPC on PrimaryServicer."""
 
 from __future__ import annotations
 
 import asyncio
 import os
+import sys
+import types
 from dataclasses import dataclass
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 from apme.v1.primary_pb2 import ListAIModelsRequest
 from apme_engine.daemon.primary_server import PrimaryServicer
@@ -34,11 +36,11 @@ class _FakeAbbenayClient:
     """Stand-in for AbbenayClient with a canned model list.
 
     Args:
-        models: Pre-configured model list to return from list_models().
+        **_kwargs: Ignored; matches AbbenayClient constructor signature.
     """
 
-    def __init__(self, models: list[_FakeModel]) -> None:
-        self._models = models
+    def __init__(self, **_kwargs: object) -> None:
+        self._models: list[_FakeModel] = []
 
     async def connect(self) -> None:
         pass
@@ -48,6 +50,20 @@ class _FakeAbbenayClient:
 
     async def list_models(self) -> list[_FakeModel]:
         return self._models
+
+
+def _make_stub_module(client_cls: type | None = None) -> types.ModuleType:
+    """Build a fake ``abbenay_grpc`` module for sys.modules patching.
+
+    Args:
+        client_cls: Class to use as AbbenayClient. Defaults to _FakeAbbenayClient.
+
+    Returns:
+        A minimal module with an AbbenayClient attribute.
+    """
+    mod = types.ModuleType("abbenay_grpc")
+    mod.AbbenayClient = client_cls or _FakeAbbenayClient  # type: ignore[attr-defined]
+    return mod
 
 
 # ---------------------------------------------------------------------------
@@ -64,11 +80,17 @@ class TestPrimaryListAIModels:
             _FakeModel(id="openai/gpt-4o", provider="openai", name="gpt-4o"),
             _FakeModel(id="anthropic/claude-sonnet-4", provider="anthropic", name="claude-sonnet-4"),
         ]
-        fake_client = _FakeAbbenayClient(models)
+
+        class _ClientWithModels(_FakeAbbenayClient):
+            def __init__(self, **_kw: object) -> None:
+                super().__init__()
+                self._models = models
+
+        stub_mod = _make_stub_module(_ClientWithModels)
 
         with (
             patch.dict(os.environ, {"APME_ABBENAY_ADDR": "127.0.0.1:50057"}),
-            patch("abbenay_grpc.AbbenayClient", return_value=fake_client),
+            patch.dict(sys.modules, {"abbenay_grpc": stub_mod}),
         ):
             servicer = PrimaryServicer()
             ctx = MagicMock()
@@ -90,14 +112,20 @@ class TestPrimaryListAIModels:
 
     def test_returns_empty_when_abbenay_unreachable(self) -> None:
         """ListAIModels returns empty list when Abbenay connection fails."""
-        failing_client = AsyncMock()
-        failing_client.connect = AsyncMock(side_effect=ConnectionError("refused"))
 
-        with patch.dict(os.environ, {"APME_ABBENAY_ADDR": "127.0.0.1:50057"}):
-            with patch("abbenay_grpc.AbbenayClient", return_value=failing_client):
-                servicer = PrimaryServicer()
-                ctx = MagicMock()
-                resp = asyncio.run(servicer.ListAIModels(ListAIModelsRequest(), ctx))
+        class _FailingClient(_FakeAbbenayClient):
+            async def connect(self) -> None:
+                raise ConnectionError("refused")
+
+        stub_mod = _make_stub_module(_FailingClient)
+
+        with (
+            patch.dict(os.environ, {"APME_ABBENAY_ADDR": "127.0.0.1:50057"}),
+            patch.dict(sys.modules, {"abbenay_grpc": stub_mod}),
+        ):
+            servicer = PrimaryServicer()
+            ctx = MagicMock()
+            resp = asyncio.run(servicer.ListAIModels(ListAIModelsRequest(), ctx))
 
         assert len(resp.models) == 0
 
@@ -105,7 +133,7 @@ class TestPrimaryListAIModels:
         """ListAIModels returns empty list when abbenay_grpc is not installed."""
         with (
             patch.dict(os.environ, {"APME_ABBENAY_ADDR": "127.0.0.1:50057"}),
-            patch.dict("sys.modules", {"abbenay_grpc": None}),
+            patch.dict(sys.modules, {"abbenay_grpc": None}),
         ):
             servicer = PrimaryServicer()
             ctx = MagicMock()
