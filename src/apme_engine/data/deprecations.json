@@ -1,0 +1,11 @@
+{
+  "scraped_at": "2026-03-17T00:00:00+00:00",
+  "commit": "80ee6b5d920d",
+  "branch": "devel",
+  "ansible_core_version": "2.20.0.dev0",
+  "total_deprecations": 0,
+  "by_version": {},
+  "by_mechanism": {},
+  "deprecations": [],
+  "_note": "This is a placeholder. Run `python scripts/scrape_ansible_deprecations.py` to populate with live data from ansible-core devel."
+}

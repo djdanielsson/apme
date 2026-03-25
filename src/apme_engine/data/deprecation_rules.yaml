@@ -1,0 +1,531 @@
+# Curated deprecation rule definitions for APME.
+#
+# Each entry defines a modernization rule (M-series) that detects
+# ansible-core deprecation patterns. The scraper populates deprecations.json
+# with raw data; this file adds the editorial layer: rule IDs, detection
+# strategies, fix tiers, and example content.
+#
+# Consumed by: scripts/generate_deprecation_rules.py
+# Ref: .sdlc/research/ansible-core-deprecation-mining.md
+
+# ─── Priority 1: High impact, statically detectable ───────────────────
+
+- rule_id: M014
+  removal_version: "2.24"
+  priority: 1
+  validator: native
+  title: "Top-level fact variables"
+  description: "Use ansible_facts[\"name\"] instead of injected ansible_* fact variables (removed in 2.24)"
+  severity: high
+  fix_tier: 1
+  audience: content
+  source_file: "vars/manager.py"
+  detection:
+    approach: "Scan Jinja2 expressions for ansible_* variable references that are known facts"
+    patterns:
+      - "ansible_hostname"
+      - "ansible_os_family"
+      - "ansible_distribution"
+      - "ansible_default_ipv4"
+      - "ansible_all_ipv4_addresses"
+      - "ansible_memtotal_mb"
+      - "ansible_processor_vcpus"
+    exclude:
+      - "ansible_check_mode"
+      - "ansible_play_batch"
+      - "ansible_play_hosts"
+      - "ansible_play_name"
+      - "ansible_play_role_names"
+      - "ansible_run_tags"
+      - "ansible_skip_tags"
+      - "ansible_version"
+      - "ansible_loop"
+      - "ansible_loop_var"
+      - "ansible_index_var"
+      - "ansible_facts"
+  remediation:
+    before: "{{ ansible_hostname }}"
+    after: "{{ ansible_facts['hostname'] }}"
+    strategy: "Regex substitution: ansible_FACTNAME → ansible_facts['FACTNAME']"
+  example_violation: |
+    - name: Show hostname
+      ansible.builtin.debug:
+        msg: "Host is {{ ansible_hostname }}"
+  example_pass: |
+    - name: Show hostname
+      ansible.builtin.debug:
+        msg: "Host is {{ ansible_facts['hostname'] }}"
+
+- rule_id: M015
+  removal_version: "2.23"
+  priority: 1
+  validator: native
+  title: "play_hosts magic variable"
+  description: "Use ansible_play_batch instead of deprecated play_hosts variable (removed in 2.23)"
+  severity: medium
+  fix_tier: 1
+  audience: content
+  source_file: "vars/manager.py"
+  detection:
+    approach: "Scan Jinja2 expressions for play_hosts variable"
+    patterns:
+      - "play_hosts"
+  remediation:
+    before: "{{ play_hosts }}"
+    after: "{{ ansible_play_batch }}"
+    strategy: "Simple string replacement in Jinja2 expressions"
+  example_violation: |
+    - name: Show play hosts
+      ansible.builtin.debug:
+        msg: "Hosts: {{ play_hosts }}"
+  example_pass: |
+    - name: Show play hosts
+      ansible.builtin.debug:
+        msg: "Hosts: {{ ansible_play_batch }}"
+
+- rule_id: M016
+  removal_version: "2.23"
+  priority: 1
+  validator: opa
+  title: "Empty when conditional"
+  description: "Empty when: conditional is deprecated; remove it or add an explicit condition (2.23)"
+  severity: medium
+  fix_tier: 1
+  audience: content
+  source_file: "_internal/_templating/_engine.py"
+  detection:
+    approach: "Detect when: with empty string or null value in tasks"
+    patterns:
+      - 'when: ""'
+      - "when:"
+  remediation:
+    before: 'when: ""'
+    after: "(remove the when: key entirely)"
+    strategy: "Remove the empty when: key"
+  example_violation: |
+    - name: Always runs
+      ansible.builtin.debug:
+        msg: "This always runs"
+      when: ""
+  example_pass: |
+    - name: Always runs
+      ansible.builtin.debug:
+        msg: "This always runs"
+
+- rule_id: M017
+  removal_version: "2.23"
+  priority: 1
+  validator: opa
+  title: "action as mapping"
+  description: "action: with a mapping value is deprecated; use string form or module key directly (2.23)"
+  severity: medium
+  fix_tier: 2
+  audience: content
+  source_file: "parsing/mod_args.py"
+  detection:
+    approach: "Detect action: key with dict/mapping value"
+    patterns:
+      - "action: {module: ...}"
+  remediation:
+    before: 'action: {module: copy, src: a, dest: /tmp/b}'
+    after: |
+      ansible.builtin.copy:
+        src: a
+        dest: /tmp/b
+    strategy: "Convert action mapping to module key with args"
+  example_violation: |
+    - name: Copy file
+      action:
+        module: copy
+        src: a
+        dest: /tmp/b
+  example_pass: |
+    - name: Copy file
+      ansible.builtin.copy:
+        src: a
+        dest: /tmp/b
+
+- rule_id: M018
+  removal_version: "2.21"
+  priority: 1
+  validator: opa
+  title: "paramiko_ssh connection plugin"
+  description: "paramiko_ssh connection plugin is deprecated; use ssh connection instead (removed in 2.21)"
+  severity: high
+  fix_tier: 1
+  audience: content
+  source_file: "plugins/connection/paramiko_ssh.py"
+  detection:
+    approach: "Detect connection: paramiko_ssh or ansible_connection: paramiko_ssh"
+    patterns:
+      - "connection: paramiko_ssh"
+      - "ansible_connection: paramiko_ssh"
+  remediation:
+    before: "connection: paramiko_ssh"
+    after: "connection: ssh"
+    strategy: "Direct substitution"
+  example_violation: |
+    - name: Example play
+      hosts: all
+      connection: paramiko_ssh
+      tasks:
+        - name: Ping
+          ansible.builtin.ping:
+  example_pass: |
+    - name: Example play
+      hosts: all
+      connection: ssh
+      tasks:
+        - name: Ping
+          ansible.builtin.ping:
+
+# ─── Priority 2: Medium impact ────────────────────────────────────────
+
+- rule_id: M019
+  removal_version: "2.23"
+  priority: 2
+  validator: native
+  title: "!!omap / !!pairs YAML tags"
+  description: "!!omap and !!pairs YAML tags are deprecated; standard YAML mappings preserve order in Python 3.7+ (2.23)"
+  severity: low
+  fix_tier: 1
+  audience: content
+  source_file: "_internal/_yaml/_constructor.py"
+  detection:
+    approach: "Scan YAML content for !!omap or !!pairs tags"
+    patterns:
+      - "!!omap"
+      - "!!pairs"
+  remediation:
+    before: "!!omap"
+    after: "(remove the tag; dicts are ordered)"
+    strategy: "Remove the tag"
+  example_violation: |
+    my_ordered_map: !!omap
+      - key1: value1
+      - key2: value2
+  example_pass: |
+    my_ordered_map:
+      key1: value1
+      key2: value2
+
+- rule_id: M020
+  removal_version: "2.23"
+  priority: 2
+  validator: native
+  title: "!vault-encrypted tag"
+  description: "Use !vault instead of deprecated !vault-encrypted tag (2.23)"
+  severity: low
+  fix_tier: 1
+  audience: content
+  source_file: "_internal/_yaml/_constructor.py"
+  detection:
+    approach: "Scan YAML content for !vault-encrypted tag"
+    patterns:
+      - "!vault-encrypted"
+  remediation:
+    before: "!vault-encrypted"
+    after: "!vault"
+    strategy: "Direct tag substitution"
+  example_violation: |
+    secret: !vault-encrypted |
+      $ANSIBLE_VAULT;1.1;AES256
+      ...
+  example_pass: |
+    secret: !vault |
+      $ANSIBLE_VAULT;1.1;AES256
+      ...
+
+- rule_id: M021
+  removal_version: "2.23"
+  priority: 2
+  validator: opa
+  title: "Empty args keyword"
+  description: "Empty args: keyword on a task is deprecated; remove it (2.23)"
+  severity: low
+  fix_tier: 1
+  audience: content
+  source_file: "parsing/mod_args.py"
+  detection:
+    approach: "Detect args: with null value in tasks"
+    patterns:
+      - "args:"
+  remediation:
+    before: "args:"
+    after: "(remove the empty args: key)"
+    strategy: "Remove the empty args: key"
+  example_violation: |
+    - name: Run command
+      ansible.builtin.command: whoami
+      args:
+  example_pass: |
+    - name: Run command
+      ansible.builtin.command: whoami
+
+- rule_id: M022
+  removal_version: "2.23"
+  priority: 2
+  validator: native
+  title: "tree / oneline callback plugins"
+  description: "tree and oneline callback plugins are removed in 2.23; choose an alternative"
+  severity: medium
+  fix_tier: 3
+  audience: content
+  source_file: "plugins/callback/tree.py"
+  detection:
+    approach: "Detect callback_plugins: tree/oneline or stdout_callback = tree/oneline in ansible.cfg"
+    patterns:
+      - "stdout_callback = tree"
+      - "stdout_callback = oneline"
+      - "callback_plugins: tree"
+      - "callback_plugins: oneline"
+  remediation:
+    before: "stdout_callback = tree"
+    after: "(choose alternative callback plugin)"
+    strategy: "Informational only — no drop-in replacement"
+  example_violation: |
+    [defaults]
+    stdout_callback = tree
+  example_pass: |
+    [defaults]
+    stdout_callback = yaml
+
+- rule_id: M023
+  removal_version: "2.22"
+  priority: 2
+  validator: opa
+  title: "follow_redirects string boolean"
+  description: "follow_redirects: yes/no (string) is deprecated in url lookup; use true/false boolean (2.22)"
+  severity: low
+  fix_tier: 1
+  audience: content
+  source_file: "plugins/lookup/url.py"
+  detection:
+    approach: "Detect follow_redirects: yes or follow_redirects: no in lookup args"
+    patterns:
+      - "follow_redirects: yes"
+      - "follow_redirects: no"
+  remediation:
+    before: "follow_redirects: yes"
+    after: "follow_redirects: true"
+    strategy: "String to boolean substitution"
+  example_violation: |
+    - name: Fetch URL
+      ansible.builtin.debug:
+        msg: "{{ lookup('url', 'https://example.com', follow_redirects='yes') }}"
+  example_pass: |
+    - name: Fetch URL
+      ansible.builtin.debug:
+        msg: "{{ lookup('url', 'https://example.com', follow_redirects=true) }}"
+
+- rule_id: M024
+  removal_version: "2.24"
+  priority: 2
+  validator: opa
+  title: "include_vars ignore_files as string"
+  description: "include_vars ignore_files must be a list, not a string (2.24)"
+  severity: low
+  fix_tier: 1
+  audience: content
+  source_file: "plugins/action/include_vars.py"
+  detection:
+    approach: "Detect ignore_files: with string value in include_vars tasks"
+    patterns:
+      - 'ignore_files: "*.bak"'
+  remediation:
+    before: 'ignore_files: "*.bak"'
+    after: 'ignore_files: ["*.bak"]'
+    strategy: "Wrap string value in a YAML list"
+  example_violation: |
+    - name: Include vars
+      ansible.builtin.include_vars:
+        dir: vars/
+        ignore_files: "*.bak"
+  example_pass: |
+    - name: Include vars
+      ansible.builtin.include_vars:
+        dir: vars/
+        ignore_files:
+          - "*.bak"
+
+- rule_id: M025
+  removal_version: "2.23"
+  priority: 2
+  validator: opa
+  title: "Third-party strategy plugin"
+  description: "Third-party strategy plugins are deprecated; only ansible.builtin strategies are supported (2.23)"
+  severity: medium
+  fix_tier: 3
+  audience: content
+  source_file: "plugins/loader.py"
+  detection:
+    approach: "Detect strategy: not in ansible.builtin.*"
+    patterns:
+      - "strategy:"
+  remediation:
+    before: "strategy: mitogen_linear"
+    after: "(choose an ansible.builtin strategy)"
+    strategy: "Informational warning only"
+  example_violation: |
+    - name: Example play
+      hosts: all
+      strategy: mitogen_linear
+      tasks:
+        - name: Ping
+          ansible.builtin.ping:
+  example_pass: |
+    - name: Example play
+      hosts: all
+      strategy: linear
+      tasks:
+        - name: Ping
+          ansible.builtin.ping:
+
+- rule_id: M026
+  removal_version: "2.23"
+  priority: 2
+  validator: native
+  title: "Invalid inventory variable names"
+  description: "Inventory variable names must be valid Python identifiers (enforced in 2.23)"
+  severity: medium
+  fix_tier: 2
+  audience: content
+  source_file: "inventory/host.py"
+  detection:
+    approach: "Validate variable names in host/group vars against Python identifier rules"
+    patterns:
+      - "variable names with hyphens"
+      - "variable names starting with digits"
+  remediation:
+    before: "my-var: value"
+    after: "my_var: value"
+    strategy: "Rename is mechanical but may break references"
+  example_violation: |
+    # host_vars/myhost.yml
+    my-var: some_value
+    3rd_party: other_value
+  example_pass: |
+    # host_vars/myhost.yml
+    my_var: some_value
+    third_party: other_value
+
+# ─── Priority 3: Lower impact or harder to detect ─────────────────────
+
+- rule_id: M027
+  removal_version: "2.23"
+  priority: 3
+  validator: native
+  title: "Legacy k=v merged with args"
+  description: "Mixing inline k=v arguments with args: mapping is deprecated (2.23)"
+  severity: low
+  fix_tier: 2
+  audience: content
+  source_file: "parsing/mod_args.py"
+  detection:
+    approach: "Detect tasks with both inline k=v and args: mapping"
+    patterns:
+      - "module k=v with args:"
+  remediation:
+    before: |
+      ansible.builtin.copy: src=a
+      args:
+        dest: /tmp/b
+    after: |
+      ansible.builtin.copy:
+        src: a
+        dest: /tmp/b
+    strategy: "Move k=v params into args mapping"
+  example_violation: |
+    - name: Copy file
+      ansible.builtin.copy: src=a
+      args:
+        dest: /tmp/b
+  example_pass: |
+    - name: Copy file
+      ansible.builtin.copy:
+        src: a
+        dest: /tmp/b
+
+- rule_id: M028
+  removal_version: "2.23"
+  priority: 3
+  validator: opa
+  title: "first_found auto-splitting paths"
+  description: "first_found lookup auto-splitting paths on delimiters is deprecated (2.23)"
+  severity: low
+  fix_tier: 1
+  audience: content
+  source_file: "plugins/lookup/first_found.py"
+  detection:
+    approach: "Detect first_found terms containing comma or colon delimiters"
+    patterns:
+      - "first_found with , or : in terms"
+  remediation:
+    before: 'lookup("first_found", "a.yml,b.yml")'
+    after: 'lookup("first_found", ["a.yml", "b.yml"])'
+    strategy: "Split string term into YAML list"
+  example_violation: |
+    - name: Find file
+      ansible.builtin.debug:
+        msg: "{{ lookup('first_found', 'a.yml,b.yml') }}"
+  example_pass: |
+    - name: Find file
+      ansible.builtin.debug:
+        msg: "{{ lookup('first_found', ['a.yml', 'b.yml']) }}"
+
+- rule_id: M029
+  removal_version: "2.23"
+  priority: 3
+  validator: native
+  title: "Inventory script missing _meta"
+  description: "Inventory scripts must include _meta.hostvars in JSON output (enforced in 2.23)"
+  severity: medium
+  fix_tier: 3
+  audience: content
+  source_file: "plugins/inventory/script.py"
+  detection:
+    approach: "Analyze inventory script output for missing _meta key"
+    patterns:
+      - "JSON output without _meta.hostvars"
+  remediation:
+    before: '{"all": {"hosts": [...]}}'
+    after: '{"all": {"hosts": [...]}, "_meta": {"hostvars": {}}}'
+    strategy: "Informational only — requires modifying external scripts"
+  example_violation: |
+    #!/usr/bin/env python3
+    # inventory script without _meta
+    import json
+    print(json.dumps({"all": {"hosts": ["host1"]}}))
+  example_pass: |
+    #!/usr/bin/env python3
+    import json
+    print(json.dumps({"all": {"hosts": ["host1"]}, "_meta": {"hostvars": {}}}))
+
+- rule_id: M030
+  removal_version: "2.23"
+  priority: 3
+  validator: native
+  title: "Broken conditional expressions"
+  description: "Conditional expressions that fail Jinja2 parsing will error in 2.23 instead of being silently ignored"
+  severity: medium
+  fix_tier: 2
+  audience: content
+  source_file: "_internal/_templating/_engine.py"
+  detection:
+    approach: "Parse when: values as Jinja2 expressions and flag parse failures"
+    patterns:
+      - "when: with invalid Jinja2 expression"
+  remediation:
+    before: "when: foo == (bar"
+    after: "when: foo == bar"
+    strategy: "Depends on specific breakage — AI review needed"
+  example_violation: |
+    - name: Conditional
+      ansible.builtin.debug:
+        msg: "test"
+      when: foo == (bar
+  example_pass: |
+    - name: Conditional
+      ansible.builtin.debug:
+        msg: "test"
+      when: foo == bar

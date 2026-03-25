@@ -438,6 +438,52 @@ When implementing a new `ValidatorServicer`:
 
 The Primary automatically collects diagnostics from all validators and includes them in `ScanDiagnostics`.
 
+## Deprecation pipeline
+
+The project includes automated tooling to discover ansible-core deprecation notices and generate corresponding APME rules.
+
+### Scripts
+
+| Script | Purpose |
+|--------|---------|
+| `scripts/scrape_ansible_deprecations.py` | Clones ansible-core devel, scans for `display.deprecated()`, `# deprecated:`, and `_tags.Deprecated()` patterns, outputs `src/apme_engine/data/deprecations.json` |
+| `scripts/generate_deprecation_rules.py` | Reads `src/apme_engine/data/deprecation_rules.json` and generates OPA Rego rules + tests, native Python rules, and markdown docs |
+| `scripts/deprecation_pipeline.sh` | Orchestrates scraper and generator in sequence |
+
+### Running locally
+
+```bash
+# Full pipeline: scrape + generate
+bash scripts/deprecation_pipeline.sh
+
+# Scrape only
+python scripts/scrape_ansible_deprecations.py --output src/apme_engine/data/deprecations.json
+
+# Generate rules (dry run)
+python scripts/generate_deprecation_rules.py --dry-run
+
+# Generate rules (force overwrite existing)
+python scripts/generate_deprecation_rules.py --force
+
+# Check mode (CI — exits 1 if new rules would be created)
+python scripts/generate_deprecation_rules.py --check
+```
+
+### Deduplication
+
+The generator inventories all existing rules across OPA, native, and ansible validators before generating. It performs:
+
+1. **Exact ID matching** — skips if a rule with the same ID already exists
+2. **Semantic overlap detection** — warns when a new rule overlaps with existing rules (e.g., M014 overlaps with L076)
+
+### CI workflow
+
+The `.github/workflows/deprecation-scrape.yml` workflow runs monthly (or on manual dispatch), scrapes for new deprecations, generates rules, and opens a PR if any new rules are found.
+
+### Adding new rule definitions
+
+To add a rule definition that the generator will produce, add an entry to `src/apme_engine/data/deprecation_rules.yaml` (and regenerate the `.json` with PyYAML or equivalent). Each entry specifies the rule ID, validator type, detection approach, remediation strategy, and example violations/passes.
+
 ## Rule ID conventions
 
 | Prefix | Category | Examples |
