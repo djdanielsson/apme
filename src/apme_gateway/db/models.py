@@ -72,18 +72,22 @@ class Scan(Base):
         source: Origin of the scan (cli, ci, gateway).
         trigger: How the scan was initiated (cli, ui, playground).
         created_at: ISO 8601 timestamp of creation.
-        scan_type: Either "scan" or "fix".
+        scan_type: Either "check" or "remediate".
         total_violations: Total violation count.
         auto_fixable: Count of tier-1 fixable violations.
         ai_candidate: Count of tier-2 AI-candidate violations.
         manual_review: Count of tier-3 manual violations.
         fixed_count: Number of violations fixed (fix scans only).
+        ai_proposed: Count of AI proposals generated.
+        ai_declined: Count of AI proposals declined.
+        ai_accepted: Count of AI proposals accepted by the user.
         diagnostics_json: JSON-serialised ScanDiagnostics.
         session: Back-reference to owning Session.
         project: Back-reference to owning Project (ADR-037).
         violations: Related violation rows.
         proposals: Related proposal rows.
         logs: Related log rows.
+        patches: Related patch rows (per-file diffs).
     """
 
     __tablename__ = "scans"

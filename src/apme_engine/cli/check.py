@@ -35,7 +35,11 @@ _SAFE_SESSION_RE = __import__("re").compile(r"^[A-Za-z0-9_\-]+$")
 
 
 class _ScanSummaryCompat:
-    """Wraps FixReport tier-1 fields for format_remediation_summary / render_check_results."""
+    """Wraps FixReport tier-1 fields for format_remediation_summary / render_check_results.
+
+    Args:
+        report: Completed FixReport or None for empty summary.
+    """
 
     __slots__ = ("ai_candidate", "auto_fixable", "by_resolution", "manual_review")
 

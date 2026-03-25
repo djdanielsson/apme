@@ -216,7 +216,24 @@ async def run_project_scan(
     progress_callback: ProgressCallback | None = None,
     scan_id: str | None = None,
 ) -> tuple[str, primary_pb2.SessionResult | None]:
-    """Backward-compatible alias for check mode (``run_project_operation`` with remediate=False)."""
+    """Backward-compatible alias for check mode.
+
+    Delegates to :func:`run_project_operation` with ``remediate=False``.
+    See that function for full parameter documentation.
+
+    Args:
+        project_id: UUID of the project.
+        repo_url: SCM clone URL.
+        branch: Branch to clone.
+        primary_address: ``host:port`` for the Primary gRPC service.
+        ansible_version: Target ansible-core version.
+        collection_specs: Collection install specs.
+        progress_callback: Optional async callable for each ``SessionEvent``.
+        scan_id: Optional pre-generated scan ID.
+
+    Returns:
+        Tuple of (scan_id, SessionResult or None).
+    """
     return await run_project_operation(
         project_id=project_id,
         repo_url=repo_url,
@@ -244,7 +261,27 @@ async def run_project_fix(
     approval_queue: asyncio.Queue[list[str]] | None = None,
     scan_id: str | None = None,
 ) -> tuple[str, primary_pb2.SessionResult | None]:
-    """Backward-compatible alias for remediate mode (``run_project_operation`` with remediate=True)."""
+    """Backward-compatible alias for remediate mode.
+
+    Delegates to :func:`run_project_operation` with ``remediate=True``.
+    See that function for full parameter documentation.
+
+    Args:
+        project_id: UUID of the project.
+        repo_url: SCM clone URL.
+        branch: Branch to clone.
+        primary_address: ``host:port`` for the Primary gRPC service.
+        ansible_version: Target ansible-core version.
+        collection_specs: Collection install specs.
+        enable_ai: Enable AI remediation tier.
+        ai_model: AI model identifier.
+        progress_callback: Optional async callable for each ``SessionEvent``.
+        approval_queue: Queue of approved proposal IDs.
+        scan_id: Optional pre-generated scan ID.
+
+    Returns:
+        Tuple of (scan_id, SessionResult or None).
+    """
     return await run_project_operation(
         project_id=project_id,
         repo_url=repo_url,
