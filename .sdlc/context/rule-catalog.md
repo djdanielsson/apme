@@ -38,8 +38,6 @@ This comprehensive rule catalogue outlines ninety-three individual guidelines de
 | L025 | OPA | Task/play name should start with uppercase. | Yes |
 | L026 | Native | Tasks should use FQCN for modules. | |
 | L027 | Native | Roles should have meta/main.yml with metadata. | |
-| L028 | Native | Tasks should have a name. | |
-| L029 | Native | Prefer command over shell when no shell features are needed | |
 | L030 | Native | Prefer ansible.builtin modules when available. | |
 | L031 | Native | File permission may be insecure (annotation-based). | |
 | L032 | Native | Variable redefinition may cause confusion. | |
@@ -150,8 +148,6 @@ This comprehensive rule catalogue outlines ninety-three individual guidelines de
 |---------|-------------|-------|
 | L026 | Tasks should use FQCN for modules. | |
 | L027 | Roles should have meta/main.yml with metadata. | |
-| L028 | Tasks should have a name. | |
-| L029 | Prefer command over shell when no shell features are needed | |
 | L030 | Prefer ansible.builtin modules when available. | |
 | L031 | File permission may be insecure (annotation-based). | |
 | L032 | Variable redefinition may cause confusion. | |

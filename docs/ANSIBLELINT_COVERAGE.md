@@ -1,12 +1,12 @@
 # Rule coverage vs ansible-lint
 
-Coverage comparison against the **ansible-lint** codebase (rule `id` from `src/ansiblelint/rules/` and `_internal/rules.py`). Shows which ansible-lint rules we cover with OPA (L002–L025), native Python (L026–L056), Ansible runtime (L057–L059, M001–M004), or not at all.
+Coverage comparison against the **ansible-lint** codebase (rule `id` from `src/ansiblelint/rules/` and `_internal/rules.py`). Shows which ansible-lint rules we cover with OPA (L003–L025), native Python (L026–L056), Ansible runtime (L057–L059, M001–M004), or not at all.
 
 ## Summary
 
 | Status | Count |
 |--------|-------|
-| **Covered** (OPA, native, or Ansible) | 39 |
+| **Covered** (OPA, native, or Ansible) | 38 |
 | **Partial / overlap** | 4 |
 | **Not covered** | 5 |
 | **Internal / N/A** | 4 |
@@ -15,12 +15,12 @@ Coverage comparison against the **ansible-lint** codebase (rule `id` from `src/a
 
 ## Covered by our rules
 
-### OPA rules (L002–L025, R118)
+### OPA rules (L003–L025, R118)
 
 | ansible-lint rule | Our rule | Description |
 |-------------------|----------|-------------|
 | ~~name~~ | ~~L001~~ | ~~Removed: subsumed by L024~~ |
-| fqcn | L002 | Use FQCN for module (syntactic check) |
+| ~~fqcn~~ | ~~L002~~ | ~~Removed: superseded by M001 (semantic) and L026 (native)~~ |
 | play-name | L003 | Play should have a name |
 | deprecated-module | L004 | Deprecated module (static list) |
 | only-builtins | L005 | Use only ansible.builtin or ansible.legacy |
@@ -51,8 +51,8 @@ Coverage comparison against the **ansible-lint** codebase (rule `id` from `src/a
 |-------------------|----------|-------------|
 | fqcn | L026 | Non-FQCN module use (deep, model-based) |
 | galaxy | L027 | Role without metadata |
-| name | L028 | Task without name |
-| command-instead-of-shell | L029 | Prefer command over shell |
+| name | L024 | Task without name (OPA) |
+| command-instead-of-shell | L007 | Prefer command over shell (OPA) |
 | only-builtins | L030 | Non-builtin module use |
 | risky-file-permissions | L031 | Insecure file permission |
 | no-tabs | L040 | No tabs in YAML |

@@ -11,7 +11,7 @@ Rule `.md` files describe a single rule and provide examples that can be used bo
 ## Structure
 
 1. **YAML frontmatter** (optional but recommended for test harness)
-   - `rule_id` — Rule identifier (e.g. `L029`, `R102`, `L024`).
+   - `rule_id` — Rule identifier (e.g. `L026`, `R102`, `L024`).
    - `validator` — `native` or `opa`.
    - `description` — One-line description.
 
@@ -34,27 +34,29 @@ Rule `.md` files describe a single rule and provide examples that can be used bo
 
 ```markdown
 ---
-rule_id: L029
+rule_id: L026
 validator: native
-description: Prefer command over shell when no shell features are needed
+description: Tasks should use FQCN for modules.
 ---
 
-## Command instead of shell (L029)
+## Non-FQCN module use (L026)
 
-Prefer `ansible.builtin.command` over `ansible.builtin.shell` when the task does not require shell features (pipes, redirects, etc.).
+Tasks should use fully qualified collection names (FQCN) for modules instead of short names.
 
 ### Example: violation
 
 ```yaml
-- name: Cat /etc/foo.conf
-  ansible.builtin.shell: cat /etc/foo.conf
+- name: Install package
+  yum:
+    name: httpd
 ```
 
 ### Example: pass
 
 ```yaml
-- name: Cat /etc/foo.conf
-  ansible.builtin.command: cat /etc/foo.conf
+- name: Install package
+  ansible.builtin.yum:
+    name: httpd
 ```
 ```
 

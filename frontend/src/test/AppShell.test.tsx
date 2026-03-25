@@ -37,7 +37,7 @@ describe('App Shell', () => {
     const nav = screen.getByTestId('page-navigation');
     expect(nav).toBeInTheDocument();
 
-    for (const group of ['Reporting', 'Operations', 'Settings']) {
+    for (const group of ['Overview', 'Projects', 'Operations', 'System']) {
       const items = screen.getAllByText(group);
       expect(items.length).toBeGreaterThanOrEqual(1);
     }
@@ -46,7 +46,7 @@ describe('App Shell', () => {
   it('renders sidebar navigation items', () => {
     renderApp();
 
-    for (const label of ['Dashboard', 'New Scan', 'Scans', 'Sessions', 'Top Violations', 'Fix Tracker', 'AI Metrics', 'Health']) {
+    for (const label of ['Dashboard', 'Projects', 'Playground', 'Scans', 'Health', 'Settings']) {
       const items = screen.getAllByText(label);
       expect(items.length).toBeGreaterThanOrEqual(1);
     }

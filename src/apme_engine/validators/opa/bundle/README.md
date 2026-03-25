@@ -5,7 +5,8 @@ Rules are split into one file per rule for consistency and easier review.
 ## Layout
 
 - **`_helpers.rego`** — Shared helpers used by several rules (e.g. `short_module_name`, `cmd_shell_modules`, `file_permission_modules`). Do not remove; other rules depend on it.
-- **`L003.rego` … `L025.rego`** — Lint rules. One rule per file. Each adds to the `violations` set. (L001 subsumed by L024; L002 subsumed by M001 in the Ansible validator.)
+- **`L003.rego` … `L025.rego`** — Lint rules (original). One rule per file. Each adds to the `violations` set. (L001 subsumed by L024; L002 subsumed by M001 in the Ansible validator.)
+- **`L061.rego` … `L072.rego`** — Good-practices lint rules. Boolean format, YAML args, block names, end_play, play name Jinja, mixed roles/tasks, debug verbosity, lineinfile, package loops, task name Jinja position, template over copy, backup on copy/template.
 - **`M006.rego`, `M008.rego`, `M009.rego`, `M011.rego`** — Migration rules for ansible-core 2.19/2.20. See `docs/ANSIBLE_CORE_MIGRATION.md`.
 - **`R118.rego`** — Risk rule (inbound transfer, annotation-based).
 - **`*_test.rego`** — Colocated integration tests. One `_test.rego` next to each rule.

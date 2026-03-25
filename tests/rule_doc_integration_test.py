@@ -189,7 +189,7 @@ def test_rule_doc_examples(
 def test_rule_doc_parser_smoke() -> None:
     """Ensure at least one rule doc is discoverable and parseable."""
     docs = discover_rule_docs(_native_rules_dir(), _opa_bundle_dir())
-    # R102 should have frontmatter and examples
-    r102 = [d for _, d in docs if d.get("rule_id") == "L029" or d.get("rule_id") == "R102"]
-    assert len(r102) >= 1, "Expected at least one doc for L029/R102"
-    assert r102[0].get("examples"), "Expected examples in R102/L029 doc"
+    # L026 should have frontmatter and examples
+    l026 = [d for _, d in docs if d.get("rule_id") == "L026"]
+    assert len(l026) >= 1, "Expected at least one doc for L026"
+    assert l026[0].get("examples"), "Expected examples in L026 doc"

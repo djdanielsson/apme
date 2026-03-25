@@ -1,14 +1,494 @@
-"""Read-only query functions for the REST API layer."""
+"""Query functions for the REST API layer."""
 
 from __future__ import annotations
 
+import logging
+import math
+from datetime import datetime, timezone
 from typing import cast
 
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from apme_gateway.db.models import Proposal, Scan, ScanLog, Session, Violation
+from apme_gateway.db.models import Project, Proposal, Scan, ScanLog, Session, Violation
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Project queries (ADR-037)
+# ---------------------------------------------------------------------------
+
+_SEVERITY_WEIGHTS: dict[str, int] = {"error": 10, "warning": 3, "info": 1}
+
+
+def compute_health_score(violations: list[Violation]) -> int:
+    """Compute a 0-100 health score from a set of violations.
+
+    Formula: ``max(0, 100 - sum(weight_per_severity))``.
+
+    Args:
+        violations: Violation rows from a single scan.
+
+    Returns:
+        Integer score clamped to 0-100.
+    """
+    penalty = sum(_SEVERITY_WEIGHTS.get(v.level, 1) for v in violations)
+    return max(0, min(100, 100 - penalty))
+
+
+async def create_project(
+    db: AsyncSession,
+    *,
+    project_id: str,
+    name: str,
+    repo_url: str,
+    branch: str = "main",
+) -> Project:
+    """Insert a new project.
+
+    Args:
+        db: Active async database session.
+        project_id: UUID hex for the project.
+        name: Display label.
+        repo_url: SCM clone URL.
+        branch: Target branch.
+
+    Returns:
+        The newly created Project.
+    """
+    now = datetime.now(tz=timezone.utc).isoformat()
+    project = Project(id=project_id, name=name, repo_url=repo_url, branch=branch, created_at=now)
+    db.add(project)
+    await db.commit()
+    await db.refresh(project)
+    return project
+
+
+async def list_projects(
+    db: AsyncSession,
+    *,
+    sort_by: str = "created_at",
+    order: str = "desc",
+    limit: int = 50,
+    offset: int = 0,
+) -> list[Project]:
+    """Return projects with pagination and sorting.
+
+    Args:
+        db: Active async database session.
+        sort_by: Column name to sort by.
+        order: ``asc`` or ``desc``.
+        limit: Maximum rows.
+        offset: Rows to skip.
+
+    Returns:
+        List of Project objects.
+    """
+    _ALLOWED_SORT = {"created_at", "name", "health_score"}
+    col_name = sort_by if sort_by in _ALLOWED_SORT else "created_at"
+    col = getattr(Project, col_name)
+    order_clause = col.asc() if order == "asc" else col.desc()
+    stmt = select(Project).order_by(order_clause).limit(limit).offset(offset)
+    result = await db.execute(stmt)
+    return list(result.scalars().all())
+
+
+async def get_project(db: AsyncSession, project_id: str) -> Project | None:
+    """Fetch a single project with its scans eagerly loaded.
+
+    Args:
+        db: Active async database session.
+        project_id: UUID of the project.
+
+    Returns:
+        Project with scans or None.
+    """
+    stmt = select(Project).where(Project.id == project_id).options(selectinload(Project.scans))
+    result = await db.execute(stmt)
+    return cast("Project | None", result.scalar_one_or_none())
+
+
+async def update_project(db: AsyncSession, project_id: str, **fields: str) -> Project | None:
+    """Partial-update a project.
+
+    Args:
+        db: Active async database session.
+        project_id: UUID of the project.
+        **fields: Column-value pairs to update.
+
+    Returns:
+        Updated Project or None if not found.
+    """
+    project = await get_project(db, project_id)
+    if project is None:
+        return None
+    for key, value in fields.items():
+        if value is not None and hasattr(project, key):
+            setattr(project, key, value)
+    await db.commit()
+    await db.refresh(project)
+    return project
+
+
+async def delete_project(db: AsyncSession, project_id: str) -> bool:
+    """Delete a project and cascade to its scans.
+
+    Args:
+        db: Active async database session.
+        project_id: UUID of the project.
+
+    Returns:
+        True if the project existed and was deleted.
+    """
+    project = await get_project(db, project_id)
+    if project is None:
+        return False
+    await db.delete(project)
+    await db.commit()
+    return True
+
+
+async def project_count(db: AsyncSession) -> int:
+    """Return total number of projects.
+
+    Args:
+        db: Active async database session.
+
+    Returns:
+        Row count.
+    """
+    result = await db.execute(select(func.count()).select_from(Project))
+    return int(result.scalar_one())
+
+
+async def project_scans(
+    db: AsyncSession,
+    project_id: str,
+    *,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[Scan]:
+    """Return scans for a project ordered by creation time.
+
+    Args:
+        db: Active async database session.
+        project_id: UUID of the project.
+        limit: Maximum rows.
+        offset: Rows to skip.
+
+    Returns:
+        List of Scan objects.
+    """
+    stmt = (
+        select(Scan).where(Scan.project_id == project_id).order_by(Scan.created_at.desc()).limit(limit).offset(offset)
+    )
+    result = await db.execute(stmt)
+    return list(result.scalars().all())
+
+
+async def project_scan_count(db: AsyncSession, project_id: str) -> int:
+    """Return total scans for a project.
+
+    Args:
+        db: Active async database session.
+        project_id: UUID of the project.
+
+    Returns:
+        Row count.
+    """
+    stmt = select(func.count()).select_from(Scan).where(Scan.project_id == project_id)
+    result = await db.execute(stmt)
+    return int(result.scalar_one())
+
+
+async def project_violations(
+    db: AsyncSession,
+    project_id: str,
+    *,
+    severity: str | None = None,
+    rule_id: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[Violation]:
+    """Return violations for a project's latest scan, with optional filters.
+
+    Args:
+        db: Active async database session.
+        project_id: UUID of the project.
+        severity: Optional severity filter (error, warning, info).
+        rule_id: Optional rule_id filter.
+        limit: Maximum rows.
+        offset: Rows to skip.
+
+    Returns:
+        List of Violation objects.
+    """
+    latest_scan_stmt = (
+        select(Scan.scan_id)
+        .where(Scan.project_id == project_id, Scan.scan_type == "scan")
+        .order_by(Scan.created_at.desc())
+        .limit(1)
+    )
+    latest_result = await db.execute(latest_scan_stmt)
+    latest_scan_id = latest_result.scalar_one_or_none()
+    if latest_scan_id is None:
+        return []
+
+    stmt = select(Violation).where(Violation.scan_id == latest_scan_id)
+    if severity is not None:
+        stmt = stmt.where(Violation.level == severity)
+    if rule_id is not None:
+        stmt = stmt.where(Violation.rule_id == rule_id)
+    stmt = stmt.order_by(Violation.id).limit(limit).offset(offset)
+    result = await db.execute(stmt)
+    return list(result.scalars().all())
+
+
+async def project_trend(
+    db: AsyncSession,
+    project_id: str,
+    *,
+    limit: int = 20,
+) -> list[Scan]:
+    """Return scans for a project ordered chronologically (trend chart).
+
+    Args:
+        db: Active async database session.
+        project_id: UUID of the project.
+        limit: Maximum data points.
+
+    Returns:
+        List of Scan objects ordered by created_at ascending.
+    """
+    stmt = select(Scan).where(Scan.project_id == project_id).order_by(Scan.created_at.asc()).limit(limit)
+    result = await db.execute(stmt)
+    return list(result.scalars().all())
+
+
+async def project_top_violations(
+    db: AsyncSession,
+    project_id: str,
+    *,
+    limit: int = 10,
+) -> list[tuple[str, int]]:
+    """Return the most frequent rule violations for a project's latest scan.
+
+    Args:
+        db: Active async database session.
+        project_id: UUID of the project.
+        limit: Maximum rules.
+
+    Returns:
+        List of (rule_id, count) tuples.
+    """
+    latest_scan_stmt = (
+        select(Scan.scan_id)
+        .where(Scan.project_id == project_id, Scan.scan_type == "scan")
+        .order_by(Scan.created_at.desc())
+        .limit(1)
+    )
+    latest_result = await db.execute(latest_scan_stmt)
+    latest_scan_id = latest_result.scalar_one_or_none()
+    if latest_scan_id is None:
+        return []
+
+    stmt = (
+        select(Violation.rule_id, func.count().label("cnt"))
+        .where(Violation.scan_id == latest_scan_id)
+        .group_by(Violation.rule_id)
+        .order_by(func.count().desc())
+        .limit(limit)
+    )
+    result = await db.execute(stmt)
+    return [(row[0], row[1]) for row in result.all()]
+
+
+async def link_scan_to_project(
+    db: AsyncSession,
+    scan_id: str,
+    project_id: str,
+    trigger: str = "ui",
+) -> bool:
+    """Associate a scan record with a project after completion.
+
+    Called by the project WebSocket handler once the gRPC reporting servicer
+    has persisted the scan row (which defaults to ``project_id=None``).
+
+    Args:
+        db: Active async database session.
+        scan_id: UUID of the scan to update.
+        project_id: UUID of the owning project.
+        trigger: Origin of the scan (``ui`` or ``playground``).
+
+    Returns:
+        True if the scan row was found and updated, False otherwise.
+    """
+    stmt = select(Scan).where(Scan.scan_id == scan_id)
+    result = await db.execute(stmt)
+    scan = result.scalar_one_or_none()
+    if scan is None:
+        logger.warning(
+            "link_scan_to_project: scan row %s not found for project %s",
+            scan_id,
+            project_id,
+        )
+        return False
+    scan.project_id = project_id
+    scan.trigger = trigger
+    await db.commit()
+    return True
+
+
+async def update_project_health(db: AsyncSession, project_id: str) -> int:
+    """Recompute and persist health score from the latest scan.
+
+    Args:
+        db: Active async database session.
+        project_id: UUID of the project.
+
+    Returns:
+        The updated health score.
+    """
+    latest_scan_stmt = (
+        select(Scan)
+        .where(Scan.project_id == project_id, Scan.scan_type == "scan")
+        .order_by(Scan.created_at.desc())
+        .options(selectinload(Scan.violations))
+        .limit(1)
+    )
+    result = await db.execute(latest_scan_stmt)
+    latest = result.scalar_one_or_none()
+    score = compute_health_score(latest.violations) if latest else 100
+
+    await db.execute(Project.__table__.update().where(Project.id == project_id).values(health_score=score))
+    await db.commit()
+    return score
+
+
+async def dashboard_summary(db: AsyncSession) -> dict[str, object]:
+    """Aggregate statistics across all projects (ADR-037).
+
+    Args:
+        db: Active async database session.
+
+    Returns:
+        Dict with total_projects, total_scans, total_violations,
+        current_violations, total_fixed, avg_health_score.
+    """
+    total_projects = await project_count(db)
+    total_scans_result = await db.execute(select(func.count()).select_from(Scan).where(Scan.project_id.is_not(None)))
+    total_scans = cast(int, total_scans_result.scalar_one())
+
+    violation_result = await db.execute(
+        select(func.coalesce(func.sum(Scan.total_violations), 0)).where(Scan.project_id.is_not(None))
+    )
+    total_violations = cast(int, violation_result.scalar_one())
+
+    latest_scan = (
+        select(
+            Scan.project_id,
+            func.max(Scan.created_at).label("max_created"),
+        )
+        .where(Scan.project_id.is_not(None))
+        .group_by(Scan.project_id)
+        .subquery()
+    )
+    current_viol_result = await db.execute(
+        select(func.coalesce(func.sum(Scan.total_violations), 0)).join(
+            latest_scan,
+            (Scan.project_id == latest_scan.c.project_id) & (Scan.created_at == latest_scan.c.max_created),
+        )
+    )
+    current_violations = cast(int, current_viol_result.scalar_one())
+
+    fixed_result = await db.execute(
+        select(func.coalesce(func.sum(Scan.fixed_count), 0)).where(
+            Scan.project_id.is_not(None), Scan.scan_type == "fix"
+        )
+    )
+    total_fixed = cast(int, fixed_result.scalar_one())
+
+    avg_result = await db.execute(select(func.avg(Project.health_score)))
+    avg_raw = avg_result.scalar_one()
+    avg_health = round(float(avg_raw)) if avg_raw is not None else 0
+
+    return {
+        "total_projects": total_projects,
+        "total_scans": total_scans,
+        "total_violations": total_violations,
+        "current_violations": current_violations,
+        "total_fixed": total_fixed,
+        "avg_health_score": avg_health,
+    }
+
+
+async def project_rankings(
+    db: AsyncSession,
+    *,
+    sort_by: str = "health_score",
+    order: str = "desc",
+    limit: int = 10,
+) -> list[dict[str, object]]:
+    """Return projects ranked by the specified metric (ADR-037).
+
+    Args:
+        db: Active async database session.
+        sort_by: Ranking metric — health_score, violation_count, scan_count,
+            or last_scanned_at.
+        order: ``asc`` or ``desc``.
+        limit: Maximum rows.
+
+    Returns:
+        List of ranking dicts with id, name, health_score, total_violations,
+        scan_count, last_scanned_at, days_since_last_scan.
+    """
+    projects = await list_projects(db, sort_by="created_at", order="asc", limit=500, offset=0)
+
+    rankings: list[dict[str, object]] = []
+    now = datetime.now(tz=timezone.utc)
+    for proj in projects:
+        scans = await project_scans(db, proj.id, limit=1, offset=0)
+        sc = await project_scan_count(db, proj.id)
+        latest = scans[0] if scans else None
+        last_scanned = latest.created_at if latest else None
+        days_since: int | None = None
+        if last_scanned:
+            try:
+                scanned_dt = datetime.fromisoformat(last_scanned)
+                days_since = (now - scanned_dt).days
+            except ValueError:
+                days_since = None
+
+        rankings.append(
+            {
+                "id": proj.id,
+                "name": proj.name,
+                "health_score": proj.health_score,
+                "total_violations": latest.total_violations if latest else 0,
+                "scan_count": sc,
+                "last_scanned_at": last_scanned,
+                "days_since_last_scan": days_since,
+            }
+        )
+
+    sort_key_map: dict[str, str] = {
+        "health_score": "health_score",
+        "violation_count": "total_violations",
+        "scan_count": "scan_count",
+        "last_scanned_at": "days_since_last_scan",
+    }
+    key_field = sort_key_map.get(sort_by, "health_score")
+    reverse = order == "desc"
+
+    def _sort_key(r: dict[str, object]) -> object:
+        val = r.get(key_field)
+        if val is None:
+            return math.inf if not reverse else -math.inf
+        return val
+
+    rankings.sort(key=_sort_key, reverse=reverse)  # type: ignore[arg-type]
+    return rankings[:limit]
 
 
 async def list_sessions(db: AsyncSession, *, limit: int = 50, offset: int = 0) -> list[Session]:
@@ -139,7 +619,7 @@ async def session_count(db: AsyncSession) -> int:
         Row count.
     """
     result = await db.execute(select(func.count()).select_from(Session))
-    return cast(int, result.scalar_one())
+    return int(result.scalar_one())
 
 
 async def scan_count(db: AsyncSession, *, session_id: str | None = None) -> int:
@@ -156,7 +636,7 @@ async def scan_count(db: AsyncSession, *, session_id: str | None = None) -> int:
     if session_id is not None:
         stmt = stmt.where(Scan.session_id == session_id)
     result = await db.execute(stmt)
-    return cast(int, result.scalar_one())
+    return int(result.scalar_one())
 
 
 async def get_scan_logs(db: AsyncSession, scan_id: str) -> list[ScanLog]:

@@ -285,7 +285,7 @@ class TestPartition:
         reg = TransformRegistry()
         violations: list[ViolationDict] = [
             {"rule_id": "L026", "scope": RuleScope.TASK},
-            {"rule_id": "L028", "scope": "task"},
+            {"rule_id": "L026", "scope": "task"},
         ]
         t1, t2, t3 = partition_violations(violations, reg)
         assert len(t2) == 2
@@ -1833,3 +1833,70 @@ class TestFindTaskByIndex:
         task = find_task_by_index(sf.data, 0)
         assert task is not None
         assert task["name"] == "Restart service"
+
+
+class TestRemediationProgress:
+    """Tests for RemediationEngine progress_callback reporting."""
+
+    def test_progress_callback_called_during_remediation(self, tmp_path: Path) -> None:
+        """Callback receives pass and convergence messages.
+
+        Args:
+            tmp_path: Pytest temporary directory fixture.
+        """
+        playbook = tmp_path / "play.yml"
+        playbook.write_text(
+            textwrap.dedent("""\
+        - name: Copy file
+          ansible.builtin.copy:
+            src: /a
+            dest: /b
+        """)
+        )
+
+        def scan_fn(paths: list[str]) -> list[ViolationDict]:
+            content = playbook.read_text()
+            if "mode:" not in content:
+                return [{"rule_id": "L021", "file": str(playbook), "line": 1}]
+            return []
+
+        progress_messages: list[tuple[str, str, float]] = []
+
+        def on_progress(phase: str, message: str, fraction: float = 0.0) -> None:
+            progress_messages.append((phase, message, fraction))
+
+        reg = TransformRegistry()
+        reg.register("L021", structured=fix_missing_mode)
+        engine = RemediationEngine(
+            reg,
+            scan_fn,
+            max_passes=5,
+            progress_callback=on_progress,
+        )
+
+        report = engine.remediate([str(playbook)], apply=True)
+        assert report.fixed >= 1
+
+        phases = [p for p, _, _ in progress_messages]
+        assert "tier1" in phases, f"Expected tier1 phase in: {progress_messages}"
+
+        messages = [m for _, m, _ in progress_messages]
+        assert any("Pass 1" in m for m in messages), f"Expected pass 1 message in: {messages}"
+        assert any("transform" in m.lower() for m in messages), f"Expected transform message in: {messages}"
+
+    def test_progress_callback_none_is_safe(self, tmp_path: Path) -> None:
+        """Engine works fine without a progress callback.
+
+        Args:
+            tmp_path: Pytest temporary directory fixture.
+        """
+        playbook = tmp_path / "play.yml"
+        playbook.write_text("- name: test\n  debug:\n    msg: hi\n")
+
+        def scan_fn(paths: list[str]) -> list[ViolationDict]:
+            return []
+
+        reg = TransformRegistry()
+        engine = RemediationEngine(reg, scan_fn, progress_callback=None)
+        report = engine.remediate([str(playbook)])
+        assert report.passes == 1

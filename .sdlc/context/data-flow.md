@@ -261,7 +261,7 @@ Every violation, regardless of source validator, has the same structure:
 
 | Field | Type | Example |
 |-------|------|---------|
-| `rule_id` | string | `"L024"`, `"native:L029"`, `"M002"` |
+| `rule_id` | string | `"L024"`, `"native:L026"`, `"M002"` |
 | `level` | string | `"error"`, `"warning"`, `"info"` |
 | `message` | string | human-readable description |
 | `file` | string | relative path to file |

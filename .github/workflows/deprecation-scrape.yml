@@ -1,0 +1,84 @@
+---
+name: deprecation-scrape
+
+on:
+  schedule:
+    # 1st of every month at 08:00 UTC
+    - cron: "0 8 1 * *"
+  workflow_dispatch:
+    inputs:
+      min_version:
+        description: "Minimum ansible-core version to include (e.g. 2.21)"
+        required: false
+        default: "2.21"
+      audience:
+        description: "Audience filter (content, developer, all)"
+        required: false
+        default: "content"
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+env:
+  FORCE_COLOR: 1
+  PY_COLORS: 1
+
+jobs:
+  scrape-and-report:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: write
+      issues: write
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+
+      - uses: astral-sh/setup-uv@e06108dd0aef18192324c70427afc47652e63a82 # v7
+
+      - run: uv sync --extra dev
+
+      - name: Scrape deprecations and build gap report
+        id: scrape
+        run: |
+          uv run python scripts/scrape_ansible_deprecations.py \
+            --audience ${{ inputs.audience || 'content' }} \
+            --min-version ${{ inputs.min_version || '2.21' }} \
+            --output-json /tmp/gaps.json \
+            --output-md /tmp/gaps.md \
+            > /dev/null
+
+          GAP_COUNT=$(python3 -c "import json; print(json.load(open('/tmp/gaps.json'))['gap_count'])")
+          echo "gap_count=$GAP_COUNT" >> "$GITHUB_OUTPUT"
+
+          ANSIBLE_VERSION=$(python3 -c "import json; print(json.load(open('/tmp/gaps.json'))['ansible_core_version'])")
+          echo "ansible_version=$ANSIBLE_VERSION" >> "$GITHUB_OUTPUT"
+
+          COMMIT=$(python3 -c "import json; print(json.load(open('/tmp/gaps.json'))['commit'][:12])")
+          echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
+
+      - name: Create issue for new deprecation gaps
+        if: steps.scrape.outputs.gap_count != '0'
+        uses: peter-evans/create-issue-from-file@e8ef132d6df98ed982188e460ebb3b5e4f9729a0 # v5.0.1
+        with:
+          title: "feat(rules): ${{ steps.scrape.outputs.gap_count }} new ansible-core deprecation(s) need rules (core ${{ steps.scrape.outputs.ansible_version }})"
+          content-filepath: /tmp/gaps.md
+          labels: |
+            automation
+            rules
+            modernization
+
+      - name: No gaps found
+        if: steps.scrape.outputs.gap_count == '0'
+        run: echo "All scraped deprecations are covered by existing rules."
+
+      - name: Upload gap report artifact
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: deprecation-gap-report
+          path: /tmp/gaps.json
+          retention-days: 30

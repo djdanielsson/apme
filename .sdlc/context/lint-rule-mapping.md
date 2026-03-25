@@ -60,8 +60,8 @@ L001 was removed — its scope was limited to shell tasks without names, which i
 |------------------------|--------|------|-------------|
 | R301 | L026 | `L026_non_fqcn_use.py` | Non-FQCN module use |
 | R302 | L027 | `L027_role_without_metadata.py` | Role without metadata |
-| R303 | L028 | `L028_task_without_name.py` | Task without name |
-| R102 | L029 | `L029_command_instead_of_shell.py` | Prefer command over shell |
+| R303 | L028 | **Removed** — duplicate of L024 (OPA) | Task without name |
+| R102 | L029 | **Removed** — duplicate of L007 (OPA) | Prefer command over shell |
 | R110 | L030 | `L030_non_builtin_use.py` | Non-builtin module use |
 | R116 | L031 | `L031_insecure_file_permission.py` | Insecure file permission |
 | R201 | L032 | `L032_changed_data_dependence.py` | Changed data dependence |
@@ -151,6 +151,78 @@ These rules detect patterns that break or behave differently under ansible-core 
 
 ---
 
+## Good-Practices OPA Rules — L061-L072
+
+These rules enforce recommendations from the automation-good-practices documentation.
+
+| Rule ID | File | Description |
+|---------|------|-------------|
+| L061 | `L061.rego` | Use true/false for booleans, not yes/no/True/False |
+| L062 | `L062.rego` | Use YAML-style module arguments, not key=value one-liners |
+| L063 | `L063.rego` | Block should have a name |
+| L064 | `L064.rego` | Avoid meta: end_play; prefer meta: end_host |
+| L065 | `L065.rego` | Play names should not contain Jinja expressions |
+| L066 | `L066.rego` | Do not mix roles: and tasks: in the same play |
+| L067 | `L067.rego` | Set verbosity on debug tasks |
+| L068 | `L068.rego` | Avoid lineinfile; prefer template/ini_file/blockinfile |
+| L069 | `L069.rego` | Batch package names in a list instead of looping with item |
+| L070 | `L070.rego` | Jinja in task names should only appear at the end |
+| L071 | `L071.rego` | Consider using template instead of copy with Jinja content |
+| L072 | `L072.rego` | Consider setting backup: true on template/copy tasks |
+
+---
+
+## Good-Practices Native Rules — L073-L094
+
+These rules enforce recommendations from the automation-good-practices documentation.
+
+| Rule ID | File | Description |
+|---------|------|-------------|
+| L073 | `L073_indentation.py` | YAML should use 2-space indentation |
+| L074 | `L074_no_dashes_in_role_name.py` | Role names should not contain dashes |
+| L075 | `L075_ansible_managed.py` | Templates should include ansible_managed comment |
+| L076 | `L076_ansible_facts_bracket.py` | Use ansible_facts bracket notation instead of injected fact variables |
+| L077 | `L077_role_arg_specs.py` | Roles should have meta/argument_specs.yml |
+| L078 | `L078_dot_notation.py` | Use bracket notation for dict key access in Jinja |
+| L079 | `L079_role_var_prefix.py` | Role defaults/vars should be prefixed with the role name |
+| L080 | `L080_internal_var_prefix.py` | Internal role variables should be prefixed with __ |
+| L081 | `L081_numbered_names.py` | Do not number roles or playbooks |
+| L082 | `L082_template_j2_ext.py` | Template source files should use .j2 extension |
+| L083 | `L083_hardcoded_group.py` | Do not hardcode host group names in roles |
+| L084 | `L084_subtask_prefix.py` | Task names in included sub-task files should use a prefix |
+| L085 | `L085_role_path_include.py` | Use explicit role_path prefix in include paths within roles |
+| L086 | `L086_play_vars_usage.py` | Avoid playbook/play vars for routine config |
+| L087 | `L087_collection_license.py` | Collection root should have a LICENSE or COPYING file |
+| L088 | `L088_collection_readme.py` | Collection README should document supported ansible-core versions |
+| L089 | `L089_plugin_type_hints.py` | Plugin Python files should include type hints |
+| L090 | `L090_plugin_file_size.py` | Plugin entry files should be small |
+| L091 | `L091_bool_filter.py` | Use \| bool for bare variables in when conditions |
+| L092 | `L092_loop_var_in_name.py` | Avoid loop variable references in task names |
+| L093 | `L093_set_fact_override.py` | Do not override role defaults/vars with set_fact |
+| L094 | `L094_dynamic_template_date.py` | Do not put dynamic dates in templates |
+
+---
+
+## ansible-lint Gap Native Rules — L095-L105
+
+These rules close coverage gaps identified by cross-referencing with ansible-lint.
+
+| Rule ID | File | Description |
+|---------|------|-------------|
+| L095 | `L095_schema_validation.py` | Basic structural schema validation for playbooks and galaxy.yml |
+| L096 | `L096_meta_runtime.py` | meta/runtime.yml requires_ansible must be a valid version specifier |
+| L097 | `L097_name_unique.py` | Task names should be unique within a play |
+| L098 | `L098_yaml_key_duplicates.py` | YAML files should not have duplicate mapping keys |
+| L099 | `L099_yaml_quoted_strings.py` | Prefer double quotes for YAML string values |
+| L100 | `L100_var_naming_keyword.py` | Variable names must not be Python or Ansible keywords |
+| L101 | `L101_var_naming_reserved.py` | Variable names must not collide with Ansible reserved names |
+| L102 | `L102_var_naming_read_only.py` | Do not set read-only Ansible variables |
+| L103 | `L103_galaxy_changelog.py` | Collection should have a CHANGELOG file |
+| L104 | `L104_galaxy_runtime.py` | Collection should have meta/runtime.yml |
+| L105 | `L105_galaxy_repository.py` | galaxy.yml should have a repository key |
+
+---
+
 ## Other Rule Namespaces (Unchanged)
 
 | Namespace | Description |
@@ -163,7 +235,7 @@ These rules detect patterns that break or behave differently under ansible-core 
 
 ## Usage
 
-- In output, violations use their rule ID directly: `L002`-`L059`, `M001`-`M004`, `R###`.
+- In output, violations use their rule ID directly: `L002`-`L105`, `M001`-`M004`, `R###`.
 - Native (Python) lint violations include the `native:` prefix (e.g. `native:L026`) for backward compatibility.
 - To map an old ID to the current one, use the tables above.
 - Filtering by rule (e.g. `--rule L057`) uses the rule ID.

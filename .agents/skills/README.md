@@ -11,6 +11,7 @@ Agent skills for development workflow and spec-driven development.
 | `submit-pr` | Prepare and submit a pull request | — |
 | `pr-review` | Handle PR review feedback | — |
 | `review-contributor-pr` | Review and prepare a contributor's PR (upstream/fork) | — |
+| `branch-align` | Rename branch to match artifact ID after renumbering | `[new-branch-name]` |
 
 ### Spec-Driven Development (SDLC)
 
@@ -19,6 +20,7 @@ Agent skills for development workflow and spec-driven development.
 | `sdlc-status` | Show project status and blockers | `[phase or req]` |
 | `workflow` | Get workflow guidance | `[next\|blockers\|start\|resume\|decision\|import]` |
 | `prd-import` | Import PRD, create artifacts | `[path or URL]` |
+| `rfe-capture` | Capture external RFE with research-first approach | `[Jira key or description]` |
 | `phase-new` | Create delivery phase | `[Phase Name]` |
 | `req-new` | Create requirement spec | `[Feature] [--phase X]` |
 | `task-new` | Create implementation tasks | `[REQ-NNN] [Task Name]` |
@@ -38,6 +40,10 @@ skills/
 ├── pr-review/
 │   └── SKILL.md
 ├── review-contributor-pr/
+│   └── SKILL.md
+├── branch-align/
+│   └── SKILL.md
+├── rfe-capture/
 │   └── SKILL.md
 ├── sdlc-status/
 │   ├── SKILL.md

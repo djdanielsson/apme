@@ -42,6 +42,7 @@ This directory contains the Architecture Decision Records (ADRs) for APME.
 | [ADR-034](ADR-034-multi-pod-health-registration.md) | Multi-Pod Health Registration | Proposed | 2026-03 |
 | [ADR-035](ADR-035-secret-externalization.md) | Secret Externalization for Ansible Content | Proposed (impl. superseded by ADR-036) | 2026-03 |
 | [ADR-036](ADR-036-two-pass-remediation-engine.md) | Two-Pass Remediation Engine with Project-Level Transforms | Proposed | 2026-03 |
+| [ADR-037](ADR-037-project-centric-ui-model.md) | Project-Centric UI Model with Session Abstraction | Proposed | 2026-03 |
 
 ## Categories
 
@@ -87,6 +88,7 @@ This directory contains the Architecture Decision Records (ADRs) for APME.
 ### Dashboard & Presentation
 - ADR-029: Web gateway architecture (proposed)
 - ADR-030: Frontend deployment model (proposed)
+- ADR-037: Project-centric UI model with session abstraction (proposed)
 
 ### Tooling & CI
 - ADR-014: Ruff linter and prek pre-commit hooks
@@ -111,7 +113,7 @@ Original planning ADRs that were superseded by implementation decisions:
 ## Creating New ADRs
 
 1. Copy the template from `../.sdlc/templates/adr.md`
-2. Use the next available number (currently ADR-037)
+2. Use the next available number (currently ADR-038)
 3. Include:
    - Status (Proposed → Accepted)
    - Date
@@ -163,3 +165,4 @@ Original planning ADRs that were superseded by implementation decisions:
 | 034 | 2026-03 | Multi-pod health registration (proposed) |
 | 035 | 2026-03 | Secret externalization for Ansible content (proposed, impl. superseded by ADR-036) |
 | 036 | 2026-03 | Two-pass remediation engine with project-level transforms (proposed) |
+| 037 | 2026-03 | Project-centric UI model with session abstraction (proposed) |

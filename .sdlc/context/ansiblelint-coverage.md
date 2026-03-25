@@ -57,8 +57,8 @@ Coverage comparison against the ansible-lint codebase (rule id from `src/ansible
 |-------------------|----------|-------------|
 | fqcn | L026 | Non-FQCN module use (deep, model-based) |
 | galaxy | L027 | Role without metadata |
-| name | L028 | Task without name |
-| command-instead-of-shell | L029 | Prefer command over shell |
+| name | L024 | Task without name (OPA) |
+| command-instead-of-shell | L007 | Prefer command over shell (OPA) |
 | only-builtins | L030 | Non-builtin module use |
 | risky-file-permissions | L031 | Insecure file permission |
 | no-tabs | L040 | No tabs in YAML |

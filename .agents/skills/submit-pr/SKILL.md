@@ -109,7 +109,32 @@ Examples:
 - `build: add ruff linter and prek pre-commit hooks`
 - `docs: add prek section to DEVELOPMENT.md`
 
-### Step 6: Push and create the pull request
+### Step 6: Check branch/artifact alignment
+
+Before pushing, verify the branch name matches the artifact IDs being committed:
+
+```
+Checking branch/artifact alignment...
+- Branch: docs/req-005-aa-deprecated-reporting
+- SDLC artifacts in diff: REQ-011, DR-013
+```
+
+**If mismatch detected:**
+```
+⚠️  Branch name contains 'req-005' but artifacts use REQ-011
+
+Options:
+1. Rename branch to match artifacts (recommended)
+2. Continue with mismatched names (not recommended)
+
+Choice (1/2):
+```
+
+If option 1 selected, use `/branch-align` to rename before pushing.
+
+**Why this matters:** Reviewers and future contributors use branch names to find related work. A branch named `req-005` that contains `REQ-011` creates confusion.
+
+### Step 7: Push and create the pull request
 
 ```bash
 git push -u origin HEAD

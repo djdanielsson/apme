@@ -23,7 +23,6 @@ from apme_engine.remediation.ai_provider import (
     AIProvider,
     AISkipped,
     apply_patches,
-    generate_patch_hunks,
 )
 from apme_engine.remediation.enrich import enrich_violations
 from apme_engine.remediation.partition import (
@@ -87,6 +86,13 @@ class FixReport:
 
 ScanFn = Callable[[list[str]], list[ViolationDict]]
 
+ProgressCallback = Callable[[str, str, float], None]
+"""``(phase, message, fraction)`` — thread-safe progress reporter.
+
+*phase* groups messages (``"tier1"``, ``"scan"``, ``"ai"``).
+*fraction* is 0.0–1.0 (optional, 0.0 when unknown).
+"""
+
 
 class RemediationEngine:
     """Scan -> transform -> re-scan convergence loop.
@@ -107,6 +113,7 @@ class RemediationEngine:
         verbose: bool = False,
         node_index: NodeIndex | None = None,
         ai_provider: AIProvider | None = None,
+        progress_callback: ProgressCallback | None = None,
     ) -> None:
         """Initialize the remediation engine.
 
@@ -118,6 +125,7 @@ class RemediationEngine:
             verbose: Deprecated — logging is controlled by log level (ADR-033).
             node_index: Optional hierarchy node index for enrichment.
             ai_provider: Optional AI provider for Tier 2 escalation.
+            progress_callback: Optional callback for streaming progress to callers.
         """
         self._registry = registry
         self._scan_fn = scan_fn
@@ -125,6 +133,21 @@ class RemediationEngine:
         self._max_ai_attempts = max_ai_attempts
         self._node_index = node_index
         self._ai_provider = ai_provider
+        self._progress_cb = progress_callback
+
+    def _progress(self, phase: str, message: str, fraction: float = 0.0) -> None:
+        """Report progress if a callback is registered.
+
+        Args:
+            phase: Progress phase (``"tier1"``, ``"scan"``, ``"ai"``).
+            message: Human-readable status message.
+            fraction: Optional 0.0–1.0 completion fraction.
+        """
+        if self._progress_cb is not None:
+            try:
+                self._progress_cb(phase, message, fraction)
+            except Exception:
+                logger.warning("Progress callback raised; ignoring error", exc_info=True)
 
     def set_node_index(self, node_index: NodeIndex) -> None:
         """Set or replace the hierarchy node index.
@@ -238,6 +261,7 @@ class RemediationEngine:
 
         for pass_num in range(1, self._max_passes + 1):
             passes = pass_num
+            self._progress("tier1", f"Pass {pass_num}/{self._max_passes}: scanning...")
 
             if initial_violations is not None and pass_num == 1:
                 violations = initial_violations
@@ -248,9 +272,11 @@ class RemediationEngine:
                 self._enrich(violations)
             tier1, _, _ = partition_violations(violations, self._registry)
 
+            self._progress("tier1", f"Pass {pass_num}: {len(tier1)} fixable violations")
             logger.debug("Remediation: pass %d — %d fixable (Tier 1)", pass_num, len(tier1))
 
             if not tier1:
+                self._progress("tier1", f"Converged at pass {pass_num} (0 fixable)")
                 logger.info("Remediation: converged at pass %d (0 fixable)", pass_num)
                 break
 
@@ -290,12 +316,14 @@ class RemediationEngine:
                     file_contents[fp] = sf.serialize()
                     sf.reset_dirty()
 
+            self._progress("tier1", f"Pass {pass_num}: {applied_this_pass} transforms applied")
             logger.debug("Remediation: pass %d applied %d transforms", pass_num, applied_this_pass)
 
             if applied_this_pass == 0:
                 logger.debug("Remediation: pass %d transforms produced no changes, bail", pass_num)
                 break
 
+            self._progress("tier1", f"Pass {pass_num}: re-scanning...")
             self._write_files(file_contents)
             new_violations = self._scan_fn(file_paths)
             self._enrich(new_violations)
@@ -313,8 +341,11 @@ class RemediationEngine:
             prev_count = new_fixable
 
             if new_fixable == 0:
+                self._progress("tier1", f"Fully converged at pass {pass_num} (0 fixable)")
                 logger.info("Remediation: fully converged at pass %d (0 fixable)", pass_num)
                 break
+
+            self._progress("tier1", f"Pass {pass_num}: {new_fixable} remaining, continuing...")
 
             # Re-parse structured files from the serialized content
             # so line numbers match the on-disk state for the next pass
@@ -323,7 +354,7 @@ class RemediationEngine:
                 if sf is not None:
                     structured[fp] = sf
 
-        # Final partition of remaining violations
+        self._progress("tier1", "Final scan...")
         self._write_files(file_contents)
         final_violations = self._scan_fn(file_paths)
         self._enrich(final_violations)
@@ -361,6 +392,7 @@ class RemediationEngine:
         # Tier 2 AI escalation (only if provider is set and violations exist)
         ai_proposals: list[AIProposal] = []
         if self._ai_provider is not None and tier2:
+            self._progress("ai", f"AI escalation: {len(tier2)} Tier 2 candidate(s)")
             logger.info("Remediation: AI escalation — %d Tier 2 candidate(s)", len(tier2))
             ai_proposals = self._escalate_tier2(tier2, file_contents, _resolve_file)
 
@@ -432,22 +464,23 @@ class RemediationEngine:
             by_file[vf].append(v)
 
         results: list[AIProposal] = []
+        file_keys = sorted(by_file)
+        total_files = len(file_keys)
 
-        for file_path in sorted(by_file):
+        for file_idx, file_path in enumerate(file_keys, 1):
             file_violations = by_file[file_path]
             content = file_contents.get(file_path, "")
             if not content:
                 continue
 
-            logger.debug("AI file: %s (%d violations)", Path(file_path).name, len(file_violations))
+            fname = Path(file_path).name
+            self._progress("ai", f"AI: {fname} ({len(file_violations)} violations) [{file_idx}/{total_files}]")
+            logger.debug("AI file: %s (%d violations)", fname, len(file_violations))
 
-            if self._node_index is not None and hasattr(self._ai_provider, "propose_unit_fixes"):
-                proposal = await self._escalate_by_units(file_path, file_violations, content)
-            else:
-                proposal = await self._try_batch_proposal(file_path, file_violations, content)
+            unit_proposals = await self._escalate_by_units(file_path, file_violations, content)
 
-            if proposal is not None:
-                results.append(proposal)
+            self._progress("ai", f"AI: {fname} complete ({len(unit_proposals)} proposals) [{file_idx}/{total_files}]")
+            results.extend(unit_proposals)
 
         return results
 
@@ -456,8 +489,10 @@ class RemediationEngine:
         file_path: str,
         violations: list[ViolationDict],
         file_content: str,
-    ) -> AIProposal | None:
-        """Segment a file into units, call LLM per unit, reassemble.
+    ) -> list[AIProposal]:
+        """Segment a file into units, call LLM per unit, return one proposal per unit.
+
+        Each unit fix becomes its own independently approvable proposal.
 
         Args:
             file_path: Absolute file path.
@@ -465,28 +500,37 @@ class RemediationEngine:
             file_content: Current file content.
 
         Returns:
-            AIProposal combining all unit-level patches, or None.
+            List of AIProposal, one per unit that received a fix.
         """
         if self._ai_provider is None or self._node_index is None:
-            return None
+            return []
 
         units = extract_units(file_path, file_content, self._node_index)
         if not units:
-            logger.debug("No units found, falling back to full-file")
-            return await self._try_batch_proposal(file_path, violations, file_content)
+            logger.debug("No fixable units found in %s, skipping AI", Path(file_path).name)
+            return []
 
         orphans = assign_violations_to_units(units, violations)
         units_with_violations = [u for u in units if u.violations]
 
-        logger.debug("%d unit(s) with violations, %d orphan(s)", len(units_with_violations), len(orphans))
+        total_units = len(units_with_violations)
+        if orphans:
+            logger.debug("%d orphan violation(s) not mapped to units — marked manual", len(orphans))
+            for v in orphans:
+                v["remediation_resolution"] = RemediationResolution.MANUAL
+        self._progress("ai", f"AI: {Path(file_path).name} — {total_units} unit(s)")
 
-        # Limit concurrency to avoid overwhelming the LLM backend
+        if not units_with_violations:
+            return []
+
         max_concurrent = 8
         semaphore = asyncio.Semaphore(max_concurrent)
+        units_done = 0
 
         async def _process_unit(
             unit: FixableUnit,
         ) -> tuple[list[AIPatch], list[AISkipped]]:
+            nonlocal units_done
             async with semaphore:
                 patches, skipped = await self._ai_provider.propose_unit_fixes(  # type: ignore[union-attr]
                     unit.violations,
@@ -496,16 +540,20 @@ class RemediationEngine:
                     unit.line_end,
                 )
                 valid = [p for p in patches if p.confidence >= 0.01] if patches else []
+                units_done += 1
+                self._progress(
+                    "ai",
+                    f"AI: {Path(file_path).name} unit {units_done}/{total_units}",
+                    units_done / total_units if total_units else 0.0,
+                )
                 return valid, skipped or []
 
-        # Process all units in parallel (bounded by semaphore)
         unit_results: list[tuple[list[AIPatch], list[AISkipped]] | BaseException] = await asyncio.gather(
             *[_process_unit(u) for u in units_with_violations],
             return_exceptions=True,
         )
 
-        all_patches: list[AIPatch] = []
-        all_skipped: list[AISkipped] = []
+        proposals: list[AIProposal] = []
 
         for i, result in enumerate(unit_results):
             unit = units_with_violations[i]
@@ -513,174 +561,66 @@ class RemediationEngine:
                 logger.error("Unit L%d-%d: %s", unit.line_start, unit.line_end, result)
                 continue
             patches, skipped = result
-            if patches:
-                all_patches.extend(patches)
-            if skipped:
-                all_skipped.extend(skipped)
-
-        if orphans:
-            logger.debug("Fallback: %d orphan violation(s)", len(orphans))
-            fallback_patches, fallback_skipped = await self._ai_provider.propose_fixes(orphans, file_content)
-            if fallback_patches:
-                all_patches.extend(p for p in fallback_patches if p.confidence >= 0.01)
-            all_skipped.extend(fallback_skipped)
-
-        if not all_patches and not all_skipped:
-            return None
-
-        # Re-validate unit patches the same way as batch patches
-        is_valid, transforms_applied, feedback = self._validate_batch_patches(all_patches, file_path, file_content)
-
-        if not is_valid and feedback:
-            logger.debug("Unit patches failed validation: %s", feedback.split(chr(10))[0])
-            # Mark as AI_FAILED instead of returning a broken proposal
-            for v in violations:
-                v["remediation_resolution"] = RemediationResolution.AI_FAILED
-            return None
-
-        for v in violations:
-            rid = str(v.get("rule_id", ""))
-            patched_rules = {p.rule_id for p in all_patches}
-            if rid in patched_rules:
-                conf = min(p.confidence for p in all_patches if p.rule_id == rid)
-                v["remediation_resolution"] = (
-                    RemediationResolution.AI_LOW_CONFIDENCE if conf < 0.7 else RemediationResolution.AI_PROPOSED
-                )
-
-        generate_patch_hunks(file_content, all_patches, file_path)
-        patched_content = apply_patches(file_content, all_patches)
-        full_diff = "".join(
-            difflib.unified_diff(
-                file_content.splitlines(keepends=True),
-                patched_content.splitlines(keepends=True),
-                fromfile=f"a/{file_path}",
-                tofile=f"b/{file_path} (AI proposed)",
-            )
-        )
-
-        return AIProposal(
-            file=file_path,
-            original_yaml=file_content,
-            fixed_yaml=patched_content,
-            patches=all_patches,
-            diff=full_diff,
-            skipped=all_skipped,
-            hybrid_transforms_applied=transforms_applied,
-        )
-
-    async def _try_batch_proposal(
-        self,
-        file_path: str,
-        violations: list[ViolationDict],
-        file_content: str,
-    ) -> AIProposal | None:
-        """Send all violations for a file in a single LLM call with retry.
-
-        Assumes a frontier model with large context/output window.
-
-        Args:
-            file_path: Absolute path to the file.
-            violations: All violations for this file.
-            file_content: Current file content.
-
-        Returns:
-            Validated AIProposal, or None if all attempts fail.
-        """
-        if self._ai_provider is None:
-            return None
-
-        all_patches: list[AIPatch] = []
-        all_skipped: list[AISkipped] = []
-        total_t1_applied = 0
-        feedback: str | None = None
-
-        for attempt in range(self._max_ai_attempts):
-            patches, skipped = await self._ai_provider.propose_fixes(
-                violations,
-                file_content,
-                feedback=feedback,
-            )
-
-            all_skipped = skipped
-
-            if patches is None:
-                logger.debug("AI attempt %d: returned no patches", attempt + 1)
-                for v in violations:
-                    v["remediation_resolution"] = RemediationResolution.AI_FAILED
-                return None
-
-            patches = [p for p in patches if p.confidence >= 0.01]
-
             if not patches:
-                logger.debug("AI attempt %d: all patches below confidence threshold", attempt + 1)
-                for v in violations:
-                    v["remediation_resolution"] = RemediationResolution.AI_FAILED
-                return None
+                if skipped:
+                    for v in unit.violations:
+                        if "remediation_resolution" not in v:
+                            v["remediation_resolution"] = RemediationResolution.AI_FAILED
+                continue
 
-            validated, t1_applied, new_feedback = self._validate_batch_patches(patches, file_path, file_content)
+            patch = patches[0]
+            fixed_snippet = patch.fixed_lines
 
-            if validated:
-                total_t1_applied += t1_applied
-                logger.debug(
-                    "AI attempt %d: validated (%d patches, %d hybrid transforms)",
-                    attempt + 1,
-                    len(patches),
-                    t1_applied,
+            if file_content.count(unit.snippet) != 1:
+                logger.warning(
+                    "Skipping unit L%d-%d: snippet occurs %d times (ambiguous)",
+                    unit.line_start,
+                    unit.line_end,
+                    file_content.count(unit.snippet),
                 )
-                all_patches = patches
-                break
+                for v in unit.violations:
+                    v["remediation_resolution"] = RemediationResolution.MANUAL
+                continue
 
-            feedback = new_feedback
-            logger.debug(
-                "AI attempt %d: validation failed, %s\n%s",
-                attempt + 1,
-                "retrying" if attempt < self._max_ai_attempts - 1 else "giving up",
-                feedback or "(no feedback)",
+            patched_content = file_content.replace(unit.snippet, fixed_snippet, 1)
+            unit_diff = "".join(
+                difflib.unified_diff(
+                    file_content.splitlines(keepends=True),
+                    patched_content.splitlines(keepends=True),
+                    fromfile=f"a/{file_path}",
+                    tofile=f"b/{file_path} (AI proposed)",
+                )
             )
-        else:
-            for v in violations:
-                v["remediation_resolution"] = RemediationResolution.AI_FAILED
-            return None
 
-        if not all_patches:
-            return None
+            rule_ids = [r.strip() for r in patch.rule_id.split(",")]
+            rule_id_set = set(rule_ids)
 
-        # Generate diff hunks and build proposal
-        generate_patch_hunks(
-            file_content,
-            all_patches,
-            file_path,
-        )
-        patched_content = apply_patches(file_content, all_patches)
-        full_diff = "".join(
-            difflib.unified_diff(
-                file_content.splitlines(keepends=True),
-                patched_content.splitlines(keepends=True),
-                fromfile=f"a/{file_path}",
-                tofile=f"b/{file_path} (AI proposed)",
+            for v in unit.violations:
+                rid = str(v.get("rule_id", ""))
+                if rid in rule_id_set:
+                    v["remediation_resolution"] = (
+                        RemediationResolution.AI_LOW_CONFIDENCE
+                        if patch.confidence < 0.7
+                        else RemediationResolution.AI_PROPOSED
+                    )
+
+            proposals.append(
+                AIProposal(
+                    file=file_path,
+                    original_snippet=unit.snippet,
+                    fixed_snippet=fixed_snippet,
+                    diff=unit_diff,
+                    rule_ids=rule_ids,
+                    confidence=patch.confidence,
+                    explanation=patch.explanation,
+                    skipped=skipped,
+                    original_yaml=file_content,
+                    fixed_yaml=patched_content,
+                    patches=patches,
+                )
             )
-        )
 
-        # Set resolution on violations that have matching patches
-        patched_rules = {p.rule_id for p in all_patches}
-        for v in violations:
-            rid = str(v.get("rule_id", ""))
-            if rid in patched_rules:
-                conf = min(p.confidence for p in all_patches if p.rule_id == rid)
-                if conf < 0.7:
-                    v["remediation_resolution"] = RemediationResolution.AI_LOW_CONFIDENCE
-                else:
-                    v["remediation_resolution"] = RemediationResolution.AI_PROPOSED
-
-        return AIProposal(
-            file=file_path,
-            original_yaml=file_content,
-            fixed_yaml=patched_content,
-            patches=all_patches,
-            diff=full_diff,
-            skipped=all_skipped,
-            hybrid_transforms_applied=total_t1_applied,
-        )
+        return proposals
 
     def _validate_batch_patches(
         self,

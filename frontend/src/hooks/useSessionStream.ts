@@ -4,6 +4,11 @@
  * Manages the full scan+fix flow over a single WS connection:
  *   connect → upload files → progress → tier1 results →
  *   AI proposals → approval → final result
+ *
+ * Supports session reconnection: if the WebSocket drops during an
+ * interactive phase (e.g. awaiting_approval), ``canReconnect`` becomes
+ * true and ``resumeSession`` can re-establish the connection using the
+ * ``?resume=<session_id>`` gateway endpoint.
  */
 
 import { useCallback, useRef, useState } from "react";
@@ -68,6 +73,7 @@ export type SessionStatus =
   | "awaiting_approval"
   | "applying"
   | "complete"
+  | "disconnected"
   | "error";
 
 export interface SessionOptions {
@@ -97,6 +103,12 @@ function wsUrl(path: string): string {
   return `${proto}//${window.location.host}${path}`;
 }
 
+/** Phases where a dropped WS can be recovered via session resume. */
+const RECONNECTABLE_PHASES: ReadonlySet<SessionStatus> = new Set([
+  "tier1_done",
+  "awaiting_approval",
+]);
+
 // ── Hook ───────────────────────────────────────────────────────────
 
 export function useSessionStream() {
@@ -108,8 +120,10 @@ export function useSessionStream() {
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [result, setResult] = useState<SessionResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [canReconnect, setCanReconnect] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const statusRef = useRef<SessionStatus>("idle");
+  const sessionIdRef = useRef<string | null>(null);
 
   const updateStatus = useCallback((s: SessionStatus) => {
     statusRef.current = s;
@@ -129,40 +143,13 @@ export function useSessionStream() {
     setProposals([]);
     setResult(null);
     setError(null);
+    setCanReconnect(false);
+    sessionIdRef.current = null;
   }, [updateStatus]);
 
-  const startSession = useCallback(
-    async (files: File[], options: SessionOptions = {}) => {
-      reset();
-      updateStatus("connecting");
-
-      const ws = new WebSocket(wsUrl("/api/v1/ws/session"));
-      wsRef.current = ws;
-
-      ws.onopen = async () => {
-        updateStatus("uploading");
-
-        const startOptions: Record<string, unknown> = {
-          ansible_version: options.ansibleVersion || "",
-          collections: options.collections || [],
-          enable_ai: options.enableAi ?? true,
-        };
-        if (options.aiModel) {
-          startOptions.ai_model = options.aiModel;
-        }
-        ws.send(JSON.stringify({ type: "start", options: startOptions }));
-
-        for (const file of files) {
-          const content = await fileToBase64(file);
-          const path =
-            (file as File & { webkitRelativePath?: string })
-              .webkitRelativePath || file.name;
-          ws.send(JSON.stringify({ type: "file", path, content }));
-        }
-
-        ws.send(JSON.stringify({ type: "files_done" }));
-      };
-
+  /** Wire shared WS event handlers (used by both start and resume). */
+  const wireHandlers = useCallback(
+    (ws: WebSocket) => {
       ws.onmessage = (event) => {
         let msg: Record<string, unknown>;
         try {
@@ -174,6 +161,7 @@ export function useSessionStream() {
         switch (msg.type) {
           case "session_created":
             setSessionId(msg.session_id as string);
+            sessionIdRef.current = msg.session_id as string;
             setScanId(msg.scan_id as string);
             updateStatus("scanning");
             break;
@@ -208,6 +196,7 @@ export function useSessionStream() {
 
           case "result":
             setResult(msg as unknown as SessionResult);
+            setCanReconnect(false);
             updateStatus("complete");
             if (ws.readyState === WebSocket.OPEN) {
               ws.send(JSON.stringify({ type: "close" }));
@@ -223,12 +212,16 @@ export function useSessionStream() {
             break;
 
           case "expiring":
-            // TTL warning — could surface in UI later
             break;
 
           case "error":
             setError((msg.message as string) || "Unknown error");
-            updateStatus("error");
+            if (RECONNECTABLE_PHASES.has(statusRef.current) && sessionIdRef.current) {
+              setCanReconnect(true);
+              updateStatus("disconnected");
+            } else {
+              updateStatus("error");
+            }
             break;
 
           case "closed":
@@ -243,30 +236,121 @@ export function useSessionStream() {
       };
 
       ws.onerror = () => {
-        setError("WebSocket connection error");
-        updateStatus("error");
+        if (RECONNECTABLE_PHASES.has(statusRef.current) && sessionIdRef.current) {
+          setError("Connection lost. Your session is still active on the server.");
+          setCanReconnect(true);
+          updateStatus("disconnected");
+        } else {
+          setError("WebSocket connection error");
+          updateStatus("error");
+        }
       };
 
       ws.onclose = (event) => {
         if (
           event.code !== 1000 &&
           statusRef.current !== "complete" &&
-          statusRef.current !== "error"
+          statusRef.current !== "error" &&
+          statusRef.current !== "disconnected"
         ) {
-          setError("Connection closed unexpectedly");
-          updateStatus("error");
+          if (RECONNECTABLE_PHASES.has(statusRef.current) && sessionIdRef.current) {
+            setError("Connection lost. Your session is still active on the server.");
+            setCanReconnect(true);
+            updateStatus("disconnected");
+          } else {
+            setError("Connection closed unexpectedly");
+            updateStatus("error");
+          }
         }
       };
     },
-    [reset, updateStatus],
+    [updateStatus],
   );
 
-  const approve = useCallback((approvedIds: string[]) => {
-    const ws = wsRef.current;
-    if (ws?.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: "approve", approved_ids: approvedIds }));
-    }
-  }, []);
+  const startSession = useCallback(
+    async (files: File[], options: SessionOptions = {}) => {
+      reset();
+      updateStatus("connecting");
+
+      const ws = new WebSocket(wsUrl("/api/v1/ws/session"));
+      wsRef.current = ws;
+
+      ws.onopen = async () => {
+        updateStatus("uploading");
+
+        const startOptions: Record<string, unknown> = {
+          ansible_version: options.ansibleVersion || "",
+          collections: options.collections || [],
+          enable_ai: options.enableAi ?? true,
+        };
+        if (options.aiModel) {
+          startOptions.ai_model = options.aiModel;
+        }
+        ws.send(JSON.stringify({ type: "start", options: startOptions }));
+
+        for (const file of files) {
+          const content = await fileToBase64(file);
+          const path =
+            (file as File & { webkitRelativePath?: string })
+              .webkitRelativePath || file.name;
+          ws.send(JSON.stringify({ type: "file", path, content }));
+        }
+
+        ws.send(JSON.stringify({ type: "files_done" }));
+      };
+
+      wireHandlers(ws);
+    },
+    [reset, updateStatus, wireHandlers],
+  );
+
+  const resumeSession = useCallback(
+    (sid: string, originalScanId?: string) => {
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+      setError(null);
+      setCanReconnect(false);
+      updateStatus("connecting");
+
+      let url = `/api/v1/ws/session?resume=${encodeURIComponent(sid)}`;
+      if (originalScanId) {
+        url += `&scan_id=${encodeURIComponent(originalScanId)}`;
+      }
+      const ws = new WebSocket(wsUrl(url));
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        updateStatus("scanning");
+      };
+
+      wireHandlers(ws);
+    },
+    [updateStatus, wireHandlers],
+  );
+
+  const approve = useCallback(
+    (approvedIds: string[]) => {
+      const ws = wsRef.current;
+      if (ws?.readyState === WebSocket.OPEN) {
+        ws.send(
+          JSON.stringify({ type: "approve", approved_ids: approvedIds }),
+        );
+      } else {
+        setError(
+          "Connection lost — cannot send approval. Try reconnecting.",
+        );
+        if (sessionIdRef.current) {
+          setCanReconnect(true);
+          updateStatus("disconnected");
+        } else {
+          updateStatus("error");
+        }
+      }
+    },
+    [updateStatus],
+  );
 
   const extend = useCallback(() => {
     const ws = wsRef.current;
@@ -296,7 +380,9 @@ export function useSessionStream() {
     proposals,
     result,
     error,
+    canReconnect,
     startSession,
+    resumeSession,
     approve,
     extend,
     closeSession,

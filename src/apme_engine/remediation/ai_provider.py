@@ -54,38 +54,65 @@ class AISkipped:
 
 @dataclass
 class AIProposal:
-    """AI-generated fixes for a single file (batch of patches).
+    """AI-generated fix for a single unit (task/block).
+
+    Each proposal is independently approvable and carries the original
+    and fixed snippets for content-based application — no line-number
+    dependency at apply time.
 
     Attributes:
-        file: Absolute path to the file being fixed.
-        original_yaml: Original file content before any patches.
-        fixed_yaml: File content after all accepted patches applied.
-        patches: Individual task-level patches from the AI.
-        diff: Combined unified diff (original -> proposed).
+        file: Absolute path to the file containing the unit.
+        original_snippet: Original YAML text of the unit.
+        fixed_snippet: Corrected YAML text from the LLM.
+        diff: Unified diff (original -> proposed) for display.
+        rule_ids: Rule IDs addressed by this fix.
+        confidence: Confidence score (0.0-1.0).
+        explanation: Human-readable summary of changes.
         skipped: Violations the AI could not fix, with reasons.
+        original_yaml: Full original file content (for diff context).
+        fixed_yaml: Full file content with this unit's fix applied.
+        patches: Legacy AIPatch list (for proto/gateway compat).
         hybrid_transforms_applied: Count of Tier 1 transforms applied
-            to clean up the AI output during hybrid validation.
+            to clean up AI output during hybrid validation.
     """
 
     file: str
-    original_yaml: str
-    fixed_yaml: str
-    patches: list[AIPatch]
+    original_snippet: str
+    fixed_snippet: str
     diff: str
+    rule_ids: list[str] = field(default_factory=list)
+    confidence: float = 0.85
+    explanation: str = ""
     skipped: list[AISkipped] = field(default_factory=list)
+    original_yaml: str = ""
+    fixed_yaml: str = ""
+    patches: list[AIPatch] = field(default_factory=list)
     hybrid_transforms_applied: int = 0
 
-    @property
-    def rule_ids(self) -> list[str]:
-        """Rule IDs covered by patches in this proposal."""
-        return [p.rule_id for p in self.patches]
+    def apply(self, file_content: str) -> str:
+        """Apply this proposal to file content using content-based replacement.
 
-    @property
-    def confidence(self) -> float:
-        """Minimum confidence across all patches."""
-        if not self.patches:
-            return 0.0
-        return min(p.confidence for p in self.patches)
+        Finds the original snippet in the current file content and replaces
+        it with the fixed snippet.  Independent of line numbers — safe to
+        apply after other proposals have changed the file.
+
+        Args:
+            file_content: Current file content (may differ from original_yaml
+                if other proposals were already applied).
+
+        Returns:
+            File content with this unit's fix applied.
+
+        Raises:
+            ValueError: If the original snippet is not found in file_content
+                or if it occurs multiple times (ambiguous application).
+        """
+        occurrences = file_content.count(self.original_snippet)
+        if occurrences == 0:
+            raise ValueError(f"Cannot apply proposal: original snippet not found in {self.file}")
+        if occurrences > 1:
+            raise ValueError(f"Cannot apply proposal: original snippet occurs {occurrences} times in {self.file}")
+        return file_content.replace(self.original_snippet, self.fixed_snippet, 1)
 
 
 def _resolve_overlaps(patches: list[AIPatch]) -> list[AIPatch]:

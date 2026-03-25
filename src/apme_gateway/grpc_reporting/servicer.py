@@ -76,8 +76,10 @@ class ReportingServicer(reporting_pb2_grpc.ReportingServicer):
                 scan = Scan(
                     scan_id=request.scan_id,
                     session_id=request.session_id,
+                    project_id=None,
                     project_path=request.project_path,
                     source=request.source or "cli",
+                    trigger="cli",
                     created_at=_now_iso(),
                     scan_type="scan",
                     total_violations=request.summary.total if request.summary else 0,
@@ -116,8 +118,10 @@ class ReportingServicer(reporting_pb2_grpc.ReportingServicer):
                 scan = Scan(
                     scan_id=request.scan_id,
                     session_id=request.session_id,
+                    project_id=None,
                     project_path=request.project_path,
                     source=request.source or "cli",
+                    trigger="cli",
                     created_at=_now_iso(),
                     scan_type="fix",
                     total_violations=request.summary.total if request.summary else 0,

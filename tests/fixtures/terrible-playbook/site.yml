@@ -14,10 +14,10 @@
   # L018: become_user without become
   become_user: deployer
   tasks:
-    # L024/L028: task without name
+    # L024: task without name
     - shell: echo "hello world"
 
-    # L007/L029: shell instead of command (no shell features)
+    # L007: shell instead of command (no shell features)
     # L013: no changed_when
     # L046: free-form command
     - name: get the hostname

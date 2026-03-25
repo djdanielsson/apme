@@ -16,7 +16,7 @@ import shutil
 import tempfile
 import time
 import uuid
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -356,7 +356,10 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
         collection_specs: list[str] | None = None,
         include_scandata: bool = True,
         session_id: str = "",
-    ) -> tuple[list[ViolationDict], ScanDiagnostics | None, str, list[list[ProgressUpdate]]]:
+        progress_callback: Callable[[str, str, float], None] | None = None,
+    ) -> tuple[
+        list[ViolationDict], ScanDiagnostics | None, str, list[list[ProgressUpdate]], Mapping[str, object] | None
+    ]:
         """Core scan pipeline: engine → collection discovery → venv → validators.
 
         Reused by Scan, ScanStream, and FixSession (as scan_fn for remediation).
@@ -381,10 +384,12 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
             collection_specs: Collection specifiers (may be extended by discovery).
             include_scandata: Whether to include scandata in engine call.
             session_id: Client-provided session ID for venv reuse.
+            progress_callback: Optional callback ``(phase, message, fraction)``
+                for streaming per-validator progress to callers.
 
         Returns:
             Tuple of (violations, ScanDiagnostics or None, resolved session_id,
-            merged pipeline logs).
+            merged pipeline logs, hierarchy_payload Mapping or None).
         """
         from apme_engine.validators.ansible._venv import DEFAULT_VERSION
         from apme_engine.venv_manager.session import _venv_site_packages
@@ -419,7 +424,7 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
 
         if not context_obj.hierarchy_payload:
             logger.warning("Scan: no hierarchy payload produced (req=%s)", scan_id)
-            return [], ScanDiagnostics(), sid, []
+            return [], ScanDiagnostics(), sid, [], None
 
         # 2. Collection discovery
         discovered = _discover_collection_specs(files)
@@ -474,36 +479,68 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
             venv_path=venv_path,
         )
 
-        tasks = {}
+        _pcb = progress_callback
+
+        task_names: list[str] = []
+        task_coros: list[Awaitable[_ValidatorResult]] = []
         for name, env_var in VALIDATOR_ENV_VARS.items():
             addr = os.environ.get(env_var)
             if not addr:
                 continue
-            tasks[name] = _call_validator(addr, validate_request)
+            task_names.append(name)
+            task_coros.append(_call_validator(addr, validate_request))
 
         violations: list[ViolationDict] = []
         validator_diagnostics: list[ValidatorDiagnostics] = []
         validator_logs: list[list[ProgressUpdate]] = []
         fan_out_ms = 0.0
 
-        if tasks:
-            logger.info("Fan-out: dispatching to %d validators (req=%s)", len(tasks), scan_id)
+        if task_coros:
+            num_validators = len(task_coros)
+            if _pcb:
+                _pcb("scan", f"Dispatching to {num_validators} validators...", 0.0)
+            logger.info("Fan-out: dispatching to %d validators (req=%s)", num_validators, scan_id)
             fan_t0 = time.monotonic()
-            results = await asyncio.gather(*tasks.values(), return_exceptions=True)
+
+            validators_done = 0
+
+            async def _run_validator(
+                name: str,
+                coro: Awaitable[_ValidatorResult],
+            ) -> tuple[str, _ValidatorResult]:
+                nonlocal validators_done
+                try:
+                    result: _ValidatorResult = await coro
+                except BaseException as exc:
+                    validators_done += 1
+                    if _pcb:
+                        _pcb("scan", f"{name.title()}: error: {exc}", validators_done / num_validators)
+                    raise
+                else:
+                    validators_done += 1
+                    if _pcb:
+                        count = len(result.violations)
+                        _pcb("scan", f"{name.title()}: {count} findings", validators_done / num_validators)
+                    return name, result
+
+            named_results = await asyncio.gather(
+                *[_run_validator(n, c) for n, c in zip(task_names, task_coros, strict=True)],
+                return_exceptions=True,
+            )
             fan_out_ms = (time.monotonic() - fan_t0) * 1000
 
             counts: dict[str, int] = {}
-            for name, result in zip(tasks.keys(), results, strict=False):
-                if isinstance(result, BaseException):
-                    logger.error("%s raised (req=%s): %s", name, scan_id, result)
-                    counts[name] = 0
-                else:
-                    counts[name] = len(result.violations)
-                    violations.extend(result.violations)
-                    if result.diagnostics:
-                        validator_diagnostics.append(result.diagnostics)
-                    if result.logs:
-                        validator_logs.append(list(result.logs))
+            for vname, item in zip(task_names, named_results, strict=True):
+                if isinstance(item, BaseException):
+                    logger.error("Validator %s raised (req=%s): %s", vname, scan_id, item)
+                    continue
+                name, result = item
+                counts[name] = len(result.violations)
+                violations.extend(result.violations)
+                if result.diagnostics:
+                    validator_diagnostics.append(result.diagnostics)
+                if result.logs:
+                    validator_logs.append(list(result.logs))
 
             parts = " ".join(f"{n.title()}={counts.get(n, 0)}" for n in VALIDATOR_ENV_VARS)
             logger.info("Fan-out: done (%.0fms) %s Total=%d (req=%s)", fan_out_ms, parts, len(violations), scan_id)
@@ -524,7 +561,7 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
             total_ms=total_ms,
         )
         logger.info("Scan: pipeline done (%.0fms, %d violations, req=%s)", total_ms, len(violations), scan_id)
-        return violations, diag, sid, validator_logs
+        return violations, diag, sid, validator_logs, context_obj.hierarchy_payload
 
     @staticmethod
     def _format_files(files: list[File]) -> list[FileDiff]:
@@ -626,7 +663,7 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
 
                 opts = request.options if request.HasField("options") else None
                 session_id = request.session_id or (opts.session_id if opts else "") or ""
-                violations, diag, resolved_sid, vlogs = await self._scan_pipeline(
+                violations, diag, resolved_sid, vlogs, _ = await self._scan_pipeline(
                     temp_dir,
                     list(request.files),  # type: ignore[arg-type]
                     scan_id,
@@ -765,7 +802,7 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
                     streamed_entries.append(entry)
                     yield ScanEvent(progress=entry)
 
-                violations, diag, resolved_sid, vlogs = pipeline_task.result()
+                violations, diag, resolved_sid, vlogs, _ = pipeline_task.result()
 
                 for vlog_batch in vlogs:
                     for vlog in vlog_batch:
@@ -1150,7 +1187,24 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
 
         loop = asyncio.get_event_loop()
 
+        from apme_engine.engine.node_index import NodeIndex  # noqa: PLC0415
+
+        node_index_set = False
+        engine_ref: list[RemediationEngine | None] = [None]
+
+        # Thread-safe progress queue: the executor thread posts here,
+        # the async generator drains and yields SessionEvents.
+        _HEARTBEAT_INTERVAL = 15
+        progress_queue: asyncio.Queue[ProgressUpdate | None] = asyncio.Queue()
+
+        def _progress_callback(phase: str, message: str, fraction: float = 0.0) -> None:
+            loop.call_soon_threadsafe(
+                progress_queue.put_nowait,
+                ProgressUpdate(message=message, phase=phase, progress=fraction, level=2),
+            )
+
         def scan_fn(file_paths: list[str]) -> list[ViolationDict]:
+            nonlocal node_index_set
             rel_files = []
             for fp in file_paths:
                 p = Path(fp)
@@ -1163,9 +1217,18 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
                 ansible_core_version=ansible_core_version,
                 collection_specs=collection_specs,
                 session_id=fix_session_id,
+                progress_callback=_progress_callback,
             )
             future = asyncio.run_coroutine_threadsafe(coro, loop)
-            violations, _, _, _ = future.result(timeout=300)
+            violations, _, _, _, hierarchy_payload = future.result(timeout=300)
+
+            if hierarchy_payload and not node_index_set:
+                node_index_set = True
+                node_index = NodeIndex(hierarchy_payload)
+                if len(node_index) > 0 and engine_ref[0] is not None:
+                    engine_ref[0].set_node_index(node_index)
+                    logger.info("NodeIndex: indexed %d hierarchy nodes for unit segmentation", len(node_index))
+
             return violations
 
         registry = build_default_registry()
@@ -1176,15 +1239,46 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
             max_passes=max_passes,
             verbose=True,
             ai_provider=ai_provider,  # type: ignore[arg-type]
+            progress_callback=_progress_callback,
         )
+        engine_ref[0] = engine
 
         yaml_paths = [str(temp_dir / f.path) for f in formatted_files if f.path.endswith((".yml", ".yaml"))]
 
-        report = await asyncio.get_event_loop().run_in_executor(
-            None,
-            engine.remediate,
-            yaml_paths,
-        )
+        async def _heartbeat() -> None:
+            """Send periodic heartbeats while remediation is running."""
+            while True:
+                await asyncio.sleep(_HEARTBEAT_INTERVAL)
+                progress_queue.put_nowait(ProgressUpdate(message="Processing...", phase="heartbeat", level=1))
+
+        heartbeat_task = asyncio.create_task(_heartbeat())
+        remediate_future = loop.run_in_executor(None, engine.remediate, yaml_paths)
+
+        try:
+            # Drain progress queue while remediation runs, yielding events
+            while not remediate_future.done():
+                try:
+                    update = await asyncio.wait_for(progress_queue.get(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    continue
+                if update is not None:
+                    session.progress_logs.append(update)
+                    yield SessionEvent(progress=update)
+
+            # Drain any remaining queued progress
+            while not progress_queue.empty():
+                update = progress_queue.get_nowait()
+                if update is not None:
+                    session.progress_logs.append(update)
+                    yield SessionEvent(progress=update)
+
+            report = remediate_future.result()
+        finally:
+            heartbeat_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await heartbeat_task
+            if not remediate_future.done():
+                remediate_future.cancel()
 
         # Post-remediation format pass
         for patch in report.applied_patches:
@@ -1254,6 +1348,9 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
         if report.ai_proposed:
             session.current_tier = 2
             proposals = self._build_proposals_from_ai(report.ai_proposed)
+            for p in proposals:
+                with contextlib.suppress(ValueError):
+                    p.file = str(Path(p.file).relative_to(temp_dir))
             session.proposals = {p.id: p for p in proposals}
             session.status = 1  # AWAITING_APPROVAL
             yield SessionEvent(
@@ -1335,35 +1432,32 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
         from apme_engine.remediation.ai_provider import AIProposal  # noqa: PLC0415
 
         proposals: list[Proposal] = []
-        idx = 0
-        for item in ai_proposals:
+        for idx, item in enumerate(ai_proposals):
             ap: AIProposal = item  # type: ignore[assignment]
-            orig_lines = ap.original_yaml.splitlines(keepends=True)
-            for patch in ap.patches:
-                start_idx = patch.line_start - 1
-                end_idx = patch.line_end
-                before_text = "".join(orig_lines[start_idx:end_idx])
 
-                after_text = patch.fixed_lines
-                if before_text.endswith("\n") and after_text and not after_text.endswith("\n"):
-                    after_text += "\n"
+            before_text = ap.original_snippet
+            after_text = ap.fixed_snippet
+            if before_text.endswith("\n") and after_text and not after_text.endswith("\n"):
+                after_text += "\n"
 
-                proposals.append(
-                    Proposal(
-                        id=f"t2-{idx:04d}",
-                        file=ap.file,
-                        rule_id=patch.rule_id,
-                        line_start=patch.line_start,
-                        line_end=patch.line_end,
-                        before_text=before_text,
-                        after_text=after_text,
-                        diff_hunk=patch.diff_hunk,
-                        confidence=patch.confidence,
-                        explanation=patch.explanation,
-                        tier=2,
-                    )
+            rule_id = ",".join(ap.rule_ids) if ap.rule_ids else "ai-fix"
+            first_patch = ap.patches[0] if ap.patches else None
+
+            proposals.append(
+                Proposal(
+                    id=f"t2-{idx:04d}",
+                    file=ap.file,
+                    rule_id=rule_id,
+                    line_start=first_patch.line_start if first_patch else 0,
+                    line_end=first_patch.line_end if first_patch else 0,
+                    before_text=before_text,
+                    after_text=after_text,
+                    diff_hunk=ap.diff,
+                    confidence=ap.confidence,
+                    explanation=ap.explanation,
+                    tier=2,
                 )
-                idx += 1
+            )
         return proposals
 
     @staticmethod
@@ -1387,11 +1481,18 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
         applied = 0
         for pid in approved_ids:
             proposal = session.proposals.get(pid)
-            if not proposal or not proposal.after_text:
+            if not proposal:
+                logger.warning("Skipping proposal %s: not found", pid)
                 continue
             content = session.working_files.get(proposal.file, b"")
             text = content.decode("utf-8", errors="replace") if isinstance(content, bytes) else str(content)
             if proposal.before_text not in text:
+                logger.warning(
+                    "Skipping proposal %s (%s): before_text not found in working file %s",
+                    pid,
+                    proposal.rule_id,
+                    proposal.file,
+                )
                 continue
             new_text = text.replace(proposal.before_text, proposal.after_text, 1)
             session.working_files[proposal.file] = new_text.encode("utf-8")
@@ -1409,6 +1510,12 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
             applied += 1
 
         session.status = 3  # COMPLETE — user has finished reviewing
+        logger.info(
+            "Approval result: %d/%d proposals applied (session=%s)",
+            applied,
+            len(approved_ids),
+            session.session_id,
+        )
         return applied
 
     async def _session_build_result(

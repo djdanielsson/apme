@@ -1,11 +1,11 @@
 ---
 # Role tasks with various issues
 # L027: Role without metadata (no meta/main.yml)
-# L028: Task without name
+# L024: Task without name
 # L035: Unnecessary set_fact
 # L039: Undefined variable
 
-# L028: Task without name
+# L024: Task without name
 - yum:
     name: "{{ package_name }}"
     state: present

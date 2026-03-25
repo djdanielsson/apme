@@ -1,15 +1,22 @@
 import type {
   AiAcceptanceEntry,
   AiModelInfo,
+  CreateProjectRequest,
+  DashboardSummary,
   FixRateEntry,
   HealthStatus,
   PaginatedResponse,
+  ProjectDetail,
+  ProjectRanking,
+  ProjectSummary,
   ScanDetail,
   ScanSummary,
   SessionDetail,
   SessionSummary,
   TopViolation,
   TrendPoint,
+  UpdateProjectRequest,
+  ViolationDetail,
 } from "../types/api";
 
 const BASE = "/api/v1";
@@ -78,4 +85,83 @@ export function getAiAcceptance(): Promise<AiAcceptanceEntry[]> {
 
 export function listAiModels(): Promise<AiModelInfo[]> {
   return request(`/ai/models`);
+}
+
+// ── Project API (ADR-037) ────────────────────────────────────────────
+
+export function createProject(body: CreateProjectRequest): Promise<ProjectSummary> {
+  return request("/projects", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export function listProjects(
+  limit = 50,
+  offset = 0,
+  sortBy = "created_at",
+  order = "desc",
+): Promise<PaginatedResponse<ProjectSummary>> {
+  return request(`/projects?limit=${limit}&offset=${offset}&sort_by=${sortBy}&order=${order}`);
+}
+
+export function getProject(projectId: string): Promise<ProjectDetail> {
+  return request(`/projects/${projectId}`);
+}
+
+export function updateProject(
+  projectId: string,
+  body: UpdateProjectRequest,
+): Promise<ProjectSummary> {
+  return request(`/projects/${projectId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function deleteProject(projectId: string): Promise<void> {
+  const res = await fetch(`${BASE}/projects/${projectId}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(`${res.status}`);
+}
+
+export function listProjectScans(
+  projectId: string,
+  limit = 50,
+  offset = 0,
+): Promise<PaginatedResponse<ScanSummary>> {
+  return request(`/projects/${projectId}/scans?limit=${limit}&offset=${offset}`);
+}
+
+export function listProjectViolations(
+  projectId: string,
+  limit = 50,
+  offset = 0,
+  severity?: string,
+  ruleId?: string,
+): Promise<ViolationDetail[]> {
+  let url = `/projects/${projectId}/violations?limit=${limit}&offset=${offset}`;
+  if (severity) url += `&severity=${severity}`;
+  if (ruleId) url += `&rule_id=${ruleId}`;
+  return request(url);
+}
+
+export function getProjectTrend(
+  projectId: string,
+  limit = 20,
+): Promise<TrendPoint[]> {
+  return request(`/projects/${projectId}/trend?limit=${limit}`);
+}
+
+export function getDashboardSummary(): Promise<DashboardSummary> {
+  return request("/dashboard/summary");
+}
+
+export function getDashboardRankings(
+  sortBy = "health_score",
+  order = "desc",
+  limit = 10,
+): Promise<ProjectRanking[]> {
+  return request(`/dashboard/rankings?sort_by=${sortBy}&order=${order}&limit=${limit}`);
 }

@@ -1,7 +1,11 @@
 # Gateway: gRPC Reporting receiver + FastAPI REST API.
 # Persists scan/fix events to SQLite (ADR-020 / ADR-029).
+# Project operations require git for on-demand cloning (ADR-037).
 # Mount /data for SQLite persistence across restarts.
 FROM localhost/apme-base:latest
+
+RUN apt-get update && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
 
 ENV APME_DB_PATH=/data/apme.db
 ENV APME_GATEWAY_GRPC_LISTEN=0.0.0.0:50060

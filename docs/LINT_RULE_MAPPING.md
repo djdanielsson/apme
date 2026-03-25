@@ -11,14 +11,16 @@ Rule IDs categorize the **type of check**, not the validator that runs it. The v
 
 **Note:** `src/apme_engine/validators/native/rules/rule_versions.json` includes entries for both previous (R301, R302, ...) and current (L026, L027, ...) IDs for the renumbered rules; the loader uses the current rule_id (L###) when looking up version info.
 
-## OPA (Rego) rules — L002-L025, R118
+## OPA (Rego) rules mapped from ansible-lint — L003-L025, R118
 
 L001 was removed — its scope was limited to shell tasks without names, which is a strict subset of L024 (all tasks should have a name).
+
+L002 was removed — its FQCN check (syntactic dot-count) is superseded by **M001** (semantic FQCN resolution via ansible-core's plugin loader) and **L026** (model-based non-FQCN detection in the native validator). No `L002.rego` exists in the OPA bundle.
 
 | Previous rule_id (OPA) | New ID | Description |
 |------------------------|--------|-------------|
 | ~~task-name~~ | ~~L001~~ | ~~Removed: subsumed by L024~~ |
-| fqcn | L002 | Use FQCN for module (syntactic check) |
+| ~~fqcn~~ | ~~L002~~ | ~~Removed: superseded by M001 (semantic) and L026 (native)~~ |
 | play-name | L003 | Play should have a name |
 | deprecated-module | L004 | Deprecated module (static list) |
 | only-builtins | L005 | Use only ansible.builtin or ansible.legacy (checks original_module, emits resolved_fqcn when available) |
@@ -50,8 +52,8 @@ L001 was removed — its scope was limited to shell tasks without names, which i
 |------------------------|--------|------|-------------|
 | R301 | L026 | L026_non_fqcn_use.py | Non-FQCN module use |
 | R302 | L027 | L027_role_without_metadata.py | Role without metadata |
-| R303 | L028 | L028_task_without_name.py | Task without name |
-| R102 | L029 | L029_command_instead_of_shell.py | Prefer command over shell |
+| R303 | L028 | **Removed** — duplicate of L024 (OPA) | Task without name |
+| R102 | L029 | **Removed** — duplicate of L007 (OPA) | Prefer command over shell |
 | R110 | L030 | L030_non_builtin_use.py | Non-builtin module use |
 | R116 | L031 | L031_insecure_file_permission.py | Insecure file permission |
 | R201 | L032 | L032_changed_data_dependence.py | Changed data dependence |
@@ -113,7 +115,7 @@ These rules use ansible-core's plugin loader (`find_plugin_with_context()`) to r
 | M003 | Module redirect -- module name was redirected to a new FQCN |
 | M004 | Removed module -- tombstoned module (raises `AnsiblePluginRemovedError`) |
 
-Note: OPA **L002** also checks for non-FQCN module names but is purely syntactic (counts dot separators). **M001** is semantic -- it actually resolves the module via ansible-core's plugin loader. Both can fire for the same task (different rule IDs, complementary checks). M001 also works for third-party collections.
+Note: OPA L002 was retired — FQCN checking is now handled by **M001** (semantic resolution via ansible-core's plugin loader) and **L026** (model-based detection in the native validator). The remediation registry still maps `L002` to the FQCN fixer for backward compatibility with older scan results.
 
 ## Migration rules — M005-M013 (ansible-core 2.19/2.20)
 
@@ -137,7 +139,7 @@ These rules detect patterns that break or behave differently under ansible-core 
 
 ## Usage
 
-- In output, violations use their rule ID directly: **L002**-**L059**, **M001**-**M004**, **R###**.
+- In output, violations use their rule ID directly (e.g. **L###**, **M###**, **R###**, **P###** when policy rules are enabled). Implemented IDs are non-contiguous; see the tables above for the exact set of rules.
 - Native (Python) lint violations include the **native:** prefix (e.g. **native:L026**) for backward compatibility.
 - To map an old ID to the current one, use the tables above.
 - Filtering by rule (e.g. `--rule L057`) uses the rule ID.

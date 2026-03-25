@@ -238,7 +238,11 @@ def test_native_violations_with_session_venv(dep_dir: str) -> None:
 
     rule_ids = {str(v.get("rule_id", "")).removeprefix("native:") for v in violations}
     assert len(violations) >= 10, f"Expected at least 10 native violations, got {len(violations)}"
-    assert "L028" in rule_ids or "L029" in rule_ids, f"Expected shell/command rules, got {sorted(rule_ids)}"
+    always_expected = {"L027", "L043", "L044", "L050"}
+    missing = always_expected - rule_ids
+    assert not missing, (
+        f"Expected rules {sorted(always_expected)} to fire, missing {sorted(missing)}; got {sorted(rule_ids)}"
+    )
 
 
 # ---------------------------------------------------------------------------

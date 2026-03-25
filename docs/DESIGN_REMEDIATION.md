@@ -255,56 +255,37 @@ src/apme_engine/remediation/
 
 ## AI Escalation Path
 
-When `is_finding_resolvable()` returns `False` and an AIProvider is available (via `--ai`), the remediation engine escalates to AI.
+When `is_finding_resolvable()` returns `False` and an AIProvider is available (via `--ai`), the remediation engine escalates to AI using **unit-level decomposition**.
 
-### Request Packaging
+### Unit Decomposition
 
-Each violation is packaged with context for the LLM:
+Files are segmented into **fixable units** (individual tasks or blocks) using the `NodeIndex` built during scanning. Each unit with violations is sent to the LLM independently. This provides:
 
-```python
-@dataclass
-class AIRemediationRequest:
-    rule_id: str
-    level: str
-    message: str
-    file_path: str
-    line: int
-    code_window: str        # 10 lines before + after the violation
-    file_content: str       # full file (for broader context)
-    ansible_version: str    # target version (e.g., "2.20")
+- **Focused context** — the LLM sees only the relevant task/block, not the full file
+- **Independent proposals** — each unit fix is a separate proposal the user can approve/reject
+- **No line-number dependency** — the LLM returns corrected YAML, we handle reassembly
+
+Violations that don't map to any unit (e.g., play-level issues) are marked `MANUAL` for human review.
+
+### Prompt Contract
+
+The LLM receives the unit's YAML snippet and its violations. It returns the complete corrected YAML — no line numbers, no partial diffs:
+
+```json
+{
+  "fixed_snippet": "<entire corrected YAML for the unit>",
+  "changes": [
+    {"rule_id": "L024", "explanation": "Added task name", "confidence": 0.95}
+  ],
+  "skipped": [
+    {"rule_id": "R101", "reason": "Cannot fix safely", "suggestion": "Review manually"}
+  ]
+}
 ```
 
-### Structured Prompt
+### Content-Based Application
 
-```
-You are an Ansible modernization assistant. A static analysis rule has
-flagged an issue in the following YAML file.
-
-Rule: {rule_id}
-Message: {message}
-File: {file_path}
-Line: {line}
-
-Code context (lines {start}-{end}):
-```yaml
-{code_window}
-```
-
-Provide a fix for this issue. Respond with ONLY valid YAML for the
-corrected section. Preserve comments and formatting. If you cannot
-fix it with confidence, respond with "SKIP".
-```
-
-### Response Schema
-
-```python
-@dataclass
-class AIRemediationResponse:
-    suggested_code: str     # corrected YAML (or "SKIP")
-    confidence: float       # 0.0-1.0
-    reasoning: str          # why this fix is correct
-    applicable: bool        # False if LLM says "SKIP"
-```
+Each `AIProposal` carries `original_snippet` and `fixed_snippet`. Application uses string replacement rather than line-number indexing. This makes proposals safe to apply in any order **as long as each `original_snippet` is unique within the file** — applying one unit's fix cannot invalidate another's because units are located by content, not position. When identical snippets appear multiple times in the same file, the engine detects the ambiguity and skips those units rather than risking a wrong-location replacement.
 
 ### CLI Modes
 
@@ -386,6 +367,35 @@ class FixReport:
     ai_proposed: list[dict]         # AI-suggested patches (pending review)
     oscillation_detected: bool      # True if loop bailed due to no progress
 ```
+
+## Progress Streaming
+
+`RemediationEngine.remediate()` runs synchronously inside a thread-pool executor, which blocks the `_session_process` async generator from yielding events. Without explicit progress plumbing, the gRPC stream (and downstream WebSocket) goes silent for the entire remediation duration — often minutes for large projects with AI escalation.
+
+Three layers ensure continuous feedback:
+
+### ProgressCallback
+
+A `Callable[[str, str, float], None]` (`phase`, `message`, `fraction`) is threaded into both `RemediationEngine` and `_scan_pipeline`. Each component calls back at key milestones:
+
+| Source | Phase | Example messages |
+|--------|-------|-----------------|
+| `_scan_pipeline` | `scan` | `Dispatching to 4 validators...`, `Gitleaks: 0 findings` |
+| `RemediationEngine` | `tier1` | `Pass 1/5: scanning...`, `Pass 1: 113 transforms applied` |
+| `RemediationEngine` | `ai` | `AI: site.yml — 42 unit(s)`, `AI: site.yml unit 12/42` |
+
+### Thread-safe Queue and Drain Loop
+
+Because `remediate()` runs in an executor thread, callbacks cannot directly `yield` into the async generator. Instead:
+
+1. `_session_process` creates an `asyncio.Queue[ProgressUpdate | None]`.
+2. The callback posts updates via `loop.call_soon_threadsafe(queue.put_nowait, update)`.
+3. A drain loop (`while not remediate_future.done()`) polls the queue with a 1-second timeout and yields each `ProgressUpdate` as a `SessionEvent(progress=...)`.
+4. After the future completes, remaining queued items are drained.
+
+### Heartbeat
+
+A concurrent `asyncio` task sends a generic `ProgressUpdate(phase="heartbeat", message="Processing...")` every 15 seconds. This fills gaps where neither the engine nor the scan pipeline emits application-level progress (e.g., during long ARI scans or venv setup), preventing WebSocket idle timeouts from browsers or reverse proxies.
 
 ## gRPC Contract
 

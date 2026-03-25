@@ -4,14 +4,14 @@ requires-python = ">=3.10"
 
 [[package]]
 name = "abbenay-client"
-version = "2026.3.7a0"
-source = { url = "https://github.com/redhat-developer/abbenay/releases/download/v2026.3.7-alpha/abbenay_client-2026.3.7a0-py3-none-any.whl" }
+version = "2026.3.8a0"
+source = { url = "https://github.com/redhat-developer/abbenay/releases/download/v2026.3.8-alpha/abbenay_client-2026.3.8a0-py3-none-any.whl" }
 dependencies = [
     { name = "grpcio" },
     { name = "protobuf" },
 ]
 wheels = [
-    { url = "https://github.com/redhat-developer/abbenay/releases/download/v2026.3.7-alpha/abbenay_client-2026.3.7a0-py3-none-any.whl", hash = "sha256:44b502731174bc942ebc56127e5dfae9ae0f81d3885fd42f5d33cd6e5bf66080" },
+    { url = "https://github.com/redhat-developer/abbenay/releases/download/v2026.3.8-alpha/abbenay_client-2026.3.8a0-py3-none-any.whl", hash = "sha256:b4badd60cac70a12624febe02b791110f1bb1f7da872f10ff3992304496ae306" },
 ]
 
 [package.metadata]
@@ -114,7 +114,7 @@ proxy = [
 
 [package.metadata]
 requires-dist = [
-    { name = "abbenay-client", marker = "extra == 'ai'", url = "https://github.com/redhat-developer/abbenay/releases/download/v2026.3.7-alpha/abbenay_client-2026.3.7a0-py3-none-any.whl" },
+    { name = "abbenay-client", marker = "extra == 'ai'", url = "https://github.com/redhat-developer/abbenay/releases/download/v2026.3.8-alpha/abbenay_client-2026.3.8a0-py3-none-any.whl" },
     { name = "aiosqlite", marker = "extra == 'gateway'", specifier = ">=0.20" },
     { name = "fastapi", marker = "extra == 'gateway'", specifier = ">=0.100" },
     { name = "fastapi", marker = "extra == 'proxy'", specifier = ">=0.100" },

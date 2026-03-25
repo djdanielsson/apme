@@ -258,8 +258,8 @@ class TestEngineUnitEscalation:
         assert mock_provider.propose_unit_fixes.call_count >= 1
         assert len(report.ai_proposed) >= 1
 
-    def test_falls_back_to_full_file_without_index(self, tmp_path: Path) -> None:
-        """Verifies full-file propose_fixes is used when no NodeIndex.
+    def test_skips_ai_without_node_index(self, tmp_path: Path) -> None:
+        """Verifies AI escalation is skipped when no NodeIndex is present.
 
         Args:
             tmp_path: Pytest temporary directory fixture.
@@ -268,21 +268,7 @@ class TestEngineUnitEscalation:
         playbook.write_text(PLAYBOOK_CONTENT)
 
         mock_provider = AsyncMock()
-        mock_provider.propose_fixes = AsyncMock(
-            return_value=(
-                [
-                    AIPatch(
-                        rule_id="M001",
-                        line_start=5,
-                        line_end=5,
-                        fixed_lines="      ansible.builtin.yum:",
-                        explanation="FQCN",
-                        confidence=0.95,
-                    )
-                ],
-                [],
-            )
-        )
+        mock_provider.propose_unit_fixes = AsyncMock(return_value=(None, []))
 
         def scan_fn(paths: list[str]) -> list[ViolationDict]:
             return [
@@ -299,11 +285,11 @@ class TestEngineUnitEscalation:
 
         report = engine.remediate([str(playbook)], apply=False)
 
-        assert mock_provider.propose_fixes.call_count >= 1
-        assert len(report.ai_proposed) >= 1
+        assert mock_provider.propose_unit_fixes.call_count == 0
+        assert len(report.ai_proposed) == 0
 
-    def test_orphans_fall_back_to_full_file(self, tmp_path: Path) -> None:
-        """Verifies orphan violations trigger a full-file fallback call.
+    def test_orphans_marked_manual_review(self, tmp_path: Path) -> None:
+        """Verifies orphan violations are marked manual, not sent to AI.
 
         Args:
             tmp_path: Pytest temporary directory fixture.
@@ -318,21 +304,6 @@ class TestEngineUnitEscalation:
 
         mock_provider = AsyncMock()
         mock_provider.propose_unit_fixes = AsyncMock(return_value=(None, []))
-        mock_provider.propose_fixes = AsyncMock(
-            return_value=(
-                [
-                    AIPatch(
-                        rule_id="L003",
-                        line_start=1,
-                        line_end=1,
-                        fixed_lines="- name: Test play",
-                        explanation="play-level fix",
-                        confidence=0.9,
-                    )
-                ],
-                [],
-            )
-        )
 
         def scan_fn(paths: list[str]) -> list[ViolationDict]:
             return [
@@ -350,4 +321,4 @@ class TestEngineUnitEscalation:
 
         engine.remediate([str(playbook)], apply=False)
 
-        assert mock_provider.propose_fixes.call_count >= 1
+        assert mock_provider.propose_unit_fixes.call_count == 0

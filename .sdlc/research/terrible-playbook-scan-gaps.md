@@ -19,7 +19,6 @@ Rules the playbook was designed to trigger, as documented in comments:
 | L057   | wrong module FQCN (playbook-l057-wrong-module.yml + intended in site before move) |
 | L020   | mode not string with leading zero (site.yml ~40) |
 | L007   | shell → command (multiple) |
-| L029   | shell instead of command |
 | L025   | task name casing (many) |
 | L021   | no mode on file/copy/template (multiple) |
 | L013   | no changed_when (shell/command) |
@@ -69,7 +68,6 @@ Rules the playbook was designed to trigger, as documented in comments:
 | M010   | Python 2 interpreter |
 | L018   | become_user without become |
 | L024   | task without name (bare shell) |
-| L028   | task without name |
 | P002/P003 | module argument validation (community.general.ini_file, cronvar) |
 | L058/L059 | Ansible argspec (Ansible validator) |
 | SEC / Gitleaks | hardcoded secrets (api_key, db_password, group_vars) |
@@ -79,7 +77,7 @@ Rules the playbook was designed to trigger, as documented in comments:
 
 From `run-cli.sh --json .` on terrible-playbook (chunked gRPC), rule_id with native: prefix stripped:
 
-**Reported (49):** L002, L003, L005, L006, L007, L008, L009, L010, L011, L012, L013, L014, L015, L016, L018, L020, L021, L022, L024, L025, L027, L028, L029, L032, L033, L036, L037, L038, L039, L042, L043, L044, L045, L046, L047, L048, L049, L050, L051, L057, M006, M009, M010, R104, R108, R111, R112, R113, R402
+**Reported (47):** L002, L003, L005, L006, L007, L008, L009, L010, L011, L012, L013, L014, L015, L016, L018, L020, L021, L022, L024, L025, L027, L032, L033, L036, L037, L038, L039, L042, L043, L044, L045, L046, L047, L048, L049, L050, L051, L057, M006, M009, M010, R104, R108, R111, R112, R113, R402
 
 ## Comparison: expected vs reported
 
@@ -102,8 +100,6 @@ From `run-cli.sh --json .` on terrible-playbook (chunked gRPC), rule_id with nat
 | L021   | ✓ reported |
 | L025   | ✓ reported |
 | L027   | ✓ reported |
-| L028   | ✓ reported |
-| L029   | ✓ reported |
 | L032   | ✓ reported (may overlap L033-style) |
 | L033   | ✓ reported |
 | L036   | ✓ reported |
@@ -159,7 +155,7 @@ From `run-cli.sh --json .` on terrible-playbook (chunked gRPC), rule_id with nat
 
 **No, but we get most of them.**
 
-- **Reported and expected:** 49 unique rule IDs in latest run; of the ~55 expected rules, **38 are reported** (L002, L003, L005, L006, L007, L008, L009, L010, L011, L012, L013, L014, L015, L016, L018, L020, L021, L022, L024, L025, L027, L028, L029, L032, L033, L036, L042, L043, L044, L045, L046, L047, L048, L049, L050, L051, L057, M006, M009, M010, R104, R108, R111, R112, R113; plus L037, L038, L039, R402 which overlap or are extra).
+- **Reported and expected:** 47 unique rule IDs in latest run; of the ~55 expected rules, **36 are reported** (L002, L003, L005, L006, L007, L008, L009, L010, L011, L012, L013, L014, L015, L016, L018, L020, L021, L022, L024, L025, L027, L032, L033, L036, L042, L043, L044, L045, L046, L047, L048, L049, L050, L051, L057, M006, M009, M010, R104, R108, R111, R112, R113; plus L037, L038, L039, R402 which overlap or are extra). Note: L028/L029 were removed as duplicates of L024/L007 (OPA).
 - **Expected but still not reported:** L017 (maybe no trigger), L026, L030, L040, R101, R103, R105, R106, R107, R109, R114, R115, R118, P002, P003, L058, L059, SEC/Gitleaks, M011 — see table above.
 
 ## Next steps to get “all expected”

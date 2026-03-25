@@ -29,6 +29,9 @@ htmlcov/
 /tmp/ari-data/
 .apme-data/
 
+# Scraper cache (ansible-core clone)
+.cache/
+
 # Collection cache (created by pod)
 apme-cache/
 

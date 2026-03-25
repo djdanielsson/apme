@@ -251,8 +251,6 @@ class TestScanViolations:
     @pytest.mark.parametrize(
         "rule_id,desc",
         [
-            ("native:L028", "task without name"),
-            ("native:L029", "command instead of shell"),
             ("native:L046", "free-form args"),
         ],
     )  # type: ignore[untyped-decorator]

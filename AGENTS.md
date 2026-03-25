@@ -172,6 +172,37 @@ anything else**. If a matching skill exists, read it and follow its instructions
 | `/task-new` | Create implementation task |
 | `/workflow` | Development workflow guidance |
 
+## Design Thinking
+
+### Sunk cost fallacy
+
+Do not defend existing code simply because effort was invested in it. If a
+fix requires increasingly complex workarounds — offset detection, heuristic
+correction, retry loops — the underlying abstraction is likely wrong.
+Discard the existing approach and redesign the interface.
+
+**Two workarounds for the same interface = redesign the interface.**
+
+### Design LLM contracts around LLM strengths
+
+Never ask an LLM to be precise about line numbers, character offsets, or
+positional arithmetic. LLMs are good at understanding and transforming
+text. Design contracts where the LLM returns **content** and we handle
+**positioning** and reassembly.
+
+### Treat directional feedback as architectural
+
+When a human says "we're too coupled to X" or "why do we need Y," treat
+it as an architectural concern, not a narrow bug. Step back to first
+principles before writing code. Ask: *"What would this look like if we
+didn't have X at all?"*
+
+### Two failed attempts = wrong abstraction
+
+If the same class of failure recurs after two fix attempts, do not attempt
+a third fix at the same level. Escalate to a design review of the
+interface itself. The pattern of repeated failure is the evidence.
+
 ## Quality Assurance
 
 All agents must:

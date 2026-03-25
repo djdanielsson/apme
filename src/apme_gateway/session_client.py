@@ -50,14 +50,13 @@ from apme.v1.primary_pb2 import (
     CloseRequest,
     ExtendRequest,
     FixOptions,
+    ResumeRequest,
     ScanChunk,
     SessionCommand,
 )
 from apme_engine.daemon.chunked_fs import yield_scan_chunks
 
 logger = logging.getLogger(__name__)
-
-_SESSION_TIMEOUT_S = 600
 
 _STATUS_NAMES: dict[int, str] = {
     0: "SESSION_STATUS_UNSPECIFIED",
@@ -188,6 +187,7 @@ async def _ws_command_reader(
                 if not isinstance(ids, list) or not all(isinstance(i, str) for i in ids):
                     logger.warning("Invalid approved_ids: expected list of strings, got %r", type(ids).__name__)
                     continue
+                logger.info("Received approval for %d proposal(s): %s", len(ids), ids)
                 await queue.put(SessionCommand(approve=ApprovalRequest(approved_ids=ids)))
             elif msg_type == "extend":
                 await queue.put(SessionCommand(extend=ExtendRequest()))
@@ -217,6 +217,28 @@ async def _command_stream(
     """
     for chunk in chunks:
         yield SessionCommand(upload=chunk)
+
+    while True:
+        cmd = await queue.get()
+        if cmd is None:
+            break
+        yield cmd
+
+
+async def _resume_stream(
+    session_id: str,
+    queue: asyncio.Queue[SessionCommand | None],
+) -> AsyncIterator[SessionCommand]:
+    """Yield a resume command then queued interactive commands.
+
+    Args:
+        session_id: ID of the session to resume.
+        queue: Queue of interactive commands from the WebSocket reader.
+
+    Yields:
+        SessionCommand: Messages for the gRPC FixSession stream.
+    """
+    yield SessionCommand(resume=ResumeRequest(session_id=session_id))
 
     while True:
         cmd = await queue.get()
@@ -395,49 +417,46 @@ async def _forward_events(
 async def handle_session(
     ws: WebSocket,
     primary_address: str,
-    timeout: int = _SESSION_TIMEOUT_S,
+    *,
+    resume_session_id: str | None = None,
+    resume_scan_id: str | None = None,
 ) -> None:
     """Bridge a WebSocket connection to a Primary FixSession gRPC stream.
 
     Orchestrates the full lifecycle: file upload collection, gRPC
     FixSession initiation, bidirectional event forwarding, and cleanup.
 
+    When *resume_session_id* is provided, skips file uploads and sends a
+    ``ResumeRequest`` to reconnect to an existing server-side session.
+    The Primary replays tier1/proposal state so the UI can pick up where
+    it left off.
+
+    No client-side gRPC deadline is applied.  Session lifetime is managed
+    by the Primary's session store (``APME_SESSION_TTL``, default 1800s).
+
     Args:
         ws: Accepted FastAPI WebSocket.
         primary_address: gRPC address of the Primary orchestrator.
-        timeout: gRPC call timeout in seconds.
+        resume_session_id: If set, resume this existing session instead
+            of starting a new upload.
+        resume_scan_id: Original scan_id for the session being resumed,
+            so event forwarding preserves scan-based links.
     """
-    temp_dir = Path(tempfile.mkdtemp(prefix="apme-gw-session-"))
+    temp_dir: Path | None = None
     try:
-        options = await _collect_uploads(ws, temp_dir)
+        if resume_session_id:
+            scan_id = resume_scan_id or resume_session_id
+            logger.info("Resuming session %s (scan_id=%s)", resume_session_id, scan_id)
+        else:
+            temp_dir = Path(tempfile.mkdtemp(prefix="apme-gw-session-"))
+            options = await _collect_uploads(ws, temp_dir)
 
-        ansible_version: str = options.get("ansible_version", "")
-        collections: list[str] = options.get("collections", [])
-        enable_ai: bool = options.get("enable_ai", True)
-        ai_model: str = options.get("ai_model", "")
+            ansible_version: str = options.get("ansible_version", "")
+            collections: list[str] = options.get("collections", [])
+            enable_ai: bool = options.get("enable_ai", True)
+            ai_model: str = options.get("ai_model", "")
 
-        scan_id = str(uuid.uuid4())
-
-        def _chunks_with_fix_options() -> Iterator[ScanChunk]:
-            chunk_iter = yield_scan_chunks(
-                temp_dir,
-                scan_id=scan_id,
-                project_root_name="upload",
-                ansible_core_version=ansible_version or None,
-                collection_specs=collections or None,
-            )
-            first_chunk = next(chunk_iter, None)
-            if first_chunk is None:
-                return
-            fix_opts = FixOptions(
-                ansible_core_version=ansible_version,
-                collection_specs=collections or [],
-                enable_ai=enable_ai,
-                ai_model=ai_model,
-            )
-            first_chunk.fix_options.CopyFrom(fix_opts)  # type: ignore[union-attr]
-            yield first_chunk
-            yield from chunk_iter
+            scan_id = str(uuid.uuid4())
 
         command_queue: asyncio.Queue[SessionCommand | None] = asyncio.Queue()
         done = asyncio.Event()
@@ -446,24 +465,69 @@ async def handle_session(
         try:
             stub = primary_pb2_grpc.PrimaryStub(channel)  # type: ignore[no-untyped-call]
 
-            async def _cmd_iter() -> AsyncIterator[SessionCommand]:
-                async for cmd in _command_stream(_chunks_with_fix_options(), command_queue):
-                    yield cmd
+            if resume_session_id:
 
-            response_stream = stub.FixSession(_cmd_iter(), timeout=timeout)
+                async def _cmd_iter() -> AsyncIterator[SessionCommand]:
+                    async for cmd in _resume_stream(resume_session_id, command_queue):
+                        yield cmd
+
+            else:
+
+                def _chunks_with_fix_options() -> Iterator[ScanChunk]:
+                    assert temp_dir is not None  # noqa: S101
+                    chunk_iter = yield_scan_chunks(
+                        temp_dir,
+                        scan_id=scan_id,
+                        project_root_name="upload",
+                        ansible_core_version=ansible_version or None,
+                        collection_specs=collections or None,
+                    )
+                    first_chunk = next(chunk_iter, None)
+                    if first_chunk is None:
+                        return
+                    fix_opts = FixOptions(
+                        ansible_core_version=ansible_version,
+                        collection_specs=collections or [],
+                        enable_ai=enable_ai,
+                        ai_model=ai_model,
+                    )
+                    first_chunk.fix_options.CopyFrom(fix_opts)  # type: ignore[union-attr]
+                    yield first_chunk
+                    yield from chunk_iter
+
+                async def _cmd_iter() -> AsyncIterator[SessionCommand]:
+                    async for cmd in _command_stream(_chunks_with_fix_options(), command_queue):
+                        yield cmd
+
+            response_stream = stub.FixSession(_cmd_iter())
 
             reader_task = asyncio.create_task(_ws_command_reader(ws, command_queue, done))
 
             try:
                 await _forward_events(response_stream, ws, scan_id, done)
             except grpc.aio.AioRpcError as e:
-                await ws.send_json(
+                logger.warning("gRPC FixSession error (scan_id=%s): %s", scan_id, e.details())
+                await _safe_send(
+                    ws,
                     {
                         "type": "error",
                         "message": f"Engine error: {e.details()}",
-                    }
+                    },
                 )
+                done.set()
             finally:
+                if not done.is_set():
+                    logger.warning(
+                        "gRPC stream ended without result/closed (scan_id=%s)",
+                        scan_id,
+                    )
+                    await _safe_send(
+                        ws,
+                        {
+                            "type": "error",
+                            "message": "Session ended unexpectedly — the engine connection was lost",
+                        },
+                    )
                 done.set()
                 reader_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError, Exception):
@@ -486,4 +550,5 @@ async def handle_session(
                 }
             )
     finally:
-        shutil.rmtree(temp_dir, ignore_errors=True)
+        if temp_dir:
+            shutil.rmtree(temp_dir, ignore_errors=True)

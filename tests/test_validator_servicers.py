@@ -148,16 +148,16 @@ class TestNativeValidatorServicer:
         mock_result = NativeRunResult(
             violations=[
                 {
-                    "rule_id": "native:L028",
+                    "rule_id": "native:L026",
                     "level": "warning",
-                    "message": "no name",
+                    "message": "non-fqcn",
                     "file": "f.yml",
                     "line": 5,
                     "path": "p",
                 },
             ],
             rule_timings=[
-                NativeRuleTiming(rule_id="L028", elapsed_ms=3.5, violations=1),
+                NativeRuleTiming(rule_id="L026", elapsed_ms=3.5, violations=1),
             ],
         )
 
@@ -166,7 +166,7 @@ class TestNativeValidatorServicer:
             resp = await servicer.Validate(request, FakeGrpcContext())  # type: ignore[arg-type]
 
         assert len(resp.violations) == 1  # type: ignore[attr-defined]
-        assert resp.violations[0].rule_id == "native:L028"  # type: ignore[attr-defined]
+        assert resp.violations[0].rule_id == "native:L026"  # type: ignore[attr-defined]
         assert resp.request_id == "native-1"  # type: ignore[attr-defined]
 
     async def test_validate_returns_diagnostics(self) -> None:
@@ -184,12 +184,12 @@ class TestNativeValidatorServicer:
 
         mock_result = NativeRunResult(
             violations=[
-                {"rule_id": "native:L028", "level": "warning", "message": "m1", "file": "f.yml", "line": 1, "path": ""},
-                {"rule_id": "native:L029", "level": "warning", "message": "m2", "file": "f.yml", "line": 3, "path": ""},
+                {"rule_id": "native:L026", "level": "warning", "message": "m1", "file": "f.yml", "line": 1, "path": ""},
+                {"rule_id": "native:L030", "level": "warning", "message": "m2", "file": "f.yml", "line": 3, "path": ""},
             ],
             rule_timings=[
-                NativeRuleTiming(rule_id="L028", elapsed_ms=2.1, violations=1),
-                NativeRuleTiming(rule_id="L029", elapsed_ms=1.5, violations=1),
+                NativeRuleTiming(rule_id="L026", elapsed_ms=2.1, violations=1),
+                NativeRuleTiming(rule_id="L030", elapsed_ms=1.5, violations=1),
             ],
         )
 
@@ -205,10 +205,10 @@ class TestNativeValidatorServicer:
         assert diag.total_ms > 0
         assert len(diag.rule_timings) == 2
         rule_ids = {rt.rule_id for rt in diag.rule_timings}
-        assert rule_ids == {"L028", "L029"}
-        l028 = next(rt for rt in diag.rule_timings if rt.rule_id == "L028")
-        assert l028.elapsed_ms == pytest.approx(2.1)
-        assert l028.violations == 1
+        assert rule_ids == {"L026", "L030"}
+        l026 = next(rt for rt in diag.rule_timings if rt.rule_id == "L026")
+        assert l026.elapsed_ms == pytest.approx(2.1)
+        assert l026.violations == 1
 
     async def test_validate_no_scandata_returns_empty(self) -> None:
         """Validate with no scandata returns empty violations."""
@@ -652,7 +652,7 @@ class TestCliDiagnosticsDisplay:
             total_ms=10.5,
             files_received=2,
             violations_found=3,
-            rule_timings=[common_pb2.RuleTiming(rule_id="L028", elapsed_ms=4.2, violations=2)],
+            rule_timings=[common_pb2.RuleTiming(rule_id="L026", elapsed_ms=4.2, violations=2)],
             metadata={"foo": "bar"},
         )
         sd = primary_pb2.ScanDiagnostics(
@@ -678,7 +678,7 @@ class TestCliDiagnosticsDisplay:
         rule_timings = v.get("rule_timings")
         assert isinstance(rule_timings, list) and len(rule_timings) == 1
         rt0 = rule_timings[0]
-        assert isinstance(rt0, dict) and rt0.get("rule_id") == "L028"
+        assert isinstance(rt0, dict) and rt0.get("rule_id") == "L026"
         assert v["metadata"] == {"foo": "bar"}
 
     def test_print_diagnostics_v_no_crash(self, capsys: pytest.CaptureFixture[str]) -> None:
@@ -695,7 +695,7 @@ class TestCliDiagnosticsDisplay:
             validator_name="native",
             total_ms=10.5,
             violations_found=3,
-            rule_timings=[common_pb2.RuleTiming(rule_id="L028", elapsed_ms=4.2, violations=2)],
+            rule_timings=[common_pb2.RuleTiming(rule_id="L026", elapsed_ms=4.2, violations=2)],
         )
         sd = primary_pb2.ScanDiagnostics(
             engine_parse_ms=5.0,
@@ -708,7 +708,7 @@ class TestCliDiagnosticsDisplay:
         captured = capsys.readouterr()
         assert "Engine:" in captured.err
         assert "Native" in captured.err
-        assert "L028" in captured.err
+        assert "L026" in captured.err
 
     def test_print_diagnostics_vv_no_crash(self, capsys: pytest.CaptureFixture[str]) -> None:
         """_print_diagnostics_vv prints verbose output without crashing.

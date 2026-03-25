@@ -129,8 +129,16 @@ def _collect_gitleaks_rules() -> list[dict[str, str]]:
     ]
 
 
+_TRANSFORMS_INIT = REPO_ROOT / "src" / "apme_engine" / "remediation" / "transforms" / "__init__.py"
+_REG_CALL = re.compile(r'reg\.register\(\s*"([^"]+)"')
+
+
 def _get_fixable_ids() -> set[str]:
-    """Load remediation registry and return set of rule_ids that have fixers.
+    """Return set of rule_ids that have deterministic fixers.
+
+    First tries to import the registry at runtime.  When that fails (e.g.
+    jsonpickle not installed), falls back to parsing reg.register() calls
+    from the transforms __init__.py source so the catalog is still accurate.
 
     Returns:
         Set of rule_id strings that have deterministic fixers.
@@ -141,9 +149,19 @@ def _get_fixable_ids() -> set[str]:
 
         reg = build_default_registry()
         return set(reg.rule_ids)
-    except Exception as e:
-        print(f"WARNING: could not load registry: {e}", file=sys.stderr)
-        return set()
+    except Exception:
+        pass
+
+    # Fallback: parse transforms/__init__.py for reg.register("<rule_id>", …)
+    if _TRANSFORMS_INIT.exists():
+        src = _TRANSFORMS_INIT.read_text(encoding="utf-8")
+        ids = set(_REG_CALL.findall(src))
+        if ids:
+            print(f"NOTE: loaded {len(ids)} fixer IDs from source (runtime import unavailable)", file=sys.stderr)
+            return ids
+
+    print("WARNING: could not determine fixable rule IDs", file=sys.stderr)
+    return set()
 
 
 def _sort_key(rule: dict[str, str]) -> tuple[str, int]:

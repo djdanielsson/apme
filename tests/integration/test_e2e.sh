@@ -115,8 +115,6 @@ assert_rule "L025" "name not starting uppercase"
 assert_rule "R118" "inbound transfer (annotation-based)"
 
 # Native rules
-assert_rule "native:L028" "task without name (native)"
-assert_rule "native:L029" "command instead of shell (native)"
 assert_rule "native:L046" "free-form args (native)"
 
 # Modernize rules (plugin introspection via ansible-core)

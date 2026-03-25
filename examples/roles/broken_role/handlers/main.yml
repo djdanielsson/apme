@@ -1,6 +1,6 @@
 ---
 # Handlers with issues
-# L028: Handler without name
+# L024: Handler without name
 - service:
     name: httpd
     state: restarted

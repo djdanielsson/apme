@@ -438,6 +438,43 @@ When implementing a new `ValidatorServicer`:
 
 The Primary automatically collects diagnostics from all validators and includes them in `ScanDiagnostics`.
 
+## Deprecation pipeline
+
+The project includes automated tooling to discover ansible-core deprecation notices and identify gaps in APME rule coverage.
+
+### Scripts
+
+| Script | Purpose |
+|--------|---------|
+| `scripts/scrape_ansible_deprecations.py` | Clones ansible-core devel, scans for `display.deprecated()`, `# deprecated:`, and `_tags.Deprecated()` patterns, compares against existing APME rules, and outputs a gap report |
+
+### Running locally
+
+```bash
+# Full scrape + gap analysis (outputs JSON to stdout)
+python scripts/scrape_ansible_deprecations.py
+
+# Filter to content-author deprecations >= 2.21
+python scripts/scrape_ansible_deprecations.py --min-version 2.21 --audience content
+
+# Save reports to files
+python scripts/scrape_ansible_deprecations.py --output-json gaps.json --output-md gaps.md
+
+# Use an existing ansible-core checkout (skip clone)
+python scripts/scrape_ansible_deprecations.py --skip-clone --cache-dir /path/to/ansible
+```
+
+### How it works
+
+1. **Scrape** — clones/updates ansible-core devel and extracts all deprecation notices
+2. **Inventory** — scans existing APME rules (OPA, native, ansible validators) by rule_id, description, and keywords
+3. **Compare** — matches each deprecation against the rule inventory to find gaps
+4. **Report** — for each uncovered deprecation, generates a detailed rule spec including detection hints, YAML keys to check, recommended validator type, and source context
+
+### CI workflow
+
+The `.github/workflows/deprecation-scrape.yml` workflow runs monthly (or on manual dispatch), scrapes for new deprecations, and creates a GitHub issue if any gaps are found. Maintainers can then use the detailed rule specs in the issue to implement new rules.
+
 ## Rule ID conventions
 
 | Prefix | Category | Examples |

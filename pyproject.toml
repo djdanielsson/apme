@@ -24,7 +24,7 @@ dependencies = [
 
 [project.optional-dependencies]
 ai = [
-    "abbenay-client @ https://github.com/redhat-developer/abbenay/releases/download/v2026.3.7-alpha/abbenay_client-2026.3.7a0-py3-none-any.whl#sha256=44b502731174bc942ebc56127e5dfae9ae0f81d3885fd42f5d33cd6e5bf66080",
+    "abbenay-client @ https://github.com/redhat-developer/abbenay/releases/download/v2026.3.8-alpha/abbenay_client-2026.3.8a0-py3-none-any.whl#sha256=b4badd60cac70a12624febe02b791110f1bb1f7da872f10ff3992304496ae306",
 ]
 proxy = [
     "fastapi>=0.100",
@@ -156,6 +156,13 @@ module = [
     "playwright.*",
 ]
 ignore_missing_imports = true
+
+# Deprecation scraper uses untyped JSON dicts extensively.
+[[tool.mypy.overrides]]
+module = [
+    "scrape_ansible_deprecations",
+]
+disallow_any_explicit = false
 
 [[tool.mypy.overrides]]
 module = [

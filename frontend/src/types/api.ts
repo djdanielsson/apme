@@ -110,3 +110,54 @@ export interface AiModelInfo {
   provider: string;
   name: string;
 }
+
+// ── Project types (ADR-037) ──────────────────────────────────────────
+
+export interface ProjectSummary {
+  id: string;
+  name: string;
+  repo_url: string;
+  branch: string;
+  created_at: string;
+  health_score: number;
+  total_violations: number;
+  violation_trend: 'improving' | 'declining' | 'stable';
+  scan_count: number;
+  last_scanned_at: string | null;
+}
+
+export interface ProjectDetail extends ProjectSummary {
+  latest_scan: ScanSummary | null;
+  severity_breakdown: Record<string, number>;
+}
+
+export interface CreateProjectRequest {
+  name: string;
+  repo_url: string;
+  branch?: string;
+}
+
+export interface UpdateProjectRequest {
+  name?: string;
+  repo_url?: string;
+  branch?: string;
+}
+
+export interface DashboardSummary {
+  total_projects: number;
+  total_scans: number;
+  total_violations: number;
+  current_violations: number;
+  total_fixed: number;
+  avg_health_score: number;
+}
+
+export interface ProjectRanking {
+  id: string;
+  name: string;
+  health_score: number;
+  total_violations: number;
+  scan_count: number;
+  last_scanned_at: string | null;
+  days_since_last_scan: number | null;
+}

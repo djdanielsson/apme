@@ -107,7 +107,7 @@ spec:
         - containerPort: 8081
           hostPort: 8081
     - name: abbenay
-      image: ghcr.io/redhat-developer/abbenay:2026.3.7-alpha
+      image: ghcr.io/redhat-developer/abbenay:2026.3.8-alpha
       args: ["daemon", "--grpc-host", "0.0.0.0", "--grpc-port", "50057"]
       env:
         - name: OPENROUTER_API_KEY

@@ -195,7 +195,12 @@ def main() -> None:
             "Role without metadata (L027)",
             "Roles should have meta/main.yml with metadata.",
         ),
-        ("R303_task_without_name", "L028", "Task without name (L028)", "Tasks should have a name."),
+        (
+            "R303_task_without_name",
+            "L028",
+            "Task without name (L028) — REMOVED, see L024 (OPA)",
+            "Tasks should have a name.",
+        ),
         (
             "R201_changed_data_dependence",
             "L032",

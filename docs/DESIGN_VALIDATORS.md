@@ -52,7 +52,7 @@ Every validator returns the same violation shape:
 
 ```python
 {
-    "rule_id": str,    # e.g. "L024", "native:L029", "M002"
+    "rule_id": str,    # e.g. "L024", "native:L026", "M002"
     "level": str,      # "error", "warning", "info"
     "message": str,
     "file": str,       # relative path
@@ -177,7 +177,7 @@ ValidatorDiagnostics(
     files_received=10,             # input file count
     violations_found=5,            # output violation count
     rule_timings=[                 # per-rule granularity
-        RuleTiming(rule_id="L028", elapsed_ms=3.5, violations=2),
+        RuleTiming(rule_id="L026", elapsed_ms=3.5, violations=2),
     ],
     metadata={"key": "value"},     # validator-specific data
 )

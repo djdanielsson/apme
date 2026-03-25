@@ -27,8 +27,6 @@ def _opa_bundle_dir() -> Path:
 
 
 EXPECTED_NATIVE_RULES = {
-    "L028",
-    "L029",
     "L033",
     "L036",
     "L042",

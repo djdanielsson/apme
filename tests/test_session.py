@@ -381,27 +381,19 @@ class TestBuildProposals:
     """Unit tests for _build_proposals_from_ai."""
 
     def test_converts_ai_proposals_to_protos(self) -> None:
-        """AIProposal patches become Proposal protos with diff data."""
+        """AIProposal with snippets become Proposal protos."""
         from apme_engine.daemon.primary_server import PrimaryServicer
-        from apme_engine.remediation.ai_provider import AIPatch, AIProposal
+        from apme_engine.remediation.ai_provider import AIProposal
 
         ai_proposals = [
             AIProposal(
                 file="a.yml",
-                original_yaml="line1\nline2\nline3\n",
-                fixed_yaml="line1\nfixed2\nline3\n",
-                patches=[
-                    AIPatch(
-                        rule_id="L001",
-                        line_start=2,
-                        line_end=2,
-                        fixed_lines="fixed2\n",
-                        explanation="Fixed line 2",
-                        confidence=0.95,
-                        diff_hunk="@@ -2 +2 @@\n-line2\n+fixed2",
-                    ),
-                ],
-                diff="",
+                original_snippet="line2\n",
+                fixed_snippet="fixed2\n",
+                diff="@@ -2 +2 @@\n-line2\n+fixed2",
+                rule_ids=["L001"],
+                confidence=0.95,
+                explanation="Fixed line 2",
             ),
         ]
         proposals = PrimaryServicer._build_proposals_from_ai(ai_proposals)
@@ -410,8 +402,6 @@ class TestBuildProposals:
         assert proposals[0].id == "t2-0000"
         assert proposals[0].file == "a.yml"
         assert proposals[0].rule_id == "L001"
-        assert proposals[0].line_start == 2
-        assert proposals[0].line_end == 2
         assert proposals[0].before_text == "line2\n"
         assert proposals[0].after_text == "fixed2\n"
         assert proposals[0].confidence == pytest.approx(0.95)
@@ -566,6 +556,164 @@ class TestSessionReplayState:
         events = [e async for e in servicer._session_replay_state(session)]
         types = [e.WhichOneof("event") for e in events]
         assert "result" in types
+
+
+class TestSessionNodeIndexWiring:
+    """Verify _session_process wires NodeIndex from hierarchy payload."""
+
+    async def test_scan_fn_sets_node_index_on_engine(self) -> None:
+        """scan_fn captures hierarchy_payload and calls engine.set_node_index().
+
+        Mocks _scan_pipeline to return a hierarchy payload and verifies that
+        RemediationEngine.set_node_index is called with a populated NodeIndex.
+        """
+        from unittest.mock import MagicMock
+
+        from apme_engine.daemon.primary_server import PrimaryServicer
+        from apme_engine.engine.node_index import NodeIndex
+        from apme_engine.remediation.engine import RemediationEngine
+
+        servicer = PrimaryServicer.__new__(PrimaryServicer)
+
+        hierarchy_payload: dict[str, object] = {
+            "hierarchy": [
+                {
+                    "nodes": [
+                        {"key": "task0", "type": "taskcall", "file": "play.yml", "line": [1, 3]},
+                        {"key": "task1", "type": "taskcall", "file": "play.yml", "line": [5, 7]},
+                    ],
+                },
+            ],
+        }
+
+        async def fake_scan_pipeline(
+            temp_dir: object,
+            files: object,
+            scan_id: object,
+            **kwargs: object,
+        ) -> tuple[list[object], None, str, list[object], dict[str, object]]:
+            return [], None, "sid", [], hierarchy_payload
+
+        servicer._scan_pipeline = fake_scan_pipeline  # type: ignore[assignment]
+
+        session = SessionState(session_id="test-ni")
+        session.working_files = {"play.yml": b"- name: test\n  debug:\n    msg: hi\n"}
+        session.original_files = dict(session.working_files)
+        session.fix_options = MagicMock()
+        session.fix_options.ansible_core_version = ""
+        session.fix_options.collection_specs = []
+        session.fix_options.session_id = ""
+        session.fix_options.max_passes = 1
+        session.fix_options.enable_ai = False
+        session.fix_options.ai_model = ""
+        session.scan_options = None
+
+        captured_node_index: list[NodeIndex | None] = [None]
+
+        def fake_remediate(engine_self: RemediationEngine, file_paths: list[str], apply: bool = True) -> MagicMock:
+            engine_self._scan_fn(file_paths)
+            return MagicMock(applied_patches=[], ai_proposed=[], remaining=[])
+
+        with (
+            patch.object(PrimaryServicer, "_format_files", return_value=[]),
+            patch.object(
+                RemediationEngine,
+                "remediate",
+                fake_remediate,
+            ),
+            patch.object(
+                RemediationEngine,
+                "set_node_index",
+                side_effect=lambda ni: captured_node_index.__setitem__(0, ni),
+            ) as mock_set_ni,
+        ):
+            async for _ in servicer._session_process(session, "scan-1"):
+                pass
+
+            assert mock_set_ni.called, "set_node_index was never called"
+            ni = captured_node_index[0]
+            assert ni is not None
+            assert len(ni) == 2
+            assert ni.get("task0") is not None
+            assert ni.get("task1") is not None
+
+
+class TestSessionProgressStreaming:
+    """Verify _session_process yields progress events during remediation."""
+
+    async def test_progress_events_during_remediation(self) -> None:
+        """Progress events from the engine drain loop appear in the stream.
+
+        Mocks _scan_pipeline and RemediationEngine.remediate so the
+        convergence loop produces progress callbacks which should be
+        yielded as SessionEvent(progress=...) through the drain loop.
+        """
+        from unittest.mock import MagicMock
+
+        from apme_engine.daemon.primary_server import PrimaryServicer
+        from apme_engine.remediation.engine import RemediationEngine
+
+        servicer = PrimaryServicer.__new__(PrimaryServicer)
+
+        async def fake_scan_pipeline(
+            temp_dir: object,
+            files: object,
+            scan_id: object,
+            **kwargs: object,
+        ) -> tuple[list[object], None, str, list[object], None]:
+            return [], None, "sid", [], None
+
+        servicer._scan_pipeline = fake_scan_pipeline  # type: ignore[assignment]
+
+        session = SessionState(session_id="test-prog")
+        session.working_files = {"play.yml": b"- name: test\n  debug:\n    msg: hi\n"}
+        session.original_files = dict(session.working_files)
+        session.fix_options = MagicMock()
+        session.fix_options.ansible_core_version = ""
+        session.fix_options.collection_specs = []
+        session.fix_options.session_id = ""
+        session.fix_options.max_passes = 1
+        session.fix_options.enable_ai = False
+        session.fix_options.ai_model = ""
+        session.scan_options = None
+
+        def fake_remediate(
+            engine_self: RemediationEngine,
+            file_paths: list[str],
+            **kwargs: object,
+        ) -> MagicMock:
+            engine_self._progress("tier1", "Pass 1/1: scanning...", 0.0)
+            engine_self._progress("tier1", "Pass 1: 3 fixable violations", 0.0)
+            engine_self._progress("tier1", "Pass 1: 3 transforms applied", 0.0)
+            engine_self._progress("tier1", "Converged at pass 1 (0 fixable)", 1.0)
+            return MagicMock(
+                applied_patches=[],
+                ai_proposed=[],
+                remaining_ai=[],
+                remaining_manual=[],
+                passes=1,
+                fixed=3,
+                oscillation_detected=False,
+            )
+
+        with (
+            patch.object(PrimaryServicer, "_format_files", return_value=[]),
+            patch.object(RemediationEngine, "remediate", fake_remediate),
+        ):
+            events: list[SessionEvent] = []
+            async for event in servicer._session_process(session, "scan-1"):
+                events.append(event)
+
+        progress_events = [e for e in events if e.HasField("progress")]
+        progress_msgs = [e.progress.message for e in progress_events]
+
+        assert any("Pass 1" in m for m in progress_msgs), (
+            f"Expected 'Pass 1' progress from drain loop, got: {progress_msgs}"
+        )
+        assert any("scanning" in m for m in progress_msgs), f"Expected 'scanning' progress, got: {progress_msgs}"
+        assert any("transforms applied" in m for m in progress_msgs), (
+            f"Expected 'transforms applied' progress, got: {progress_msgs}"
+        )
 
 
 # ---------------------------------------------------------------------------

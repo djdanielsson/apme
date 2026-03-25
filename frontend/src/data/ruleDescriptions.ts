@@ -45,8 +45,6 @@ export const RULE_DESCRIPTIONS: Record<string, string> = {
   L025: "Task/play name should start with uppercase.",
   L026: "Tasks should use FQCN for modules.",
   L027: "Roles should have meta/main.yml with metadata.",
-  L028: "Tasks should have a name.",
-  L029: "Prefer command over shell when no shell features are needed.",
   L030: "Prefer ansible.builtin modules when available.",
   L031: "File permission may be insecure.",
   L032: "Variable redefinition may cause confusion.",
