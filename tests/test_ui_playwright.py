@@ -81,7 +81,7 @@ def test_sidebar_nav_items(dashboard: Page) -> None:
         "Dashboard",
         "Projects",
         "Playground",
-        "Scans",
+        "Activity",
         "Health",
         "Settings",
     ]
@@ -136,7 +136,7 @@ def test_dashboard_ranking_tables(dashboard: Page) -> None:
     Args:
         dashboard: Page positioned on the dashboard.
     """
-    for title in ["Top 10 Cleanest", "Top 10 Most Violations", "Stale Projects", "Most Scanned"]:
+    for title in ["Top 10 Cleanest", "Top 10 Most Violations", "Stale Projects", "Most Active"]:
         expect(dashboard.locator(f"text='{title}'").first).to_be_visible()
 
 
@@ -205,13 +205,13 @@ def test_playground_drop_zone(dashboard: Page) -> None:
 
 
 def test_playground_start_disabled_without_files(dashboard: Page) -> None:
-    """Start Scan button is disabled when no files are selected.
+    """Start Check button is disabled when no files are selected.
 
     Args:
         dashboard: Page positioned on the dashboard.
     """
     dashboard.goto(f"{_BASE}/playground", wait_until="networkidle")
-    btn = dashboard.locator("button:has-text('Start Scan')")
+    btn = dashboard.locator("button:has-text('Start Check')")
     expect(btn).to_be_disabled()
 
 
@@ -241,18 +241,18 @@ def test_playground_advanced_options(dashboard: Page) -> None:
     expect(dashboard.locator("#enable-ai")).to_be_checked()
 
 
-# ── Scans / Health / Settings (unchanged) ─────────────────────────────
+# ── Activity / Health / Settings ──────────────────────────────────────
 
 
-def test_navigate_to_scans(dashboard: Page) -> None:
-    """Clicking Scans in sidebar navigates to /scans.
+def test_navigate_to_activity(dashboard: Page) -> None:
+    """Clicking Activity in sidebar navigates to /activity.
 
     Args:
         dashboard: Page positioned on the dashboard.
     """
-    dashboard.locator("[data-testid='scans']").click()
-    dashboard.wait_for_url(f"{_BASE}/scans", timeout=5_000)
-    expect(dashboard.locator("[data-testid='page-title']")).to_have_text("All Scans")
+    dashboard.locator("[data-testid='activity']").click()
+    dashboard.wait_for_url(f"{_BASE}/activity", timeout=5_000)
+    expect(dashboard.locator("[data-testid='page-title']")).to_have_text("Activity")
 
 
 def test_navigate_to_health(dashboard: Page) -> None:
@@ -277,15 +277,15 @@ def test_navigate_to_settings(dashboard: Page) -> None:
     expect(dashboard.locator("[data-testid='page-title']")).to_have_text("Settings")
 
 
-def test_scans_page_has_table(dashboard: Page) -> None:
-    """Scans page renders a table or empty-state message.
+def test_activity_page_has_table(dashboard: Page) -> None:
+    """Activity page renders a table or empty-state message.
 
     Args:
         dashboard: Page positioned on the dashboard.
     """
-    dashboard.locator("[data-testid='scans']").click()
-    dashboard.wait_for_url(f"{_BASE}/scans", timeout=5_000)
-    table_or_empty = dashboard.locator(".pf-v6-c-table, div:has-text('No scans recorded')")
+    dashboard.locator("[data-testid='activity']").click()
+    dashboard.wait_for_url(f"{_BASE}/activity", timeout=5_000)
+    table_or_empty = dashboard.locator(".pf-v6-c-table, div:has-text('No activity recorded')")
     expect(table_or_empty.first).to_be_visible()
 
 

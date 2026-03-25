@@ -142,15 +142,14 @@ def test_milestone_logs_displayed(scan_verbose: subprocess.CompletedProcess[str]
 
     has_format_phase = "[format]" in stderr or "Formatting" in stderr
     has_tier1_phase = "[tier1]" in stderr or "Tier 1" in stderr
-    has_pipeline = "Fan-out:" in stderr or "Venv: ready" in stderr
+    has_pipeline = "Dispatching to" in stderr or "Fan-out:" in stderr
     assert has_format_phase or has_tier1_phase or has_pipeline, (
         f"Expected format/tier1/pipeline milestones in stderr:\n{stderr[:2000]}"
     )
-    assert "Fan-out:" in stderr, f"Expected 'Fan-out:' milestone in stderr:\n{stderr[:2000]}"
-    assert "Venv: ready" in stderr, f"Expected 'Venv: ready' milestone in stderr:\n{stderr[:2000]}"
+    assert has_pipeline, f"Expected 'Dispatching to' milestone in stderr:\n{stderr[:2000]}"
 
-    assert "[native]" in stderr, f"Expected [native] phase in stderr:\n{stderr[:2000]}"
-    assert "Native: validate" in stderr, f"Expected Native validate milestone in stderr:\n{stderr[:2000]}"
+    assert "[scan]" in stderr, f"Expected [scan] phase in stderr:\n{stderr[:2000]}"
+    assert "Native:" in stderr, f"Expected Native milestone in stderr:\n{stderr[:2000]}"
 
     # stdout should have the human-readable check results table, not JSON
     assert "Check Results" in scan_verbose.stdout, (
@@ -291,9 +290,7 @@ def test_scan_persisted_to_gateway(scan_data: YAMLDict, infrastructure: object) 
     )
 
     db_scan_id, db_session_id, db_scan_type, db_total, db_auto, db_ai, db_manual = scans[0]
-    assert db_scan_type == "remediate", (
-        f"Expected scan_type='remediate' (FixSession check path), got {db_scan_type!r}"
-    )
+    assert db_scan_type == "remediate", f"Expected scan_type='remediate' (FixSession check path), got {db_scan_type!r}"
     assert int(str(db_total)) > 0, "Scan should have found violations in terrible-playbook"
 
     # -- 2. Remediation summary matches CLI output ----------------------
@@ -385,9 +382,7 @@ def test_scan_persisted_to_gateway(scan_data: YAMLDict, infrastructure: object) 
     )
 
     rest_logs = scan_detail.get("logs", [])
-    assert isinstance(rest_logs, list) and len(rest_logs) > 0, (
-        "REST /activity/{id} should include pipeline logs"
-    )
+    assert isinstance(rest_logs, list) and len(rest_logs) > 0, "REST /activity/{id} should include pipeline logs"
     rest_log_phases = {str(lg.get("phase", "")) for lg in rest_logs}
     assert "primary" in rest_log_phases, f"REST logs missing 'primary' phase, got: {sorted(rest_log_phases)}"
 

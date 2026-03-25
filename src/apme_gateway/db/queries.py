@@ -235,10 +235,7 @@ async def project_violations(
         List of Violation objects.
     """
     latest_scan_stmt = (
-        select(Scan.scan_id)
-        .where(Scan.project_id == project_id)
-        .order_by(Scan.created_at.desc())
-        .limit(1)
+        select(Scan.scan_id).where(Scan.project_id == project_id).order_by(Scan.created_at.desc()).limit(1)
     )
     latest_result = await db.execute(latest_scan_stmt)
     latest_scan_id = latest_result.scalar_one_or_none()
@@ -269,21 +266,14 @@ async def project_severity_breakdown(
         Dict mapping severity level to count.
     """
     latest_scan_stmt = (
-        select(Scan.scan_id)
-        .where(Scan.project_id == project_id)
-        .order_by(Scan.created_at.desc())
-        .limit(1)
+        select(Scan.scan_id).where(Scan.project_id == project_id).order_by(Scan.created_at.desc()).limit(1)
     )
     latest_result = await db.execute(latest_scan_stmt)
     latest_scan_id = latest_result.scalar_one_or_none()
     if latest_scan_id is None:
         return {}
 
-    stmt = (
-        select(Violation.level, func.count())
-        .where(Violation.scan_id == latest_scan_id)
-        .group_by(Violation.level)
-    )
+    stmt = select(Violation.level, func.count()).where(Violation.scan_id == latest_scan_id).group_by(Violation.level)
     result = await db.execute(stmt)
     return dict(result.all())
 
@@ -326,10 +316,7 @@ async def project_top_violations(
         List of (rule_id, count) tuples.
     """
     latest_scan_stmt = (
-        select(Scan.scan_id)
-        .where(Scan.project_id == project_id)
-        .order_by(Scan.created_at.desc())
-        .limit(1)
+        select(Scan.scan_id).where(Scan.project_id == project_id).order_by(Scan.created_at.desc()).limit(1)
     )
     latest_result = await db.execute(latest_scan_stmt)
     latest_scan_id = latest_result.scalar_one_or_none()

@@ -201,12 +201,13 @@ def run_check(args: argparse.Namespace) -> None:
             for p in patches
             if getattr(p, "diff", "")
         ]
+        fixable_from_report = int(tier1_report.fixed) if tier1_report else 0
         out: dict[str, object] = {
             "violations": violations,
             "count": len(violations),
             "scan_id": scan_id,
             "remediation_summary": {
-                "auto_fixable": rem_counts.get("auto-fixable", 0),
+                "auto_fixable": fixable_from_report,
                 "ai_candidate": rem_counts.get("ai-candidate", 0),
                 "manual_review": rem_counts.get("manual-review", 0),
             },
