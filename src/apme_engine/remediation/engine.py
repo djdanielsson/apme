@@ -478,13 +478,10 @@ class RemediationEngine:
             self._progress("ai", f"AI: {fname} ({len(file_violations)} violations) [{file_idx}/{total_files}]")
             logger.debug("AI file: %s (%d violations)", fname, len(file_violations))
 
-            proposal = await self._escalate_by_units(file_path, file_violations, content)
+            unit_proposals = await self._escalate_by_units(file_path, file_violations, content)
 
-            patches_count = len(proposal.patches) if proposal else 0
-            self._progress("ai", f"AI: {fname} complete ({patches_count} patches) [{file_idx}/{total_files}]")
-
-            if proposal is not None:
-                results.append(proposal)
+            self._progress("ai", f"AI: {fname} complete ({len(unit_proposals)} proposals) [{file_idx}/{total_files}]")
+            results.extend(unit_proposals)
 
         return results
 
@@ -493,8 +490,10 @@ class RemediationEngine:
         file_path: str,
         violations: list[ViolationDict],
         file_content: str,
-    ) -> AIProposal | None:
-        """Segment a file into units, call LLM per unit, reassemble.
+    ) -> list[AIProposal]:
+        """Segment a file into units, call LLM per unit, return one proposal per unit.
+
+        Each unit fix becomes its own independently approvable proposal.
 
         Args:
             file_path: Absolute file path.
@@ -502,15 +501,15 @@ class RemediationEngine:
             file_content: Current file content.
 
         Returns:
-            AIProposal combining all unit-level patches, or None.
+            List of AIProposal, one per unit that received a fix.
         """
         if self._ai_provider is None or self._node_index is None:
-            return None
+            return []
 
         units = extract_units(file_path, file_content, self._node_index)
         if not units:
             logger.debug("No fixable units found in %s, skipping AI", Path(file_path).name)
-            return None
+            return []
 
         orphans = assign_violations_to_units(units, violations)
         units_with_violations = [u for u in units if u.violations]
@@ -521,10 +520,9 @@ class RemediationEngine:
             for v in orphans:
                 v["remediation_resolution"] = RemediationResolution.MANUAL
         self._progress("ai", f"AI: {Path(file_path).name} — {total_units} unit(s)")
-        logger.debug("%d unit(s) with violations", total_units)
 
         if not units_with_violations:
-            return None
+            return []
 
         max_concurrent = 8
         semaphore = asyncio.Semaphore(max_concurrent)
@@ -556,8 +554,7 @@ class RemediationEngine:
             return_exceptions=True,
         )
 
-        all_patches: list[AIPatch] = []
-        all_skipped: list[AISkipped] = []
+        proposals: list[AIProposal] = []
 
         for i, result in enumerate(unit_results):
             unit = units_with_violations[i]
@@ -565,57 +562,43 @@ class RemediationEngine:
                 logger.error("Unit L%d-%d: %s", unit.line_start, unit.line_end, result)
                 continue
             patches, skipped = result
-            if patches:
-                all_patches.extend(patches)
-            if skipped:
-                all_skipped.extend(skipped)
+            if not patches:
+                continue
 
-        if not all_patches and not all_skipped:
-            return None
+            patch = patches[0]
 
-        # Re-validate unit patches the same way as batch patches
-        is_valid, transforms_applied, feedback = self._validate_batch_patches(all_patches, file_path, file_content)
-
-        if not is_valid and feedback:
-            logger.debug("Unit patches failed validation: %s", feedback.split(chr(10))[0])
-            # Mark as AI_FAILED instead of returning a broken proposal
-            for v in violations:
-                v["remediation_resolution"] = RemediationResolution.AI_FAILED
-            return None
-
-        patched_rules: set[str] = set()
-        for p in all_patches:
-            patched_rules.update(r.strip() for r in p.rule_id.split(","))
-
-        for v in violations:
-            rid = str(v.get("rule_id", ""))
-            if rid in patched_rules:
-                confs = [p.confidence for p in all_patches if rid in p.rule_id]
-                conf = min(confs) if confs else 0.85
-                v["remediation_resolution"] = (
-                    RemediationResolution.AI_LOW_CONFIDENCE if conf < 0.7 else RemediationResolution.AI_PROPOSED
+            generate_patch_hunks(file_content, patches, file_path)
+            patched_content = apply_patches(file_content, patches)
+            unit_diff = "".join(
+                difflib.unified_diff(
+                    file_content.splitlines(keepends=True),
+                    patched_content.splitlines(keepends=True),
+                    fromfile=f"a/{file_path}",
+                    tofile=f"b/{file_path} (AI proposed)",
                 )
-
-        generate_patch_hunks(file_content, all_patches, file_path)
-        patched_content = apply_patches(file_content, all_patches)
-        full_diff = "".join(
-            difflib.unified_diff(
-                file_content.splitlines(keepends=True),
-                patched_content.splitlines(keepends=True),
-                fromfile=f"a/{file_path}",
-                tofile=f"b/{file_path} (AI proposed)",
             )
-        )
 
-        return AIProposal(
-            file=file_path,
-            original_yaml=file_content,
-            fixed_yaml=patched_content,
-            patches=all_patches,
-            diff=full_diff,
-            skipped=all_skipped,
-            hybrid_transforms_applied=transforms_applied,
-        )
+            for v in unit.violations:
+                rid = str(v.get("rule_id", ""))
+                if rid in patch.rule_id:
+                    v["remediation_resolution"] = (
+                        RemediationResolution.AI_LOW_CONFIDENCE
+                        if patch.confidence < 0.7
+                        else RemediationResolution.AI_PROPOSED
+                    )
+
+            proposals.append(
+                AIProposal(
+                    file=file_path,
+                    original_yaml=file_content,
+                    fixed_yaml=patched_content,
+                    patches=patches,
+                    diff=unit_diff,
+                    skipped=skipped,
+                )
+            )
+
+        return proposals
 
     def _validate_batch_patches(
         self,
