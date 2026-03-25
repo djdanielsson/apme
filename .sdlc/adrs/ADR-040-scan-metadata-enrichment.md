@@ -12,7 +12,7 @@ Proposed
 
 During a project scan, the engine discovers significant information about the project beyond violations: which Ansible collections are used (and their versions), which Python packages are in the session environment, what `requirements.yml` and `requirements.txt` contain, what ansible-core version was used, and how FQCNs resolved. The Galaxy Proxy also resolves the full transitive dependency tree when building session venvs.
 
-Today, nearly all of this knowledge is discarded. The `ScanResponse` and `ScanCompletedEvent` carry only violations, diagnostics, and a remediation summary. The Gateway persists violations and computes health scores, but has no record of what collections or Python packages a project depends on.
+Today, nearly all of this knowledge is discarded. The `ScanResponse` and `ScanCompletedEvent` primarily expose violations and diagnostics (alongside scan/session identifiers, logs, and hierarchy payload), but they do not carry any dependency or manifest metadata. The Gateway persists violations and computes health scores, but has no record of what collections or Python packages a project depends on.
 
 This matters for two reasons:
 
@@ -92,6 +92,8 @@ Consumers (query)
 | `GET /api/v1/collections` | All collections seen across projects, with usage counts |
 | `GET /api/v1/collections/{fqcn}` | Collection detail: version, projects using it, health score |
 | `GET /api/v1/collections/{fqcn}/projects` | Projects that depend on this collection |
+| `GET /api/v1/python-packages` | All Python packages seen across projects, with usage counts |
+| `GET /api/v1/python-packages/{name}` | Package detail: version(s), projects using it, CVE status |
 
 ## Alternatives Considered
 
@@ -155,7 +157,7 @@ Consumers (query)
 
 ### Gateway changes
 
-1. New DB tables: `collection_refs`, `python_package_refs`, `project_collections` (many-to-many).
+1. New DB tables: `collection_refs`, `python_package_refs`, `project_collections` (many-to-many), `project_python_packages` (many-to-many).
 2. `grpc_reporting/servicer.py`: Extract and persist manifest from `ScanCompletedEvent`.
 3. New REST endpoints under `/api/v1/`.
 

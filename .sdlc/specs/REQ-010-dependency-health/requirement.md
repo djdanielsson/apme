@@ -34,8 +34,8 @@ This separates concerns: the engine scans content, the Gateway stores data and s
 │  │  Engine   │    │  Galaxy   │    │   Dependency Health       │  │
 │  │  :50051   │    │  Proxy    │    │   Service (sidecar)       │  │
 │  │           │    │  :8765    │    │                           │  │
-│  │  scans    │◄───┤  resolves │◄───┤  1. GET /collections      │  │
-│  │  content  │    │  colls    │    │     from Gateway          │  │
+│  │  scans    │◄───┤  resolves │◄───┤  1. GET /api/v1/collections│  │
+│  │  content  │    │  collctns │    │     from Gateway          │  │
 │  │           │    │           │    │  2. Download collection    │  │
 │  └─────▲─────┘    └──────────┘    │     from Galaxy Proxy     │  │
 │        │                          │  3. Scan via Engine gRPC   │  │
