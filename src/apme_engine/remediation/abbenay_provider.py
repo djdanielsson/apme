@@ -498,7 +498,10 @@ def _parse_unit_response(
             explanations.append(str(exp))
         conf = c.get("confidence")
         if conf is not None:
-            confidences.append(float(conf))
+            try:
+                confidences.append(float(conf))
+            except (TypeError, ValueError):
+                logger.debug("Ignoring non-numeric confidence value from AI: %r", conf)
 
     combined_rule = ",".join(rule_ids) if rule_ids else "ai-fix"
     combined_expl = "; ".join(explanations[:3]) if explanations else "AI-generated fix"

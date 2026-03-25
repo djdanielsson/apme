@@ -562,6 +562,10 @@ class RemediationEngine:
                 continue
             patches, skipped = result
             if not patches:
+                if skipped:
+                    for v in unit.violations:
+                        if "remediation_resolution" not in v:
+                            v["remediation_resolution"] = RemediationResolution.AI_FAILED
                 continue
 
             patch = patches[0]
@@ -574,6 +578,8 @@ class RemediationEngine:
                     unit.line_end,
                     file_content.count(unit.snippet),
                 )
+                for v in unit.violations:
+                    v["remediation_resolution"] = RemediationResolution.MANUAL
                 continue
 
             patched_content = file_content.replace(unit.snippet, fixed_snippet, 1)

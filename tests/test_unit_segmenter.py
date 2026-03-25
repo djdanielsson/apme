@@ -289,7 +289,7 @@ class TestEngineUnitEscalation:
         assert len(report.ai_proposed) == 0
 
     def test_orphans_marked_manual_review(self, tmp_path: Path) -> None:
-        """Verifies orphan violations are marked MANUAL_REVIEW, not sent to AI.
+        """Verifies orphan violations are marked manual, not sent to AI.
 
         Args:
             tmp_path: Pytest temporary directory fixture.

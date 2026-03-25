@@ -824,7 +824,7 @@ class TestExtractJsonObject:
 
 
 # ---------------------------------------------------------------------------
-# Line offset detection tests
+# _parse_unit_response / fixed_snippet tests
 # ---------------------------------------------------------------------------
 
 
