@@ -41,8 +41,14 @@ def derive_session_id(project_id: str) -> str:
     return hashlib.sha256(project_id.encode()).hexdigest()[:16]
 
 
+_ALLOWED_SCHEMES = ("https://",)
+
+
 async def clone_repo(repo_url: str, branch: str, dest: str) -> None:
     """Shallow-clone an SCM repo into *dest*.
+
+    Only ``https://`` URLs are permitted to prevent SSRF via ``file://``,
+    ``ssh://``, or other git transports.
 
     Args:
         repo_url: HTTPS clone URL.
@@ -50,8 +56,17 @@ async def clone_repo(repo_url: str, branch: str, dest: str) -> None:
         dest: Target directory (must not already exist).
 
     Raises:
+        ValueError: If *repo_url* uses a disallowed scheme.
         RuntimeError: If ``git clone`` fails.
     """
+    if not any(repo_url.startswith(scheme) for scheme in _ALLOWED_SCHEMES):
+        msg = f"Only https:// clone URLs are allowed, got: {repo_url[:60]}"
+        raise ValueError(msg)
+
+    if not branch.replace("-", "").replace("_", "").replace("/", "").replace(".", "").isalnum():
+        msg = f"Invalid branch name: {branch[:60]}"
+        raise ValueError(msg)
+
     cmd = [
         "git",
         "clone",

@@ -34,26 +34,6 @@ def compute_health_score(violations: list[Violation]) -> int:
     return max(0, min(100, 100 - penalty))
 
 
-def _violation_trend(scans: list[Scan]) -> str:
-    """Determine violation trend from chronologically ordered scans.
-
-    Args:
-        scans: Scans ordered by created_at ascending.
-
-    Returns:
-        One of ``improving``, ``declining``, or ``stable``.
-    """
-    if len(scans) < 2:
-        return "stable"
-    latest = scans[-1].total_violations
-    previous = scans[-2].total_violations
-    if latest < previous:
-        return "improving"
-    if latest > previous:
-        return "declining"
-    return "stable"
-
-
 async def create_project(
     db: AsyncSession,
     *,

@@ -426,12 +426,18 @@ async def list_project_scans(
 async def list_project_violations(
     project_id: str,
     severity: str | None = Query(default=None),
+    rule_id: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
 ) -> list[ViolationDetail]:
     """Return violations from the latest scan of a project.
 
     Args:
         project_id: Project UUID.
         severity: Optional severity filter.
+        rule_id: Optional rule_id filter.
+        limit: Maximum rows.
+        offset: Rows to skip.
 
     Returns:
         List of violation details.
@@ -443,7 +449,14 @@ async def list_project_violations(
         proj = await q.get_project(db, project_id)
         if not proj:
             raise HTTPException(status_code=404, detail="Project not found")
-        violations = await q.project_violations(db, project_id)
+        violations = await q.project_violations(
+            db,
+            project_id,
+            severity=severity,
+            rule_id=rule_id,
+            limit=limit,
+            offset=offset,
+        )
     return [
         ViolationDetail(
             id=v.id,
@@ -457,7 +470,6 @@ async def list_project_violations(
             scope=v.scope,
         )
         for v in violations
-        if severity is None or v.level == severity
     ]
 
 
@@ -840,30 +852,77 @@ async def project_operate_ws(
         cfg = load_config()
 
         async def _progress_cb(event: object) -> None:
-            """Forward gRPC events to the WebSocket.
+            """Translate gRPC events into ADR-037 WebSocket messages.
+
+            Inspects the event for known attributes and sends structured
+            messages that match the frontend ``useProjectOperation`` hook.
 
             Args:
                 event: gRPC ScanEvent or SessionEvent.
             """
-            await websocket.send_json({"type": "progress", "data": str(event)})
+            event_type = getattr(event, "type", None) or getattr(event, "event_type", None)
+            phase = getattr(event, "phase", None)
+            message = getattr(event, "message", None) or getattr(event, "detail", None) or str(event)
+
+            if isinstance(event_type, str):
+                payload: dict[str, object] = {"type": event_type}
+                if phase is not None:
+                    payload["phase"] = str(phase)
+                payload["message"] = str(message)
+            else:
+                payload = {
+                    "type": "progress",
+                    "phase": str(phase) if phase else "processing",
+                    "message": str(message),
+                }
+            await websocket.send_json(payload)
 
         raw_specs = options.get("collection_specs", [])
         specs = [str(s) for s in raw_specs] if isinstance(raw_specs, list) else []
 
+        await websocket.send_json({"type": "cloning"})
+
         if is_fix:
             approval_queue: asyncio.Queue[list[str]] = asyncio.Queue()
-            await run_project_fix(
-                project_id=proj.id,
-                repo_url=proj.repo_url,
-                branch=proj.branch,
-                primary_address=cfg.primary_address,
-                ansible_version=str(options.get("ansible_version", "")),
-                collection_specs=specs,
-                enable_ai=bool(options.get("enable_ai", True)),
-                ai_model=str(options.get("ai_model", "")),
-                progress_callback=_progress_cb,
-                approval_queue=approval_queue,
-            )
+
+            async def _run_fix() -> None:
+                await run_project_fix(
+                    project_id=proj.id,
+                    repo_url=proj.repo_url,
+                    branch=proj.branch,
+                    primary_address=cfg.primary_address,
+                    ansible_version=str(options.get("ansible_version", "")),
+                    collection_specs=specs,
+                    enable_ai=bool(options.get("enable_ai", True)),
+                    ai_model=str(options.get("ai_model", "")),
+                    progress_callback=_progress_cb,
+                    approval_queue=approval_queue,
+                )
+
+            fix_task = asyncio.create_task(_run_fix())
+            try:
+                while not fix_task.done():
+                    try:
+                        client_msg = await asyncio.wait_for(
+                            websocket.receive_json(),
+                            timeout=1.0,
+                        )
+                    except TimeoutError:
+                        continue
+
+                    msg_type = client_msg.get("type", "")
+                    if msg_type == "approve":
+                        ids = client_msg.get("approved_ids", [])
+                        approved = [str(i) for i in ids] if isinstance(ids, list) else []
+                        await approval_queue.put(approved)
+                    elif msg_type == "cancel":
+                        fix_task.cancel()
+                        break
+            finally:
+                if not fix_task.done():
+                    fix_task.cancel()
+                with contextlib.suppress(Exception):
+                    await fix_task
         else:
             await run_project_scan(
                 project_id=proj.id,
