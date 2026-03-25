@@ -453,6 +453,60 @@ def _extract_json_object(text: str) -> dict | None:  # type: ignore[type-arg]
     return None
 
 
+def _detect_line_offset(
+    raw_patches: list[object],
+    min_line: int,
+    max_line: int,
+) -> int:
+    """Detect if patches use snippet-relative line numbers and compute offset.
+
+    Some LLMs return line numbers starting at 1 relative to the shown snippet
+    instead of using the original file line numbers.  If all patches fall below
+    ``min_line`` and shifting by ``min_line - 1`` would put them in range, we
+    return that offset so the caller can correct them.
+
+    Args:
+        raw_patches: List of raw patch dicts from the LLM JSON.
+        min_line: Minimum valid absolute line number.
+        max_line: Maximum valid absolute line number.
+
+    Returns:
+        Offset to add to each patch's line numbers, or 0 if no shift needed.
+    """
+    if min_line <= 1:
+        return 0
+
+    patch_starts: list[int] = []
+    for entry in raw_patches:
+        if not isinstance(entry, dict):
+            continue
+        ls = entry.get("line_start")
+        if ls is not None:
+            patch_starts.append(int(ls))
+
+    if not patch_starts:
+        return 0
+
+    all_below = all(ls < min_line for ls in patch_starts)
+    if not all_below:
+        return 0
+
+    offset = min_line - 1
+    unit_size = max_line - min_line + 1
+    shifted_ok = all(1 <= ls <= unit_size for ls in patch_starts)
+
+    if shifted_ok:
+        for entry in raw_patches:
+            if not isinstance(entry, dict):
+                continue
+            le = entry.get("line_end")
+            if le is not None and int(le) > unit_size:
+                return 0
+        return offset
+
+    return 0
+
+
 def _parse_batch_response(
     response_text: str,
     file_content: str,
@@ -491,6 +545,16 @@ def _parse_batch_response(
 
     min_line = min_line_override if min_line_override else 1
     max_line = max_line_override if max_line_override else len(file_content.splitlines())
+
+    line_offset = _detect_line_offset(raw_patches, min_line, max_line)
+    if line_offset:
+        logger.info(
+            "Detected snippet-relative line numbers, shifting by +%d (unit range %d-%d)",
+            line_offset,
+            min_line,
+            max_line,
+        )
+
     result: list[AIPatch] = []
 
     for entry in raw_patches:
@@ -507,11 +571,12 @@ def _parse_batch_response(
             logger.warning("Skipping malformed patch entry: %s", entry)
             continue
 
-        ls = int(line_start)  # type: ignore[arg-type]
-        le = int(line_end)  # type: ignore[arg-type]
+        ls = int(line_start) + line_offset  # type: ignore[arg-type]
+        le = int(line_end) + line_offset  # type: ignore[arg-type]
         if ls < min_line or le < ls or ls > max_line:
             logger.warning(
-                "Skipping patch with invalid line range %d-%d (valid range %d-%d)",
+                "Skipping patch %s with line range %d-%d (valid range %d-%d)",
+                rule_id,
                 ls,
                 le,
                 min_line,

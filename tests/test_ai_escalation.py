@@ -11,6 +11,7 @@ from apme_engine.engine.models import ViolationDict
 from apme_engine.remediation.abbenay_provider import (
     _build_batch_prompt,
     _extract_code_window,
+    _detect_line_offset,
     _extract_json_object,
     _get_best_practices_for_rule,
     _get_best_practices_for_rules,
@@ -826,6 +827,78 @@ class TestExtractJsonObject:
         assert patches is not None
         assert len(patches) == 1
         assert patches[0].rule_id == "M001"
+
+
+# ---------------------------------------------------------------------------
+# Line offset detection tests
+# ---------------------------------------------------------------------------
+
+
+class TestDetectLineOffset:
+    """Tests for _detect_line_offset which corrects snippet-relative numbering."""
+
+    def test_no_offset_needed(self) -> None:
+        """Returns 0 when patches already use absolute line numbers."""
+        patches = [{"line_start": 42, "line_end": 44}]
+        assert _detect_line_offset(patches, min_line=42, max_line=50) == 0
+
+    def test_offset_detected(self) -> None:
+        """Detects snippet-relative numbering and returns correct offset."""
+        patches = [
+            {"line_start": 1, "line_end": 3},
+            {"line_start": 5, "line_end": 7},
+        ]
+        assert _detect_line_offset(patches, min_line=42, max_line=50) == 41
+
+    def test_no_offset_for_line_1_units(self) -> None:
+        """Returns 0 when unit starts at line 1 (no shift possible)."""
+        patches = [{"line_start": 1, "line_end": 2}]
+        assert _detect_line_offset(patches, min_line=1, max_line=10) == 0
+
+    def test_no_offset_when_mixed(self) -> None:
+        """Returns 0 when some patches are in range already."""
+        patches = [
+            {"line_start": 1, "line_end": 2},
+            {"line_start": 42, "line_end": 44},
+        ]
+        assert _detect_line_offset(patches, min_line=42, max_line=50) == 0
+
+    def test_no_offset_when_shift_exceeds_range(self) -> None:
+        """Returns 0 when shifted values would exceed unit range."""
+        patches = [{"line_start": 1, "line_end": 20}]
+        assert _detect_line_offset(patches, min_line=42, max_line=45) == 0
+
+    def test_empty_patches(self) -> None:
+        """Returns 0 for empty patches list."""
+        assert _detect_line_offset([], min_line=42, max_line=50) == 0
+
+    def test_end_to_end_shifted_parse(self) -> None:
+        """Full round-trip: snippet-relative numbers corrected during parse."""
+        response = json.dumps(
+            {
+                "patches": [
+                    {
+                        "rule_id": "M001",
+                        "line_start": 1,
+                        "line_end": 2,
+                        "fixed_lines": "- ansible.builtin.debug:\n    msg: hi\n",
+                        "explanation": "FQCN",
+                        "confidence": 0.95,
+                    }
+                ]
+            }
+        )
+        snippet = "- debug:\n    msg: hi\n"
+        patches, _ = _parse_batch_response(
+            response,
+            snippet,
+            min_line_override=42,
+            max_line_override=43,
+        )
+        assert patches is not None
+        assert len(patches) == 1
+        assert patches[0].line_start == 42
+        assert patches[0].line_end == 43
 
 
 # ---------------------------------------------------------------------------
