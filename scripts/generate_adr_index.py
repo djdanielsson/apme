@@ -130,7 +130,7 @@ def _render(adrs: list[dict[str, str]]) -> str:
         [
             "## Creating New ADRs",
             "",
-            "1. Copy the template from `../.sdlc/templates/adr.md`",
+            "1. Copy the template from `../templates/adr.md`",
             f"2. Use the next available number (currently ADR-{_next_number(adrs):03d})",
             "3. Include:",
             "   - Status (Proposed → Accepted → Implemented)",
@@ -165,6 +165,17 @@ def main() -> int:
     if not adrs:
         print("No ADR files found", file=sys.stderr)
         return 1
+
+    seen: dict[str, str] = {}
+    for a in adrs:
+        num = a["number"]
+        if num in seen:
+            print(
+                f"ERROR: Duplicate ADR number {num}: {seen[num]} and {a['filename']}",
+                file=sys.stderr,
+            )
+            return 1
+        seen[num] = a["filename"]
 
     content = _render(adrs)
     existing = README.read_text(encoding="utf-8") if README.exists() else ""
