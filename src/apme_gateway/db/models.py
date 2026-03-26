@@ -1,13 +1,15 @@
-"""SQLAlchemy ORM models for gateway persistence (ADR-029, ADR-037).
+"""SQLAlchemy ORM models for gateway persistence (ADR-029, ADR-037, ADR-040).
 
 The ``projects`` table is the top-level user-facing entity (ADR-037).
 The ``sessions`` table remains for reporting-servicer compatibility with
 CLI-initiated scans but is not exposed in user-facing APIs.
+Dependency manifest tables (ADR-040) store per-scan collection and
+Python package metadata.
 """
 
 from __future__ import annotations
 
-from sqlalchemy import Float, ForeignKey, Integer, Text
+from sqlalchemy import Float, ForeignKey, Integer, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -31,7 +33,7 @@ class Project(Base):
     __tablename__ = "projects"
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
-    name: Mapped[str] = mapped_column(Text, nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
     repo_url: Mapped[str] = mapped_column(Text, nullable=False)
     branch: Mapped[str] = mapped_column(Text, nullable=False, default="main")
     created_at: Mapped[str] = mapped_column(Text, nullable=False)
@@ -88,6 +90,9 @@ class Scan(Base):
         proposals: Related proposal rows.
         logs: Related log rows.
         patches: Related patch rows (per-file diffs).
+        manifest: Related manifest row (ADR-040).
+        collections: Related collection rows (ADR-040).
+        python_packages: Related Python package rows (ADR-040).
     """
 
     __tablename__ = "scans"
@@ -116,6 +121,11 @@ class Scan(Base):
     proposals: Mapped[list[Proposal]] = relationship(back_populates="scan", cascade="all, delete-orphan")
     logs: Mapped[list[ScanLog]] = relationship(back_populates="scan", cascade="all, delete-orphan")
     patches: Mapped[list[ScanPatch]] = relationship(back_populates="scan", cascade="all, delete-orphan")
+    manifest: Mapped[ScanManifest | None] = relationship(
+        back_populates="scan", cascade="all, delete-orphan", uselist=False
+    )
+    collections: Mapped[list[ScanCollection]] = relationship(back_populates="scan", cascade="all, delete-orphan")
+    python_packages: Mapped[list[ScanPythonPackage]] = relationship(back_populates="scan", cascade="all, delete-orphan")
 
 
 class Violation(Base):
@@ -224,3 +234,77 @@ class ScanPatch(Base):
     diff: Mapped[str] = mapped_column(Text, nullable=False, default="")
 
     scan: Mapped[Scan] = relationship(back_populates="patches")
+
+
+# ── Dependency manifest tables (ADR-040) ─────────────────────────────
+
+
+class ScanManifest(Base):
+    """Per-scan dependency manifest metadata (ADR-040).
+
+    Stores the ansible-core version and discovered requirements files
+    for a single scan run.  Collection and package details are in
+    separate tables linked by ``scan_id``.
+
+    Attributes:
+        scan_id: Owning scan UUID (PK, FK to scans).
+        ansible_core_version: ansible-core version from the session venv.
+        requirements_files_json: JSON array of requirement file paths.
+        dependency_tree: Raw ``uv pip tree`` output.
+        scan: Back-reference to owning Scan.
+    """
+
+    __tablename__ = "scan_manifests"
+
+    scan_id: Mapped[str] = mapped_column(Text, ForeignKey("scans.scan_id"), primary_key=True)
+    ansible_core_version: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    requirements_files_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    dependency_tree: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+    scan: Mapped[Scan] = relationship(back_populates="manifest")
+
+
+class ScanCollection(Base):
+    """A collection reference discovered during a scan (ADR-040).
+
+    Attributes:
+        id: Auto-increment primary key.
+        scan_id: Owning scan UUID (FK to scans).
+        fqcn: Fully-qualified collection name.
+        version: Installed version string.
+        source: Classification — specified, learned, or dependency.
+        scan: Back-reference to owning Scan.
+    """
+
+    __tablename__ = "scan_collections"
+    __table_args__ = (UniqueConstraint("scan_id", "fqcn", name="uq_scan_collection"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    scan_id: Mapped[str] = mapped_column(Text, ForeignKey("scans.scan_id"), nullable=False)
+    fqcn: Mapped[str] = mapped_column(Text, nullable=False)
+    version: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    source: Mapped[str] = mapped_column(Text, nullable=False, default="unknown")
+
+    scan: Mapped[Scan] = relationship(back_populates="collections")
+
+
+class ScanPythonPackage(Base):
+    """A Python package reference discovered during a scan (ADR-040).
+
+    Attributes:
+        id: Auto-increment primary key.
+        scan_id: Owning scan UUID (FK to scans).
+        name: PyPI package name.
+        version: Installed version string.
+        scan: Back-reference to owning Scan.
+    """
+
+    __tablename__ = "scan_python_packages"
+    __table_args__ = (UniqueConstraint("scan_id", "name", name="uq_scan_python_package"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    scan_id: Mapped[str] = mapped_column(Text, ForeignKey("scans.scan_id"), nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    version: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+    scan: Mapped[Scan] = relationship(back_populates="python_packages")

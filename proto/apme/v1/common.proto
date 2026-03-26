@@ -107,6 +107,28 @@ message ValidatorDiagnostics {
   map<string, string> metadata = 7;
 }
 
+// Dependency manifest types (ADR-040).
+
+message CollectionRef {
+  string fqcn = 1;           // e.g. "community.general"
+  string version = 2;        // e.g. "8.0.0"
+  string source = 3;         // "specified", "learned", or "dependency"
+}
+
+message PythonPackageRef {
+  string name = 1;            // e.g. "jmespath"
+  string version = 2;         // e.g. "1.0.1"
+  reserved 3;                 // was required_by; relationships live in dependency_tree
+}
+
+message ProjectManifest {
+  string ansible_core_version = 1;
+  repeated CollectionRef collections = 2;
+  repeated PythonPackageRef python_packages = 3;
+  repeated string requirements_files = 4;   // paths found in project
+  string dependency_tree = 5;               // raw `uv pip tree` output
+}
+
 // Log level for structured log transport (ADR-033).
 enum LogLevel {
   LOG_LEVEL_UNSPECIFIED = 0;

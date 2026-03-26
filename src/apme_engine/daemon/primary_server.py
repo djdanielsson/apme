@@ -12,7 +12,6 @@ import difflib
 import json
 import logging
 import os
-import shutil
 import tempfile
 import time
 import uuid
@@ -26,10 +25,13 @@ import jsonpickle
 
 from apme.v1 import primary_pb2_grpc, validate_pb2_grpc
 from apme.v1.common_pb2 import (
+    CollectionRef,
     File,
     HealthRequest,
     HealthResponse,
     ProgressUpdate,
+    ProjectManifest,
+    PythonPackageRef,
     ScanSummary,
     ServiceHealth,
     ValidatorDiagnostics,
@@ -50,8 +52,6 @@ from apme.v1.primary_pb2 import (
     ScanChunk,
     ScanDiagnostics,
     ScanOptions,
-    ScanRequest,
-    ScanResponse,
     SessionClosed,
     SessionCommand,
     SessionCreated,
@@ -62,17 +62,22 @@ from apme.v1.primary_pb2 import (
 from apme.v1.reporting_pb2 import (
     FixCompletedEvent,
     ProposalOutcome,
-    ScanCompletedEvent,
 )
 from apme.v1.validate_pb2 import ValidateRequest
-from apme_engine.daemon.event_emitter import emit_fix_completed, emit_scan_completed, start_sinks
+from apme_engine.daemon.event_emitter import emit_fix_completed, start_sinks
 from apme_engine.daemon.session import ResourceExhaustedError, SessionState, SessionStore
 from apme_engine.daemon.violation_convert import violation_dict_to_proto, violation_proto_to_dict
 from apme_engine.engine.jsonpickle_handlers import register_engine_handlers
 from apme_engine.engine.models import AnsibleRunContext, ViolationDict
-from apme_engine.log_bridge import attach_collector, merge_logs
+from apme_engine.log_bridge import attach_collector
 from apme_engine.runner import run_scan
-from apme_engine.venv_manager.session import VenvSessionManager
+from apme_engine.venv_manager.session import (
+    VenvSession,
+    VenvSessionManager,
+    get_dependency_tree,
+    list_installed_collections,
+    list_installed_packages,
+)
 
 logger = logging.getLogger("apme.primary")
 
@@ -233,25 +238,27 @@ async def _call_validator(
 _REQUIREMENTS_PATHS = {"requirements.yml", "collections/requirements.yml"}
 
 
-def _discover_collection_specs(files: list[File]) -> list[str]:
+def _discover_collection_specs(files: Sequence[File]) -> tuple[list[str], list[str]]:
     """Extract collection specs from requirements.yml files in the uploaded file set.
 
     Looks for ``requirements.yml`` and ``collections/requirements.yml``.
     Parses the ``collections`` key and returns ``name[:version]`` strings.
 
     Args:
-        files: Uploaded File protos from the ScanRequest.
+        files: Uploaded File protos (or duck-typed objects with ``path``/``content``).
 
     Returns:
-        Deduplicated list of collection specifiers found in requirements files.
+        Tuple of (deduplicated collection specifiers, matched file paths).
     """
     import yaml
 
     specs: dict[str, str] = {}
+    found_paths: list[str] = []
     for f in files:
         norm = f.path.replace("\\", "/").lstrip("/")
         if norm not in _REQUIREMENTS_PATHS:
             continue
+        found_paths.append(norm)
         try:
             data = yaml.safe_load(f.content.decode("utf-8"))
         except Exception:
@@ -273,7 +280,7 @@ def _discover_collection_specs(files: list[File]) -> list[str]:
                     else name
                 )
                 specs.setdefault(name, spec)
-    return list(specs.values())
+    return list(specs.values()), found_paths
 
 
 def merge_collection_specs(
@@ -310,6 +317,64 @@ def merge_collection_specs(
             existing.add(coll)
 
     return result
+
+
+def _classify_collections(
+    installed: list[tuple[str, str]],
+    specified_fqcns: set[str],
+    learned_fqcns: set[str],
+) -> list[tuple[str, str, str]]:
+    """Classify each installed collection by how it was discovered.
+
+    Args:
+        installed: ``(fqcn, version)`` pairs from ``list_installed_collections``.
+        specified_fqcns: FQCNs explicitly listed in requirements files.
+        learned_fqcns: FQCNs discovered via playbook FQCN references.
+
+    Returns:
+        List of ``(fqcn, version, source)`` where *source* is one of
+        ``"specified"``, ``"learned"``, or ``"dependency"``.
+    """
+    result: list[tuple[str, str, str]] = []
+    for fqcn, version in installed:
+        if fqcn in specified_fqcns:
+            source = "specified"
+        elif fqcn in learned_fqcns:
+            source = "learned"
+        else:
+            source = "dependency"
+        result.append((fqcn, version, source))
+    return result
+
+
+def _build_manifest(session: SessionState) -> ProjectManifest:
+    """Build a ProjectManifest from session state captured during scanning.
+
+    Constructs ``CollectionRef`` messages from classified ``(fqcn, version,
+    source)`` tuples and ``PythonPackageRef`` from ``installed_packages``.
+
+    Args:
+        session: Session with manifest fields populated by ``scan_fn``.
+
+    Returns:
+        ProjectManifest ready for embedding in FixCompletedEvent.
+    """
+    collections: list[CollectionRef] = [
+        CollectionRef(fqcn=fqcn, version=version, source=source)
+        for fqcn, version, source in session.installed_collections
+    ]
+
+    packages: list[PythonPackageRef] = [
+        PythonPackageRef(name=name, version=ver) for name, ver in session.installed_packages
+    ]
+
+    return ProjectManifest(
+        ansible_core_version=session.ansible_core_version,
+        collections=collections,
+        python_packages=packages,
+        requirements_files=session.requirements_files,
+        dependency_tree=session.dependency_tree,
+    )
 
 
 VALIDATOR_ENV_VARS = {
@@ -357,11 +422,19 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
         session_id: str = "",
         progress_callback: Callable[[str, str, float], None] | None = None,
     ) -> tuple[
-        list[ViolationDict], ScanDiagnostics | None, str, list[list[ProgressUpdate]], Mapping[str, object] | None
+        list[ViolationDict],
+        ScanDiagnostics | None,
+        str,
+        list[list[ProgressUpdate]],
+        Mapping[str, object] | None,
+        VenvSession | None,
+        list[str],
+        set[str],
+        set[str],
     ]:
         """Core scan pipeline: engine → collection discovery → venv → validators.
 
-        Reused by Scan, ScanStream, and FixSession (as scan_fn for remediation).
+        Reused by FixSession (as scan_fn for remediation).
 
         Every scan gets a session-scoped venv.  The flow is:
 
@@ -388,7 +461,9 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
 
         Returns:
             Tuple of (violations, ScanDiagnostics or None, resolved session_id,
-            merged pipeline logs, hierarchy_payload Mapping or None).
+            merged pipeline logs, hierarchy_payload Mapping or None,
+            VenvSession or None, requirements file paths found,
+            specified collection FQCNs, learned collection FQCNs).
         """
         from apme_engine.validators.ansible._venv import DEFAULT_VERSION
         from apme_engine.venv_manager.session import _venv_site_packages
@@ -423,10 +498,10 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
 
         if not context_obj.hierarchy_payload:
             logger.warning("Scan: no hierarchy payload produced (req=%s)", scan_id)
-            return [], ScanDiagnostics(), sid, [], None
+            return [], ScanDiagnostics(), sid, [], None, None, [], set(), set()
 
         # 2. Collection discovery
-        discovered = _discover_collection_specs(files)
+        discovered, requirements_found = _discover_collection_specs(files)
         hierarchy_collections = context_obj.hierarchy_payload.get("collection_set", [])
         if not isinstance(hierarchy_collections, list):
             hierarchy_collections = []
@@ -559,8 +634,21 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
             fan_out_ms=fan_out_ms,
             total_ms=total_ms,
         )
+        specified_fqcns = {s.split(":")[0] for s in discovered}
+        learned_fqcns = {str(c) for c in hierarchy_collections if isinstance(c, str)}
+
         logger.info("Scan: pipeline done (%.0fms, %d violations, req=%s)", total_ms, len(violations), scan_id)
-        return violations, diag, sid, validator_logs, context_obj.hierarchy_payload
+        return (
+            violations,
+            diag,
+            sid,
+            validator_logs,
+            context_obj.hierarchy_payload,
+            venv_session,
+            requirements_found,
+            specified_fqcns,
+            learned_fqcns,
+        )
 
     @staticmethod
     def _format_files(files: list[File]) -> list[FileDiff]:
@@ -624,102 +712,6 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
             if chunk.last:
                 break
         return all_files, scan_id or str(uuid.uuid4()), project_root, opts, fix_opts
-
-    # ── Scan RPCs ─────────────────────────────────────────────────────
-
-    async def Scan(self, request: ScanRequest, context: grpc.aio.ServicerContext) -> ScanResponse:  # type: ignore[type-arg]
-        """Handle unary Scan RPC: validate files and return violations.
-
-        Args:
-            request: Scan request containing files and options.
-            context: gRPC servicer context.
-
-        Returns:
-            ScanResponse with violations and diagnostics.
-
-        Raises:
-            Exception: Propagates unexpected errors after cleanup.
-        """
-        scan_id = request.scan_id or str(uuid.uuid4())
-        temp_dir: Path | None = None
-
-        with attach_collector() as sink:
-            try:
-                logger.info("Scan: start (%d files, req=%s)", len(request.files), scan_id)
-
-                if not request.files:
-                    return ScanResponse(scan_id=scan_id, violations=[], logs=sink.entries)
-
-                try:
-                    temp_dir = await asyncio.get_event_loop().run_in_executor(
-                        None,
-                        _write_chunked_fs,  # type: ignore[arg-type]
-                        list(request.files),
-                    )
-                except ValueError as ve:
-                    await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(ve))
-                assert temp_dir is not None
-
-                opts = request.options if request.HasField("options") else None
-                session_id = request.session_id or (opts.session_id if opts else "") or ""
-                violations, diag, resolved_sid, vlogs, _ = await self._scan_pipeline(
-                    temp_dir,
-                    list(request.files),  # type: ignore[arg-type]
-                    scan_id,
-                    ansible_core_version=opts.ansible_core_version if opts else "",
-                    collection_specs=list(opts.collection_specs) if opts else [],
-                    session_id=session_id,
-                )
-
-                from apme_engine.remediation.partition import add_classification_to_violations
-                from apme_engine.remediation.transforms import build_default_registry
-
-                registry = build_default_registry()
-                add_classification_to_violations(violations, registry)
-
-                from apme_engine.remediation.partition import count_by_remediation_class, count_by_resolution
-
-                rem_counts = count_by_remediation_class(violations)
-                res_counts = count_by_resolution(violations)
-                summary = ScanSummary(
-                    total=len(violations),
-                    auto_fixable=rem_counts.get("auto-fixable", 0),
-                    ai_candidate=rem_counts.get("ai-candidate", 0),
-                    manual_review=rem_counts.get("manual-review", 0),
-                    by_resolution=res_counts,
-                )
-
-                all_logs = merge_logs(sink.entries, vlogs)
-                proto_violations = [violation_dict_to_proto(v) for v in violations]
-
-                await emit_scan_completed(
-                    ScanCompletedEvent(
-                        scan_id=scan_id,
-                        session_id=resolved_sid,
-                        project_path=request.project_root,
-                        source="cli",
-                        violations=proto_violations,
-                        diagnostics=diag,
-                        summary=summary,
-                        logs=all_logs,
-                    )
-                )
-
-                return ScanResponse(
-                    violations=proto_violations,
-                    scan_id=scan_id,
-                    diagnostics=diag,
-                    summary=summary,
-                    session_id=resolved_sid,
-                    logs=all_logs,
-                )
-            except Exception as e:
-                logger.exception("Scan failed (req=%s): %s", scan_id, e)
-                raise
-            finally:
-                if temp_dir is not None and temp_dir.is_dir():
-                    with contextlib.suppress(OSError):
-                        shutil.rmtree(temp_dir)
 
     # ── Format RPCs ───────────────────────────────────────────────────
 
@@ -1060,8 +1052,10 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
                 ProgressUpdate(message=message, phase=phase, progress=fraction, level=2),
             )
 
+        manifest_captured = False
+
         def scan_fn(file_paths: list[str]) -> list[ViolationDict]:
-            nonlocal node_index_set
+            nonlocal node_index_set, manifest_captured
             rel_files = []
             for fp in file_paths:
                 p = Path(fp)
@@ -1077,7 +1071,29 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
                 progress_callback=_progress_callback,
             )
             future = asyncio.run_coroutine_threadsafe(coro, loop)
-            violations, _, _, _, hierarchy_payload = future.result(timeout=300)
+            (
+                violations,
+                _,
+                _,
+                _,
+                hierarchy_payload,
+                venv_sess,
+                req_files,
+                specified_fqcns,
+                learned_fqcns,
+            ) = future.result(timeout=300)
+
+            if not manifest_captured and venv_sess is not None:
+                manifest_captured = True
+                session.ansible_core_version = venv_sess.ansible_version
+                session.installed_collections = _classify_collections(
+                    list_installed_collections(venv_sess.venv_root),
+                    specified_fqcns,
+                    learned_fqcns,
+                )
+                session.installed_packages = list_installed_packages(venv_sess.venv_root)
+                session.dependency_tree = get_dependency_tree(venv_sess.venv_root)
+                session.requirements_files = req_files
 
             if hierarchy_payload and not node_index_set:
                 node_index_set = True
@@ -1510,6 +1526,8 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
             manual_review=rem_counts.get("manual-review", 0),
         )
 
+        manifest = _build_manifest(session)
+
         return FixCompletedEvent(
             scan_id=session.scan_id or session.session_id,
             session_id=session.session_id,
@@ -1522,6 +1540,7 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
             proposals=proposal_outcomes,
             logs=session.progress_logs,
             patches=patches or [],  # type: ignore[arg-type]
+            manifest=manifest,
         )
 
     async def _session_replay_state(

@@ -278,16 +278,16 @@ The `rule_id` prefix convention:
 
 ## Event reporting (Primary → Gateway → UI)
 
-After every **check** or **remediate** run, the Primary pushes a `ScanCompletedEvent` or `FixCompletedEvent` to the Gateway's gRPC Reporting service (if `APME_REPORTING_ENDPOINT` is configured). The Gateway persists the event to SQLite and the UI reads it via the REST API.
+After every **check** or **remediate** run, the Primary pushes a `FixCompletedEvent` to the Gateway's gRPC Reporting service (if `APME_REPORTING_ENDPOINT` is configured). The Gateway persists the event to SQLite and the UI reads it via the REST API.
 
 ```
-Primary (check completes)
+Primary (check/remediate completes)
     │
-    │  await emit_scan_completed(ScanCompletedEvent)
+    │  await emit_fix_completed(FixCompletedEvent)
     │    ↓
-    │  GrpcReportingSink.on_scan_completed()
+    │  GrpcReportingSink.on_fix_completed()
     │    ↓
-    │  gRPC → Gateway :50060 ReportScanCompleted
+    │  gRPC → Gateway :50060 ReportFixCompleted
     │
     ▼
 Gateway (grpc_reporting/servicer.py)

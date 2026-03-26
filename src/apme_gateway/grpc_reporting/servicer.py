@@ -1,8 +1,8 @@
-"""Reporting gRPC servicer — persists check/remediate events to SQLite.
+"""Reporting gRPC servicer — persists fix events to SQLite.
 
-Engine pods push ``ScanCompletedEvent`` and ``FixCompletedEvent`` messages
-to this servicer via gRPC (ADR-020 push model).  Each event is decomposed
-into ORM rows and committed in a single transaction.
+Engine pods push ``FixCompletedEvent`` messages to this servicer via gRPC
+(ADR-020 push model).  Each event is decomposed into ORM rows and committed
+in a single transaction.
 """
 
 from __future__ import annotations
@@ -18,7 +18,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apme.v1 import reporting_pb2, reporting_pb2_grpc
 from apme_gateway.db import get_session
-from apme_gateway.db.models import Proposal, Scan, ScanLog, ScanPatch, Session, Violation
+from apme_gateway.db.models import (
+    Proposal,
+    Scan,
+    ScanCollection,
+    ScanLog,
+    ScanManifest,
+    ScanPatch,
+    ScanPythonPackage,
+    Session,
+    Violation,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -54,48 +64,6 @@ def _diagnostics_to_json(diag: object) -> str | None:
 
 class ReportingServicer(reporting_pb2_grpc.ReportingServicer):
     """Concrete Reporting servicer that persists events to SQLite."""
-
-    async def ReportScanCompleted(  # noqa: N802
-        self,
-        request: reporting_pb2.ScanCompletedEvent,
-        context: grpc.aio.ServicerContext,  # type: ignore[type-arg]
-    ) -> reporting_pb2.ReportAck:
-        """Persist a completed check (scan) event.
-
-        Args:
-            request: The check completion event from an engine pod.
-            context: gRPC servicer context.
-
-        Returns:
-            Empty acknowledgement.
-        """
-        logger.info("ReportScanCompleted scan_id=%s session=%s", request.scan_id, request.session_id)
-        try:
-            async with get_session() as db:
-                await _upsert_session(db, request.session_id, request.project_path)
-                scan = Scan(
-                    scan_id=request.scan_id,
-                    session_id=request.session_id,
-                    project_id=None,
-                    project_path=request.project_path,
-                    source=request.source or "cli",
-                    trigger="cli",
-                    created_at=_now_iso(),
-                    scan_type="check",
-                    total_violations=request.summary.total if request.summary else 0,
-                    auto_fixable=request.summary.auto_fixable if request.summary else 0,
-                    ai_candidate=request.summary.ai_candidate if request.summary else 0,
-                    manual_review=request.summary.manual_review if request.summary else 0,
-                    diagnostics_json=_diagnostics_to_json(request.diagnostics),
-                )
-                db.add(scan)
-                _add_violations(db, request.scan_id, list(request.violations))
-                _add_logs(db, request.scan_id, list(request.logs))
-                await db.commit()
-        except Exception:
-            logger.exception("Failed to persist check event %s", request.scan_id)
-            await context.abort(grpc.StatusCode.INTERNAL, "Persistence failure")
-        return reporting_pb2.ReportAck()
 
     async def ReportFixCompleted(  # noqa: N802
         self,
@@ -137,6 +105,7 @@ class ReportingServicer(reporting_pb2_grpc.ReportingServicer):
                 _add_proposals(db, request.scan_id, list(request.proposals))
                 _add_logs(db, request.scan_id, list(request.logs))
                 _add_patches(db, request.scan_id, list(request.patches))
+                _add_manifest(db, request.scan_id, request.manifest)
                 await db.commit()
         except Exception:
             logger.exception("Failed to persist remediate event %s", request.scan_id)
@@ -252,3 +221,42 @@ def _add_patches(db: AsyncSession, scan_id: str, patches: Sequence[object]) -> N
                     diff=diff,
                 )
             )
+
+
+def _add_manifest(db: AsyncSession, scan_id: str, manifest: object) -> None:
+    """Persist ProjectManifest data from a scan event (ADR-040).
+
+    Args:
+        db: Active async database session.
+        scan_id: Owning scan UUID.
+        manifest: Proto ProjectManifest message (may be empty).
+    """
+    if manifest.ByteSize() == 0:  # type: ignore[attr-defined]
+        return
+
+    requirements = list(manifest.requirements_files)  # type: ignore[attr-defined]
+    db.add(
+        ScanManifest(
+            scan_id=scan_id,
+            ansible_core_version=manifest.ansible_core_version,  # type: ignore[attr-defined]
+            requirements_files_json=json.dumps(requirements),
+            dependency_tree=manifest.dependency_tree,  # type: ignore[attr-defined]
+        )
+    )
+    for c in manifest.collections:  # type: ignore[attr-defined]
+        db.add(
+            ScanCollection(
+                scan_id=scan_id,
+                fqcn=c.fqcn,
+                version=c.version,
+                source=c.source or "unknown",
+            )
+        )
+    for p in manifest.python_packages:  # type: ignore[attr-defined]
+        db.add(
+            ScanPythonPackage(
+                scan_id=scan_id,
+                name=p.name,
+                version=p.version,
+            )
+        )

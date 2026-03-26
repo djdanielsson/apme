@@ -5,7 +5,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from apme_engine.daemon.primary_server import merge_collection_specs
+from apme_engine.daemon.primary_server import (
+    _build_manifest,
+    _classify_collections,
+    _discover_collection_specs,
+    merge_collection_specs,
+)
 from apme_engine.engine.opa_payload import _extract_collection_set
 
 if TYPE_CHECKING:
@@ -376,3 +381,132 @@ class TestCollectionSpecMerge:
             hierarchy_collections=["community.general", "ansible.posix"],
         )
         assert sorted(result) == ["ansible.posix", "community.general"]
+
+
+class TestDiscoverCollectionSpecs:
+    """Tests for _discover_collection_specs requirements file discovery."""
+
+    def _file(self, path: str, content: str) -> MagicMock:
+        """Build a fake File proto.
+
+        Args:
+            path: File path.
+            content: YAML content string.
+
+        Returns:
+            MagicMock with path and content attributes.
+        """
+        f = MagicMock()
+        f.path = path
+        f.content = content.encode()
+        return f
+
+    def test_discovers_requirements_yml(self) -> None:
+        """Finds specs and paths from requirements.yml."""
+        content = "collections:\n  - community.general\n  - name: ansible.posix\n    version: '2.0.0'\n"
+        files = [self._file("requirements.yml", content)]
+        specs, paths = _discover_collection_specs(files)
+        assert "community.general" in specs
+        assert "ansible.posix:2.0.0" in specs
+        assert paths == ["requirements.yml"]
+
+    def test_discovers_nested_requirements(self) -> None:
+        """Finds specs from collections/requirements.yml."""
+        content = "collections:\n  - community.crypto\n"
+        files = [self._file("collections/requirements.yml", content)]
+        specs, paths = _discover_collection_specs(files)
+        assert specs == ["community.crypto"]
+        assert paths == ["collections/requirements.yml"]
+
+    def test_returns_empty_for_no_match(self) -> None:
+        """No requirements files returns empty."""
+        files = [self._file("playbook.yml", "- hosts: all\n")]
+        specs, paths = _discover_collection_specs(files)
+        assert specs == []
+        assert paths == []
+
+    def test_paths_reported_even_without_collections_key(self) -> None:
+        """File path is reported even if YAML has no collections key."""
+        files = [self._file("requirements.yml", "roles:\n  - some.role\n")]
+        specs, paths = _discover_collection_specs(files)
+        assert specs == []
+        assert paths == ["requirements.yml"]
+
+
+class TestBuildManifest:
+    """Tests for _build_manifest ProjectManifest construction."""
+
+    def test_builds_from_session_state(self) -> None:
+        """Manifest is built from session manifest fields including packages."""
+        from apme_engine.daemon.session import SessionState
+
+        session = SessionState(session_id="s1")
+        session.ansible_core_version = "2.16.3"
+        session.installed_collections = [
+            ("community.general", "8.0.0", "specified"),
+            ("ansible.posix", "1.5.4", "learned"),
+        ]
+        session.installed_packages = [("ansible-core", "2.16.3"), ("jinja2", "3.1.2")]
+        session.dependency_tree = "ansible-core v2.16.3\n├── jinja2 v3.1.2"
+        session.requirements_files = ["requirements.yml"]
+
+        manifest = _build_manifest(session)
+        assert manifest.ansible_core_version == "2.16.3"
+        assert len(manifest.collections) == 2
+        assert manifest.collections[0].fqcn == "community.general"
+        assert manifest.collections[0].version == "8.0.0"
+        assert manifest.collections[0].source == "specified"
+        assert manifest.collections[1].fqcn == "ansible.posix"
+        assert manifest.collections[1].version == "1.5.4"
+        assert manifest.collections[1].source == "learned"
+        assert len(manifest.python_packages) == 2
+        assert manifest.python_packages[0].name == "ansible-core"
+        assert manifest.python_packages[0].version == "2.16.3"
+        assert manifest.python_packages[1].name == "jinja2"
+        assert manifest.python_packages[1].version == "3.1.2"
+        assert list(manifest.requirements_files) == ["requirements.yml"]
+        assert "ansible-core v2.16.3" in manifest.dependency_tree
+
+    def test_empty_session_produces_empty_manifest(self) -> None:
+        """Session with no manifest data produces empty (but valid) manifest."""
+        from apme_engine.daemon.session import SessionState
+
+        session = SessionState(session_id="s2")
+        manifest = _build_manifest(session)
+        assert manifest.ansible_core_version == ""
+        assert len(manifest.collections) == 0
+        assert len(manifest.python_packages) == 0
+        assert len(manifest.requirements_files) == 0
+        assert manifest.dependency_tree == ""
+
+
+class TestClassifyCollections:
+    """Tests for _classify_collections source classification."""
+
+    def test_specified_from_requirements(self) -> None:
+        """Collections in specified_fqcns are classified as 'specified'."""
+        installed = [("community.general", "8.0.0"), ("ansible.posix", "1.5.4")]
+        result = _classify_collections(installed, {"community.general"}, set())
+        assert result[0] == ("community.general", "8.0.0", "specified")
+
+    def test_learned_from_hierarchy(self) -> None:
+        """Collections in learned_fqcns are classified as 'learned'."""
+        installed = [("ansible.posix", "1.5.4")]
+        result = _classify_collections(installed, set(), {"ansible.posix"})
+        assert result[0] == ("ansible.posix", "1.5.4", "learned")
+
+    def test_dependency_for_unknown(self) -> None:
+        """Collections in neither set are classified as 'dependency'."""
+        installed = [("ansible.utils", "3.0.0")]
+        result = _classify_collections(installed, set(), set())
+        assert result[0] == ("ansible.utils", "3.0.0", "dependency")
+
+    def test_specified_takes_priority_over_learned(self) -> None:
+        """When in both sets, specified wins."""
+        installed = [("community.general", "8.0.0")]
+        result = _classify_collections(installed, {"community.general"}, {"community.general"})
+        assert result[0][2] == "specified"
+
+    def test_empty_installed(self) -> None:
+        """Empty installed list produces empty result."""
+        assert _classify_collections([], {"a.b"}, {"c.d"}) == []

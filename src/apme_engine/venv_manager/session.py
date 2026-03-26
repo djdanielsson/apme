@@ -314,6 +314,142 @@ def install_collections_incremental(
     return _install_collections_via_proxy(pip_python, collection_specs, proxy, use_uv)
 
 
+def list_installed_packages(venv_dir: Path) -> list[tuple[str, str]]:
+    """List Python packages installed in a session venv.
+
+    Uses ``uv pip list --format json`` when uv is available, falling back to
+    ``pip list --format json``.  Returns ``(name, version)`` pairs.
+
+    Args:
+        venv_dir: Root of the virtual environment.
+
+    Returns:
+        List of ``(package_name, version)`` tuples.  Empty list on error.
+    """
+    try:
+        pip_python = get_venv_python(venv_dir)
+    except FileNotFoundError:
+        return []
+
+    if _uv_available():
+        cmd = ["uv", "pip", "list", "--format", "json", "--python", str(pip_python)]
+    else:
+        cmd = [str(pip_python), "-m", "pip", "list", "--format", "json"]
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        logger.warning("Failed to list packages in %s: %s", venv_dir, exc)
+        return []
+
+    if result.returncode != 0:
+        logger.warning("pip list failed in %s: %s", venv_dir, result.stderr)
+        return []
+
+    try:
+        entries = json.loads(result.stdout)
+    except (json.JSONDecodeError, ValueError):
+        logger.warning("Failed to parse pip list output from %s", venv_dir)
+        return []
+
+    return [(e["name"], e.get("version", "")) for e in entries if isinstance(e, dict) and "name" in e]
+
+
+def get_dependency_tree(venv_dir: Path) -> str:
+    """Return the dependency tree for a session venv as raw text.
+
+    Runs ``uv pip tree`` (preferred) or returns an empty string if
+    uv is unavailable or the command fails.
+
+    Args:
+        venv_dir: Root of the virtual environment.
+
+    Returns:
+        Human-readable dependency tree, or ``""`` on error.
+    """
+    if not _uv_available():
+        return ""
+
+    try:
+        pip_python = get_venv_python(venv_dir)
+    except FileNotFoundError:
+        return ""
+
+    cmd = ["uv", "pip", "tree", "--python", str(pip_python)]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        logger.warning("Failed to get dependency tree in %s: %s", venv_dir, exc)
+        return ""
+
+    if result.returncode != 0:
+        logger.warning("uv pip tree failed in %s: %s", venv_dir, result.stderr)
+        return ""
+
+    return result.stdout.strip()
+
+
+def list_installed_collections(venv_dir: Path) -> list[tuple[str, str]]:
+    """List Ansible collections installed in a session venv.
+
+    Runs ``ansible-galaxy collection list --format json -p /dev/null`` using
+    the venv's Python.  The ``-p /dev/null`` suppresses user-level collection
+    paths so only venv-installed collections are reported.
+
+    Args:
+        venv_dir: Root of the virtual environment.
+
+    Returns:
+        List of ``(fqcn, version)`` tuples.  Version is ``""`` when
+        ``MANIFEST.json`` is missing.  Empty list on error.
+    """
+    try:
+        pip_python = get_venv_python(venv_dir)
+    except FileNotFoundError:
+        return []
+
+    cmd = [
+        str(pip_python),
+        "-m",
+        "ansible",
+        "galaxy",
+        "collection",
+        "list",
+        "--format",
+        "json",
+        "-p",
+        "/dev/null",
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        logger.warning("Failed to list collections in %s: %s", venv_dir, exc)
+        return []
+
+    if result.returncode != 0:
+        logger.warning("ansible-galaxy collection list failed in %s: %s", venv_dir, result.stderr)
+        return []
+
+    try:
+        data = json.loads(result.stdout)
+    except (json.JSONDecodeError, ValueError):
+        logger.warning("Failed to parse collection list output from %s", venv_dir)
+        return []
+
+    collections: list[tuple[str, str]] = []
+    for _path, entries in data.items():
+        if not isinstance(entries, dict):
+            continue
+        for fqcn, info in entries.items():
+            if fqcn.startswith("ansible._"):
+                continue
+            version = info.get("version", "") if isinstance(info, dict) else ""
+            if version == "*":
+                version = ""
+            collections.append((fqcn, version))
+    return sorted(collections)
+
+
 _DEFAULT_TTL = 3600
 _re = __import__("re")
 _SAFE_SESSION_RE = _re.compile(r"^[A-Za-z0-9_\-]+$")

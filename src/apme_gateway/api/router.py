@@ -14,6 +14,7 @@ import contextlib
 import logging
 import os
 import uuid
+from typing import cast
 
 from fastapi import APIRouter, HTTPException, Query, WebSocket
 from starlette.websockets import WebSocketDisconnect  # type: ignore[import-not-found]
@@ -23,6 +24,10 @@ from apme_gateway.api.schemas import (
     ActivitySummary,
     AiAcceptanceEntry,
     AiModelInfo,
+    CollectionDetail,
+    CollectionProjectRef,
+    CollectionRefSchema,
+    CollectionSummary,
     ComponentHealth,
     CreateProjectRequest,
     DashboardSummary,
@@ -30,10 +35,15 @@ from apme_gateway.api.schemas import (
     LogEntry,
     PaginatedResponse,
     PatchDetail,
+    ProjectDependencies,
     ProjectDetail,
     ProjectRanking,
     ProjectSummary,
     ProposalDetail,
+    PythonPackageDetail,
+    PythonPackageProjectRef,
+    PythonPackageRefSchema,
+    PythonPackageSummary,
     RemediationRateEntry,
     SessionDetail,
     SessionSummary,
@@ -44,7 +54,7 @@ from apme_gateway.api.schemas import (
 )
 from apme_gateway.db import get_session
 from apme_gateway.db import queries as q
-from apme_gateway.db.models import Scan
+from apme_gateway.db.models import Scan, ScanManifest
 
 logger = logging.getLogger(__name__)
 
@@ -205,16 +215,24 @@ async def create_project(body: CreateProjectRequest) -> ProjectSummary:
 
     Returns:
         Newly created project summary.
+
+    Raises:
+        HTTPException: 409 if a project with the same name already exists.
     """
+    from sqlalchemy.exc import IntegrityError
+
     project_id = uuid.uuid4().hex
-    async with get_session() as db:
-        proj = await q.create_project(
-            db,
-            project_id=project_id,
-            name=body.name,
-            repo_url=body.repo_url,
-            branch=body.branch,
-        )
+    try:
+        async with get_session() as db:
+            proj = await q.create_project(
+                db,
+                project_id=project_id,
+                name=body.name,
+                repo_url=body.repo_url,
+                branch=body.branch,
+            )
+    except IntegrityError:
+        raise HTTPException(status_code=409, detail=f"Project named '{body.name}' already exists") from None
     return ProjectSummary(
         id=proj.id,
         name=proj.name,
@@ -309,13 +327,13 @@ async def get_project_detail(project_id: str) -> ProjectDetail:
         HTTPException: 404 if project not found.
     """
     async with get_session() as db:
-        proj = await q.get_project(db, project_id)
+        proj = await q.resolve_project(db, project_id)
         if not proj:
             raise HTTPException(status_code=404, detail="Project not found")
-        severity = await q.project_severity_breakdown(db, project_id)
-        trend = await q.project_trend(db, project_id, limit=5)
-        scan_cnt = await q.project_scan_count(db, project_id)
-        scans = await q.project_scans(db, project_id, limit=1)
+        severity = await q.project_severity_breakdown(db, proj.id)
+        trend = await q.project_trend(db, proj.id, limit=5)
+        scan_cnt = await q.project_scan_count(db, proj.id)
+        scans = await q.project_scans(db, proj.id, limit=1)
         latest = scans[0] if scans else None
         total_v = latest.total_violations if latest else 0
         latest_summary = _to_activity_summary(latest) if latest else None
@@ -416,11 +434,11 @@ async def list_project_activity(
         HTTPException: 404 if project not found.
     """
     async with get_session() as db:
-        proj = await q.get_project(db, project_id)
+        proj = await q.resolve_project(db, project_id)
         if not proj:
             raise HTTPException(status_code=404, detail="Project not found")
-        scans = await q.project_scans(db, project_id, limit=limit, offset=offset)
-        total = await q.project_scan_count(db, project_id)
+        scans = await q.project_scans(db, proj.id, limit=limit, offset=offset)
+        total = await q.project_scan_count(db, proj.id)
     items = [_to_activity_summary(s) for s in scans]
     return PaginatedResponse(total=total, limit=limit, offset=offset, items=items)
 
@@ -449,12 +467,12 @@ async def list_project_violations(
         HTTPException: 404 if project not found.
     """
     async with get_session() as db:
-        proj = await q.get_project(db, project_id)
+        proj = await q.resolve_project(db, project_id)
         if not proj:
             raise HTTPException(status_code=404, detail="Project not found")
         violations = await q.project_violations(
             db,
-            project_id,
+            proj.id,
             severity=severity,
             rule_id=rule_id,
             limit=limit,
@@ -494,10 +512,10 @@ async def project_trend_endpoint(
         HTTPException: 404 if project not found.
     """
     async with get_session() as db:
-        proj = await q.get_project(db, project_id)
+        proj = await q.resolve_project(db, project_id)
         if not proj:
             raise HTTPException(status_code=404, detail="Project not found")
-        trend = await q.project_trend(db, project_id, limit=limit)
+        trend = await q.project_trend(db, proj.id, limit=limit)
     return [
         TrendPoint(
             scan_id=t.scan_id,
@@ -508,6 +526,204 @@ async def project_trend_endpoint(
         )
         for t in trend
     ]
+
+
+# ── Project dependencies (ADR-040) ───────────────────────────────────
+
+
+@router.get("/projects/{project_id}/dependencies")  # type: ignore[untyped-decorator]
+async def project_dependencies_endpoint(project_id: str) -> ProjectDependencies:
+    """Return the dependency manifest for a project's latest scan.
+
+    Args:
+        project_id: Project UUID.
+
+    Returns:
+        Collections, Python packages, and ansible-core version.
+
+    Raises:
+        HTTPException: 404 if project not found.
+    """
+    async with get_session() as db:
+        proj = await q.resolve_project(db, project_id)
+        if not proj:
+            raise HTTPException(status_code=404, detail="Project not found")
+        manifest, collections, packages = await q.project_dependencies(db, proj.id)
+
+    return ProjectDependencies(
+        ansible_core_version=manifest.ansible_core_version if manifest else "",
+        collections=[CollectionRefSchema(fqcn=c.fqcn, version=c.version, source=c.source) for c in collections],
+        python_packages=[PythonPackageRefSchema(name=p.name, version=p.version) for p in packages],
+        requirements_files=_parse_requirements_files(manifest),
+        dependency_tree=manifest.dependency_tree if manifest else "",
+    )
+
+
+def _parse_requirements_files(manifest: ScanManifest | None) -> list[str]:
+    """Extract requirements_files from a ScanManifest.
+
+    Args:
+        manifest: ScanManifest ORM instance or None.
+
+    Returns:
+        List of requirement file paths.
+    """
+    if manifest is None:
+        return []
+    import json as _json  # noqa: PLC0415
+
+    try:
+        return list(_json.loads(manifest.requirements_files_json))
+    except (TypeError, ValueError):
+        return []
+
+
+# ── Collections and packages (ADR-040) ──────────────────────────────
+
+
+@router.get("/collections")  # type: ignore[untyped-decorator]
+async def list_collections(
+    limit: int = Query(default=200, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
+) -> list[CollectionSummary]:
+    """Return all collections seen across projects with usage counts.
+
+    Args:
+        limit: Maximum rows.
+        offset: Rows to skip.
+
+    Returns:
+        List of collection summaries.
+    """
+    async with get_session() as db:
+        rows = await q.all_collections(db, limit=limit, offset=offset)
+    return [
+        CollectionSummary(
+            fqcn=str(r["fqcn"]),
+            version=str(r["version"]),
+            source=str(r["source"]),
+            project_count=cast(int, r["project_count"]),
+        )
+        for r in rows
+    ]
+
+
+@router.get("/collections/{fqcn}")  # type: ignore[untyped-decorator]
+async def get_collection_detail(fqcn: str) -> CollectionDetail:
+    """Return detail for a specific collection.
+
+    Args:
+        fqcn: Fully-qualified collection name (e.g. ``community.general``).
+
+    Returns:
+        Collection detail with version list and dependent projects.
+
+    Raises:
+        HTTPException: 404 if collection not found.
+    """
+    async with get_session() as db:
+        detail = await q.collection_detail(db, fqcn)
+    if detail is None:
+        raise HTTPException(status_code=404, detail="Collection not found")
+    projects_list = cast(list[dict[str, object]], detail.get("projects", []))
+    return CollectionDetail(
+        fqcn=str(detail["fqcn"]),
+        versions=cast(list[str], detail.get("versions", [])),
+        source=str(detail.get("source", "unknown")),
+        project_count=cast(int, detail.get("project_count", 0)),
+        projects=[
+            CollectionProjectRef(
+                id=str(p["id"]),
+                name=str(p["name"]),
+                health_score=cast(int, p.get("health_score", 0)),
+                collection_version=str(p.get("version", "")),
+            )
+            for p in projects_list
+        ],
+    )
+
+
+@router.get("/collections/{fqcn}/projects")  # type: ignore[untyped-decorator]
+async def list_collection_projects(fqcn: str) -> list[CollectionProjectRef]:
+    """Return projects that depend on a specific collection.
+
+    Args:
+        fqcn: Fully-qualified collection name.
+
+    Returns:
+        List of project references with the collection version.
+    """
+    async with get_session() as db:
+        rows = await q.collection_projects(db, fqcn)
+    return [
+        CollectionProjectRef(
+            id=str(r["id"]),
+            name=str(r["name"]),
+            health_score=cast(int, r.get("health_score", 0)),
+            collection_version=str(r.get("collection_version", "")),
+        )
+        for r in rows
+    ]
+
+
+@router.get("/python-packages")  # type: ignore[untyped-decorator]
+async def list_python_packages(
+    limit: int = Query(default=200, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
+) -> list[PythonPackageSummary]:
+    """Return all Python packages seen across projects with usage counts.
+
+    Args:
+        limit: Maximum rows.
+        offset: Rows to skip.
+
+    Returns:
+        List of package summaries.
+    """
+    async with get_session() as db:
+        rows = await q.all_python_packages(db, limit=limit, offset=offset)
+    return [
+        PythonPackageSummary(
+            name=str(r["name"]),
+            version=str(r["version"]),
+            project_count=cast(int, r["project_count"]),
+        )
+        for r in rows
+    ]
+
+
+@router.get("/python-packages/{name}")  # type: ignore[untyped-decorator]
+async def get_python_package_detail(name: str) -> PythonPackageDetail:
+    """Return detail for a specific Python package.
+
+    Args:
+        name: PyPI package name.
+
+    Returns:
+        Package detail with version list and dependent projects.
+
+    Raises:
+        HTTPException: 404 if package not found.
+    """
+    async with get_session() as db:
+        detail = await q.python_package_detail(db, name)
+    if detail is None:
+        raise HTTPException(status_code=404, detail="Python package not found")
+    pkg_projects = cast(list[dict[str, object]], detail.get("projects", []))
+    return PythonPackageDetail(
+        name=str(detail["name"]),
+        versions=cast(list[str], detail.get("versions", [])),
+        project_count=cast(int, detail.get("project_count", 0)),
+        projects=[
+            PythonPackageProjectRef(
+                id=str(p["id"]),
+                name=str(p["name"]),
+                health_score=cast(int, p.get("health_score", 0)),
+                package_version=str(p.get("package_version", "")),
+            )
+            for p in pkg_projects
+        ],
+    )
 
 
 # ── Dashboard (ADR-037) ─────────────────────────────────────────────
@@ -858,7 +1074,7 @@ async def project_operate_ws(
         options: dict[str, object] = msg.get("options", {})
 
         async with get_session() as db:
-            proj = await q.get_project(db, project_id)
+            proj = await q.resolve_project(db, project_id)
         if not proj:
             await websocket.send_json({"type": "error", "message": "Project not found"})
             return

@@ -32,29 +32,6 @@ class ScanChunk:
     def __init__(self, **kwargs: object) -> None: ...
     def HasField(self, field_name: str) -> bool: ...
 
-class ScanRequest:
-    scan_id: str
-    project_root: str
-    files: list[object]
-    options: ScanOptions | None
-    session_id: str
-    def __init__(self, *, session_id: str = "", **kwargs: object) -> None: ...
-    def HasField(self, field_name: str) -> bool: ...
-
-class ScanResponse:
-    summary: object | None
-    session_id: str
-    logs: list[ProgressUpdate]
-    def __init__(self, *, session_id: str = "", **kwargs: object) -> None: ...
-    def HasField(self, field_name: str) -> bool: ...
-
-class ScanEvent:
-    progress: ProgressUpdate
-    result: ScanResponse
-    def __init__(self, **kwargs: object) -> None: ...
-    def HasField(self, field_name: str) -> bool: ...
-    def WhichOneof(self, oneof_group: str) -> str | None: ...
-
 class ScanDiagnostics:
     engine_parse_ms: float
     engine_annotate_ms: float

@@ -223,7 +223,7 @@ Routes under `/api/v1` are the public contract. Breaking changes (removed fields
 
 ### Webhook dispatch
 
-The Gateway emits webhooks after persisting scan events. It already receives `ScanCompletedEvent` via the gRPC Reporting service and has the DB session needed to discover registered webhooks. The engine remains stateless and does not perform any webhook lookup — it simply emits events via `GrpcReportingSink` (ADR-020) and the Gateway handles delivery. Webhook failures are logged and do not block the scan persistence path (consistent with ADR-020 best-effort delivery).
+The Gateway emits webhooks after persisting scan events. It already receives `FixCompletedEvent` via the gRPC Reporting service (ADR-039) and has the DB session needed to discover registered webhooks. The engine remains stateless and does not perform any webhook lookup — it simply emits events via `GrpcReportingSink` (ADR-020) and the Gateway handles delivery. Webhook failures are logged and do not block the scan persistence path (consistent with ADR-020 best-effort delivery).
 
 ### Project lookup by URL
 

@@ -591,8 +591,8 @@ class TestSessionNodeIndexWiring:
             files: object,
             scan_id: object,
             **kwargs: object,
-        ) -> tuple[list[object], None, str, list[object], dict[str, object]]:
-            return [], None, "sid", [], hierarchy_payload
+        ) -> tuple[list[object], None, str, list[object], dict[str, object], None, list[str], set[str], set[str]]:
+            return [], None, "sid", [], hierarchy_payload, None, [], set(), set()
 
         servicer._scan_pipeline = fake_scan_pipeline  # type: ignore[assignment]
 
@@ -660,8 +660,8 @@ class TestSessionProgressStreaming:
             files: object,
             scan_id: object,
             **kwargs: object,
-        ) -> tuple[list[object], None, str, list[object], None]:
-            return [], None, "sid", [], None
+        ) -> tuple[list[object], None, str, list[object], None, None, list[str], set[str], set[str]]:
+            return [], None, "sid", [], None, None, [], set(), set()
 
         servicer._scan_pipeline = fake_scan_pipeline  # type: ignore[assignment]
 

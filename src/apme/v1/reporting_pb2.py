@@ -26,21 +26,19 @@ from apme.v1 import common_pb2 as apme_dot_v1_dot_common__pb2
 from apme.v1 import primary_pb2 as apme_dot_v1_dot_primary__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x17\x61pme/v1/reporting.proto\x12\x07\x61pme.v1\x1a\x14\x61pme/v1/common.proto\x1a\x15\x61pme/v1/primary.proto\"\x84\x02\n\x12ScanCompletedEvent\x12\x0f\n\x07scan_id\x18\x01 \x01(\t\x12\x12\n\nsession_id\x18\x02 \x01(\t\x12\x14\n\x0cproject_path\x18\x03 \x01(\t\x12\x0e\n\x06source\x18\x04 \x01(\t\x12&\n\nviolations\x18\x05 \x03(\x0b\x32\x12.apme.v1.Violation\x12-\n\x0b\x64iagnostics\x18\x06 \x01(\x0b\x32\x18.apme.v1.ScanDiagnostics\x12%\n\x07summary\x18\x07 \x01(\x0b\x32\x14.apme.v1.ScanSummary\x12%\n\x04logs\x18\x08 \x03(\x0b\x32\x17.apme.v1.ProgressUpdate\"\xb1\x03\n\x11\x46ixCompletedEvent\x12\x0f\n\x07scan_id\x18\x01 \x01(\t\x12\x12\n\nsession_id\x18\x02 \x01(\t\x12\x14\n\x0cproject_path\x18\x03 \x01(\t\x12\x0e\n\x06source\x18\x04 \x01(\t\x12\x30\n\x14remaining_violations\x18\x05 \x03(\x0b\x32\x12.apme.v1.Violation\x12-\n\x0b\x64iagnostics\x18\x06 \x01(\x0b\x32\x18.apme.v1.ScanDiagnostics\x12%\n\x07summary\x18\x07 \x01(\x0b\x32\x14.apme.v1.ScanSummary\x12\"\n\x06report\x18\x08 \x01(\x0b\x32\x12.apme.v1.FixReport\x12+\n\tproposals\x18\t \x03(\x0b\x32\x18.apme.v1.ProposalOutcome\x12%\n\x04logs\x18\n \x03(\x0b\x32\x17.apme.v1.ProgressUpdate\x12,\n\x10\x66ixed_violations\x18\x0b \x03(\x0b\x32\x12.apme.v1.Violation\x12#\n\x07patches\x18\x0c \x03(\x0b\x32\x12.apme.v1.FilePatch\"w\n\x0fProposalOutcome\x12\x13\n\x0bproposal_id\x18\x01 \x01(\t\x12\x0f\n\x07rule_id\x18\x02 \x01(\t\x12\x0c\n\x04\x66ile\x18\x03 \x01(\t\x12\x0c\n\x04tier\x18\x04 \x01(\x05\x12\x12\n\nconfidence\x18\x05 \x01(\x02\x12\x0e\n\x06status\x18\x06 \x01(\t\"\x0b\n\tReportAck2\x99\x01\n\tReporting\x12\x46\n\x13ReportScanCompleted\x12\x1b.apme.v1.ScanCompletedEvent\x1a\x12.apme.v1.ReportAck\x12\x44\n\x12ReportFixCompleted\x12\x1a.apme.v1.FixCompletedEvent\x1a\x12.apme.v1.ReportAckb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x17\x61pme/v1/reporting.proto\x12\x07\x61pme.v1\x1a\x14\x61pme/v1/common.proto\x1a\x15\x61pme/v1/primary.proto\"\xdd\x03\n\x11\x46ixCompletedEvent\x12\x0f\n\x07scan_id\x18\x01 \x01(\t\x12\x12\n\nsession_id\x18\x02 \x01(\t\x12\x14\n\x0cproject_path\x18\x03 \x01(\t\x12\x0e\n\x06source\x18\x04 \x01(\t\x12\x30\n\x14remaining_violations\x18\x05 \x03(\x0b\x32\x12.apme.v1.Violation\x12-\n\x0b\x64iagnostics\x18\x06 \x01(\x0b\x32\x18.apme.v1.ScanDiagnostics\x12%\n\x07summary\x18\x07 \x01(\x0b\x32\x14.apme.v1.ScanSummary\x12\"\n\x06report\x18\x08 \x01(\x0b\x32\x12.apme.v1.FixReport\x12+\n\tproposals\x18\t \x03(\x0b\x32\x18.apme.v1.ProposalOutcome\x12%\n\x04logs\x18\n \x03(\x0b\x32\x17.apme.v1.ProgressUpdate\x12,\n\x10\x66ixed_violations\x18\x0b \x03(\x0b\x32\x12.apme.v1.Violation\x12#\n\x07patches\x18\x0c \x03(\x0b\x32\x12.apme.v1.FilePatch\x12*\n\x08manifest\x18\r \x01(\x0b\x32\x18.apme.v1.ProjectManifest\"w\n\x0fProposalOutcome\x12\x13\n\x0bproposal_id\x18\x01 \x01(\t\x12\x0f\n\x07rule_id\x18\x02 \x01(\t\x12\x0c\n\x04\x66ile\x18\x03 \x01(\t\x12\x0c\n\x04tier\x18\x04 \x01(\x05\x12\x12\n\nconfidence\x18\x05 \x01(\x02\x12\x0e\n\x06status\x18\x06 \x01(\t\"\x0b\n\tReportAck2Q\n\tReporting\x12\x44\n\x12ReportFixCompleted\x12\x1a.apme.v1.FixCompletedEvent\x1a\x12.apme.v1.ReportAckb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'apme.v1.reporting_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_SCANCOMPLETEDEVENT']._serialized_start=82
-  _globals['_SCANCOMPLETEDEVENT']._serialized_end=342
-  _globals['_FIXCOMPLETEDEVENT']._serialized_start=345
-  _globals['_FIXCOMPLETEDEVENT']._serialized_end=778
-  _globals['_PROPOSALOUTCOME']._serialized_start=780
-  _globals['_PROPOSALOUTCOME']._serialized_end=899
-  _globals['_REPORTACK']._serialized_start=901
-  _globals['_REPORTACK']._serialized_end=912
-  _globals['_REPORTING']._serialized_start=915
-  _globals['_REPORTING']._serialized_end=1068
+  _globals['_FIXCOMPLETEDEVENT']._serialized_start=82
+  _globals['_FIXCOMPLETEDEVENT']._serialized_end=559
+  _globals['_PROPOSALOUTCOME']._serialized_start=561
+  _globals['_PROPOSALOUTCOME']._serialized_end=680
+  _globals['_REPORTACK']._serialized_start=682
+  _globals['_REPORTACK']._serialized_end=693
+  _globals['_REPORTING']._serialized_start=695
+  _globals['_REPORTING']._serialized_end=776
 # @@protoc_insertion_point(module_scope)

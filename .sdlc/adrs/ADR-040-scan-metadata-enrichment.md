@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Accepted
 
 ## Date
 
@@ -12,7 +12,7 @@ Proposed
 
 During a project scan, the engine discovers significant information about the project beyond violations: which Ansible collections are used (and their versions), which Python packages are in the session environment, what `requirements.yml` and `requirements.txt` contain, what ansible-core version was used, and how FQCNs resolved. The Galaxy Proxy also resolves the full transitive dependency tree when building session venvs.
 
-Today, nearly all of this knowledge is discarded. The `ScanResponse` and `ScanCompletedEvent` primarily expose violations and diagnostics (alongside scan/session identifiers, logs, and hierarchy payload), but they do not carry any dependency or manifest metadata. The Gateway persists violations and computes health scores, but has no record of what collections or Python packages a project depends on.
+Today, nearly all of this knowledge is discarded. The `FixCompletedEvent` primarily exposes violations and diagnostics (alongside scan/session identifiers, logs, and hierarchy payload), but does not carry any dependency or manifest metadata. The Gateway persists violations and computes health scores, but has no record of what collections or Python packages a project depends on.
 
 This matters for two reasons:
 
@@ -40,19 +40,18 @@ The data exists. The contract doesn't carry it.
 
 ### Manifest structure
 
-The engine emits a `ProjectManifest` alongside violations in `ScanCompletedEvent`:
+The engine emits a `ProjectManifest` alongside violations in `FixCompletedEvent` (ADR-039):
 
 ```protobuf
 message CollectionRef {
   string fqcn = 1;           // e.g. "community.general"
   string version = 2;        // e.g. "8.0.0"
-  string source = 3;         // "galaxy", "local", "git"
+  string source = 3;         // "specified", "learned", or "dependency"
 }
 
 message PythonPackageRef {
   string name = 1;            // e.g. "jmespath"
   string version = 2;         // e.g. "1.0.1"
-  string required_by = 3;     // collection or project that requires it
 }
 
 message ProjectManifest {
@@ -60,20 +59,21 @@ message ProjectManifest {
   repeated CollectionRef collections = 2;
   repeated PythonPackageRef python_packages = 3;
   repeated string requirements_files = 4;   // paths found in project
+  string dependency_tree = 5;               // raw `uv pip tree` output
 }
 ```
 
 ### Data flow
 
 ```
-Engine (scan)
+Engine (check/remediate via FixSession)
   ├── resolves FQCNs → collections
   ├── enumerates session venv → packages
-  └── emits ScanCompletedEvent + ProjectManifest
+  └── emits FixCompletedEvent + ProjectManifest
         │
         ▼
 Gateway (persist)
-  ├── stores manifest in project_manifests table
+  ├── stores manifest in scan_manifests table
   ├── updates project ↔ collection associations
   └── exposes via REST API
         │
@@ -139,7 +139,7 @@ Consumers (query)
 ### Negative
 
 - Proto change requires regeneration and version coordination across engine and Gateway.
-- `ProjectManifest` adds payload size to `ScanCompletedEvent`. For large projects with many collections, this could be significant. Mitigation: manifest is per-scan, not per-violation.
+- `ProjectManifest` adds payload size to `FixCompletedEvent`. For large projects with many collections, this could be significant. Mitigation: manifest is per-scan, not per-violation.
 - Gateway schema migration needed for new tables (collection refs, package refs, project associations).
 
 ### Neutral
@@ -153,12 +153,12 @@ Consumers (query)
 
 1. After session venv build, enumerate installed collections and Python packages (`uv pip list --format json` or `importlib.metadata`).
 2. During FQCN resolution (M001-M004), collect resolved collection references.
-3. Populate `ProjectManifest` and attach to `ScanCompletedEvent`.
+3. Populate `ProjectManifest` and attach to `FixCompletedEvent`.
 
 ### Gateway changes
 
-1. New DB tables: `collection_refs`, `python_package_refs`, `project_collections` (many-to-many), `project_python_packages` (many-to-many).
-2. `grpc_reporting/servicer.py`: Extract and persist manifest from `ScanCompletedEvent`.
+1. New DB tables: `scan_manifests`, `scan_collections`, `scan_python_packages` (scan-scoped; project views derived from latest scan).
+2. `grpc_reporting/servicer.py`: Extract and persist manifest from `FixCompletedEvent`.
 3. New REST endpoints under `/api/v1/`.
 
 ### Galaxy Proxy (no changes)
@@ -167,7 +167,7 @@ The proxy already resolves transitive dependencies. The engine reads the install
 
 ## Related Decisions
 
-- ADR-020: Reporting service and event delivery (the transport for `ScanCompletedEvent`)
+- ADR-020: Reporting service and event delivery (the transport for `FixCompletedEvent`)
 - ADR-029: Web Gateway architecture (persistence layer, REST API)
 - ADR-037: Project-centric UI model (project entity that manifests attach to)
 - ADR-038: Public data API (the REST API surface these endpoints extend)

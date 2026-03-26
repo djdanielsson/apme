@@ -25,13 +25,13 @@ The formatting step in `FixSession` normalizes content before scanning, which
 can expose violations that raw content does not trigger. Identical repository
 content produces different violation counts depending on which RPC is called.
 
-| Aspect | ScanStream | FixSession |
+| Aspect | ScanStream / Scan (removed) | FixSession |
 |--------|-----------|------------|
 | Format files first | No | Yes |
 | Scan passes | 1 | N (convergence loop) |
 | Tier 1 transforms | No | Yes |
 | AI proposals | No | Yes (if enabled) |
-| Result type | `ScanResponse` | `SessionResult` |
+| Result type | `SessionResult` (via check mode) | `SessionResult` |
 
 ### User mental model: check = remediate without the remediation
 
@@ -78,11 +78,15 @@ Both check and remediate use `FixSession` gRPC. The distinction is whether
   convergence loop applies transforms, followed by optional AI proposals and
   approval flow.
 
-### 2. `ScanStream` RPC removed
+### 2. Legacy scan RPCs and reporting events removed
 
-`ScanStream` is removed from the proto and server implementation. The
-`ScanEvent` message type is also removed. Clients must use `FixSession`
-without `fix_options` for check mode.
+`ScanStream`, the unary `Scan` RPC, `ScanRequest`, `ScanResponse`, and
+`ScanEvent` message types are all removed from the proto and server
+implementation. On the reporting side, `ScanCompletedEvent` and
+`ReportScanCompleted` are removed — the engine emits only
+`FixCompletedEvent` via `ReportFixCompleted` for both check and remediate
+operations. Clients must use `FixSession` without `fix_options` for check
+mode.
 
 ### 3. CLI: `apme check` and `apme remediate`
 
@@ -133,8 +137,10 @@ The WebSocket handler uses `remediate` instead of `fix` in the protocol.
 - **Check is slightly slower**: running the full Tier 1 convergence loop adds
   overhead vs. a single scan pass. In practice this is small for typical
   projects and the consistency benefit outweighs the cost.
-- **`ScanStream` removal is a breaking change**: existing clients using
-  `ScanStream` must migrate to `FixSession` without `fix_options`.
+- **Legacy scan RPC removal is a breaking change**: existing clients using
+  `ScanStream` or the unary `Scan` RPC must migrate to `FixSession` without
+  `fix_options`. Clients consuming `ScanCompletedEvent` via the Reporting
+  service must switch to `FixCompletedEvent`.
 - **Old DB data invisible**: existing records with `scan_type` "scan"/"fix"
   will not appear in queries that filter on "check"/"remediate".
 

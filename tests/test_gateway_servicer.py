@@ -40,36 +40,36 @@ def _mock_context() -> MagicMock:
     return ctx
 
 
-async def test_report_scan_completed_persists() -> None:
-    """Scan event is persisted to the database."""
+async def test_report_fix_completed_persists_scan() -> None:
+    """FixCompletedEvent is persisted to the database."""
     servicer = ReportingServicer()
-    event = reporting_pb2.ScanCompletedEvent(
+    event = reporting_pb2.FixCompletedEvent(
         scan_id="scan-1",
         session_id="sess-1",
         project_path="/proj",
         source="cli",
     )
     ctx = _mock_context()
-    result = await servicer.ReportScanCompleted(event, ctx)
+    result = await servicer.ReportFixCompleted(event, ctx)
     assert isinstance(result, reporting_pb2.ReportAck)
 
     async with get_session() as db:
         scan = await q.get_scan(db, "scan-1")
     assert scan is not None
-    assert scan.scan_type == "check"
+    assert scan.scan_type == "remediate"
     assert scan.session_id == "sess-1"
 
 
-async def test_report_scan_creates_session() -> None:
+async def test_report_fix_creates_session() -> None:
     """Session row is created on first event."""
     servicer = ReportingServicer()
-    event = reporting_pb2.ScanCompletedEvent(
+    event = reporting_pb2.FixCompletedEvent(
         scan_id="s1",
         session_id="sess-new",
         project_path="/new",
         source="ci",
     )
-    await servicer.ReportScanCompleted(event, _mock_context())
+    await servicer.ReportFixCompleted(event, _mock_context())
 
     async with get_session() as db:
         sess = await q.get_session(db, "sess-new")
@@ -77,7 +77,7 @@ async def test_report_scan_creates_session() -> None:
     assert sess.project_path == "/new"
 
 
-async def test_report_scan_with_violations() -> None:
+async def test_report_fix_with_violations() -> None:
     """Violations in the event are persisted."""
     servicer = ReportingServicer()
     viol = common_pb2.Violation(
@@ -87,13 +87,13 @@ async def test_report_scan_with_violations() -> None:
         file="a.yml",
         line=10,
     )
-    event = reporting_pb2.ScanCompletedEvent(
+    event = reporting_pb2.FixCompletedEvent(
         scan_id="s1",
         session_id="sess-1",
         project_path="/p",
-        violations=[viol],
+        remaining_violations=[viol],
     )
-    await servicer.ReportScanCompleted(event, _mock_context())
+    await servicer.ReportFixCompleted(event, _mock_context())
 
     async with get_session() as db:
         scan = await q.get_scan(db, "s1")
@@ -102,7 +102,7 @@ async def test_report_scan_with_violations() -> None:
     assert scan.violations[0].rule_id == "L001"
 
 
-async def test_report_scan_with_logs() -> None:
+async def test_report_fix_with_logs() -> None:
     """Pipeline logs in the event are persisted."""
     servicer = ReportingServicer()
     log = common_pb2.ProgressUpdate(
@@ -111,13 +111,13 @@ async def test_report_scan_with_logs() -> None:
         progress=0.5,
         level=2,
     )
-    event = reporting_pb2.ScanCompletedEvent(
+    event = reporting_pb2.FixCompletedEvent(
         scan_id="s1",
         session_id="sess-1",
         project_path="/p",
         logs=[log],
     )
-    await servicer.ReportScanCompleted(event, _mock_context())
+    await servicer.ReportFixCompleted(event, _mock_context())
 
     async with get_session() as db:
         logs = await q.get_scan_logs(db, "s1")
@@ -153,21 +153,21 @@ async def test_report_fix_completed_persists() -> None:
     assert scan.proposals[0].status == "approved"
 
 
-async def test_report_scan_updates_session_last_seen() -> None:
+async def test_report_fix_updates_session_last_seen() -> None:
     """Second event updates session last_seen timestamp."""
     servicer = ReportingServicer()
     ctx = _mock_context()
 
-    ev1 = reporting_pb2.ScanCompletedEvent(scan_id="s1", session_id="sess", project_path="/p")
-    await servicer.ReportScanCompleted(ev1, ctx)
+    ev1 = reporting_pb2.FixCompletedEvent(scan_id="s1", session_id="sess", project_path="/p")
+    await servicer.ReportFixCompleted(ev1, ctx)
 
     async with get_session() as db:
         sess1 = await q.get_session(db, "sess")
     assert sess1 is not None
     ts1 = sess1.last_seen
 
-    ev2 = reporting_pb2.ScanCompletedEvent(scan_id="s2", session_id="sess", project_path="/p")
-    await servicer.ReportScanCompleted(ev2, ctx)
+    ev2 = reporting_pb2.FixCompletedEvent(scan_id="s2", session_id="sess", project_path="/p")
+    await servicer.ReportFixCompleted(ev2, ctx)
 
     async with get_session() as db:
         sess2 = await q.get_session(db, "sess")
@@ -175,17 +175,17 @@ async def test_report_scan_updates_session_last_seen() -> None:
     assert sess2.last_seen >= ts1
 
 
-async def test_report_scan_with_summary() -> None:
+async def test_report_fix_with_summary() -> None:
     """Summary fields are extracted from the event."""
     servicer = ReportingServicer()
     summary = common_pb2.ScanSummary(total=10, auto_fixable=3, ai_candidate=4, manual_review=3)
-    event = reporting_pb2.ScanCompletedEvent(
+    event = reporting_pb2.FixCompletedEvent(
         scan_id="s1",
         session_id="sess-1",
         project_path="/p",
         summary=summary,
     )
-    await servicer.ReportScanCompleted(event, _mock_context())
+    await servicer.ReportFixCompleted(event, _mock_context())
 
     async with get_session() as db:
         scan = await q.get_scan(db, "s1")

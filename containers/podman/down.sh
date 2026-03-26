@@ -32,4 +32,12 @@ if [[ "${1:-}" == "--wipe" ]]; then
   else
     echo "No database found at $DB_FILE"
   fi
+
+  SESSIONS_DIR="$CACHE_PATH/sessions"
+  if [[ -d "$SESSIONS_DIR" ]]; then
+    rm -rf "$SESSIONS_DIR"
+    echo "Wiped session cache: $SESSIONS_DIR"
+  else
+    echo "No session cache found at $SESSIONS_DIR"
+  fi
 fi

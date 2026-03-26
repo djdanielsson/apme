@@ -162,9 +162,10 @@ implementing `EventSink` and registering in `start_sinks()`.
 
 ### Event Types
 
-- `ScanCompletedEvent` — emitted after every `Scan()` RPC completes
-- `FixCompletedEvent` — emitted when a `FixSession` reaches COMPLETE status,
-  including `ProposalOutcome` entries for approved/rejected proposals
+- `FixCompletedEvent` — emitted when a `FixSession` reaches COMPLETE status
+  (both check and remediate modes per ADR-039), including `ProposalOutcome`
+  entries for approved/rejected proposals and `ProjectManifest` dependency
+  data (ADR-040)
 
 Both events carry `repeated ProgressUpdate logs` for pipeline milestone
 capture (ADR-033).

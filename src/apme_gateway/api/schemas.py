@@ -390,6 +390,149 @@ class UpdateProjectRequest(BaseModel):  # type: ignore[misc]
     branch: str | None = None
 
 
+# ── Dependency manifest schemas (ADR-040) ────────────────────────────
+
+
+class CollectionRefSchema(BaseModel):  # type: ignore[misc]
+    """A collection discovered in a project's session venv.
+
+    Attributes:
+        fqcn: Fully-qualified collection name.
+        version: Installed version string.
+        source: Origin — galaxy, local, or git.
+    """
+
+    fqcn: str
+    version: str
+    source: str
+
+
+class PythonPackageRefSchema(BaseModel):  # type: ignore[misc]
+    """A Python package discovered in a project's session venv.
+
+    Attributes:
+        name: PyPI package name.
+        version: Installed version string.
+    """
+
+    name: str
+    version: str
+
+
+class ProjectDependencies(BaseModel):  # type: ignore[misc]
+    """Full dependency manifest for a project (ADR-040).
+
+    Attributes:
+        ansible_core_version: ansible-core version from the session venv.
+        collections: Collections installed in the session venv.
+        python_packages: Python packages installed in the session venv.
+        requirements_files: Requirement file paths found in the project.
+        dependency_tree: Raw ``uv pip tree`` output showing package relationships.
+    """
+
+    ansible_core_version: str = ""
+    collections: list[CollectionRefSchema] = Field(default_factory=list)
+    python_packages: list[PythonPackageRefSchema] = Field(default_factory=list)
+    requirements_files: list[str] = Field(default_factory=list)
+    dependency_tree: str = ""
+
+
+class CollectionSummary(BaseModel):  # type: ignore[misc]
+    """Collection seen across projects.
+
+    Attributes:
+        fqcn: Fully-qualified collection name.
+        version: Version from the most recently scanned project.
+        source: Classification — specified, learned, or dependency.
+        project_count: Number of projects using this collection.
+    """
+
+    fqcn: str
+    version: str
+    source: str
+    project_count: int
+
+
+class CollectionProjectRef(BaseModel):  # type: ignore[misc]
+    """A project that depends on a specific collection.
+
+    Attributes:
+        id: Project UUID.
+        name: Project display label.
+        health_score: Project health score.
+        collection_version: Version of the collection in this project.
+    """
+
+    id: str
+    name: str
+    health_score: int
+    collection_version: str
+
+
+class CollectionDetail(BaseModel):  # type: ignore[misc]
+    """Detail view for a single collection (ADR-040).
+
+    Attributes:
+        fqcn: Fully-qualified collection name.
+        versions: All version strings seen across projects.
+        source: Primary origin.
+        project_count: Number of projects using this collection.
+        projects: Projects that depend on this collection.
+    """
+
+    fqcn: str
+    versions: list[str] = Field(default_factory=list)
+    source: str = "galaxy"
+    project_count: int = 0
+    projects: list[CollectionProjectRef] = Field(default_factory=list)
+
+
+class PythonPackageSummary(BaseModel):  # type: ignore[misc]
+    """Python package seen across projects.
+
+    Attributes:
+        name: PyPI package name.
+        version: Version from the most recently scanned project.
+        project_count: Number of projects using this package.
+    """
+
+    name: str
+    version: str
+    project_count: int
+
+
+class PythonPackageProjectRef(BaseModel):  # type: ignore[misc]
+    """A project that depends on a specific Python package.
+
+    Attributes:
+        id: Project UUID.
+        name: Project display label.
+        health_score: Project health score.
+        package_version: Version of the package in this project.
+    """
+
+    id: str
+    name: str
+    health_score: int = 0
+    package_version: str = ""
+
+
+class PythonPackageDetail(BaseModel):  # type: ignore[misc]
+    """Detail view for a single Python package (ADR-040).
+
+    Attributes:
+        name: PyPI package name.
+        versions: All version strings seen across projects.
+        project_count: Number of projects using this package.
+        projects: Projects that depend on this package.
+    """
+
+    name: str
+    versions: list[str] = Field(default_factory=list)
+    project_count: int = 0
+    projects: list[PythonPackageProjectRef] = Field(default_factory=list)
+
+
 class OperationRequestOptions(BaseModel):  # type: ignore[misc]
     """Per-operation check/remediate options (ADR-037).
 

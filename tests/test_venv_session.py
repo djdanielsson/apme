@@ -544,20 +544,6 @@ class TestMetadata:
 class TestProtoRoundTrip:
     """Verify proto fields carry session_id and venv_path."""
 
-    def test_scan_request_session_id(self) -> None:
-        """ScanRequest carries session_id field."""
-        from apme.v1.primary_pb2 import ScanRequest
-
-        req = ScanRequest(scan_id="s1", session_id="ws-abc")
-        assert req.session_id == "ws-abc"
-
-    def test_scan_response_session_id(self) -> None:
-        """ScanResponse echoes session_id."""
-        from apme.v1.primary_pb2 import ScanResponse
-
-        resp = ScanResponse(scan_id="s1", session_id="ws-abc")
-        assert resp.session_id == "ws-abc"
-
     def test_validate_request_venv_path(self) -> None:
         """ValidateRequest carries venv_path field."""
         from apme.v1.validate_pb2 import ValidateRequest
@@ -583,3 +569,289 @@ class TestProtoRoundTrip:
 
         opts = FixOptions(session_id="ci-job-42", ansible_core_version="2.17.0")
         assert opts.session_id == "ci-job-42"
+
+
+class TestListInstalledPackages:
+    """Tests for list_installed_packages (pip list enumeration)."""
+
+    def test_parses_json_output(self, tmp_path: Path) -> None:
+        """Parses uv/pip list JSON output into (name, version) tuples.
+
+        Args:
+            tmp_path: Pytest-provided temporary directory.
+        """
+        from apme_engine.venv_manager.session import list_installed_packages
+
+        venv = tmp_path / "venv"
+        bindir = venv / "bin"
+        bindir.mkdir(parents=True)
+        (bindir / "python").write_text("#!/bin/sh\n")
+        (bindir / "python").chmod(0o755)
+
+        pip_output = json.dumps(
+            [
+                {"name": "ansible-core", "version": "2.20.0"},
+                {"name": "jinja2", "version": "3.1.4"},
+            ]
+        )
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = pip_output
+
+        with patch("apme_engine.venv_manager.session.subprocess.run", return_value=mock_result):
+            pkgs = list_installed_packages(venv)
+
+        assert pkgs == [("ansible-core", "2.20.0"), ("jinja2", "3.1.4")]
+
+    def test_returns_empty_on_missing_venv(self, tmp_path: Path) -> None:
+        """Returns empty list if venv has no python executable.
+
+        Args:
+            tmp_path: Pytest-provided temporary directory.
+        """
+        from apme_engine.venv_manager.session import list_installed_packages
+
+        pkgs = list_installed_packages(tmp_path / "nonexistent")
+        assert pkgs == []
+
+    def test_returns_empty_on_subprocess_failure(self, tmp_path: Path) -> None:
+        """Returns empty list when pip list returns non-zero.
+
+        Args:
+            tmp_path: Pytest-provided temporary directory.
+        """
+        from apme_engine.venv_manager.session import list_installed_packages
+
+        venv = tmp_path / "venv"
+        bindir = venv / "bin"
+        bindir.mkdir(parents=True)
+        (bindir / "python").write_text("#!/bin/sh\n")
+        (bindir / "python").chmod(0o755)
+
+        mock_result = MagicMock()
+        mock_result.returncode = 1
+        mock_result.stderr = "pip not found"
+
+        with patch("apme_engine.venv_manager.session.subprocess.run", return_value=mock_result):
+            pkgs = list_installed_packages(venv)
+
+        assert pkgs == []
+
+
+class TestGetDependencyTree:
+    """Tests for get_dependency_tree (uv pip tree enumeration)."""
+
+    def test_returns_tree_output(self, tmp_path: Path) -> None:
+        """Returns stripped stdout from uv pip tree.
+
+        Args:
+            tmp_path: Pytest-provided temporary directory.
+        """
+        from apme_engine.venv_manager.session import get_dependency_tree
+
+        venv = tmp_path / "venv"
+        bindir = venv / "bin"
+        bindir.mkdir(parents=True)
+        (bindir / "python").write_text("#!/bin/sh\n")
+        (bindir / "python").chmod(0o755)
+
+        tree_text = "ansible-core v2.20.0\n├── jinja2 v3.1.4\n└── pyyaml v6.0.3\n"
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = tree_text
+
+        with (
+            patch("apme_engine.venv_manager.session._uv_available", return_value=True),
+            patch("apme_engine.venv_manager.session.subprocess.run", return_value=mock_result),
+        ):
+            tree = get_dependency_tree(venv)
+
+        assert "ansible-core v2.20.0" in tree
+        assert "jinja2 v3.1.4" in tree
+
+    def test_returns_empty_when_uv_unavailable(self, tmp_path: Path) -> None:
+        """Returns empty string when uv is not on PATH.
+
+        Args:
+            tmp_path: Pytest-provided temporary directory.
+        """
+        from apme_engine.venv_manager.session import get_dependency_tree
+
+        with patch("apme_engine.venv_manager.session._uv_available", return_value=False):
+            tree = get_dependency_tree(tmp_path / "venv")
+
+        assert tree == ""
+
+    def test_returns_empty_on_failure(self, tmp_path: Path) -> None:
+        """Returns empty string when uv pip tree returns non-zero.
+
+        Args:
+            tmp_path: Pytest-provided temporary directory.
+        """
+        from apme_engine.venv_manager.session import get_dependency_tree
+
+        venv = tmp_path / "venv"
+        bindir = venv / "bin"
+        bindir.mkdir(parents=True)
+        (bindir / "python").write_text("#!/bin/sh\n")
+        (bindir / "python").chmod(0o755)
+
+        mock_result = MagicMock()
+        mock_result.returncode = 1
+        mock_result.stderr = "error"
+
+        with (
+            patch("apme_engine.venv_manager.session._uv_available", return_value=True),
+            patch("apme_engine.venv_manager.session.subprocess.run", return_value=mock_result),
+        ):
+            tree = get_dependency_tree(venv)
+
+        assert tree == ""
+
+
+class TestListInstalledCollections:
+    """Tests for list_installed_collections (ansible-galaxy collection list)."""
+
+    def test_parses_json_output(self, tmp_path: Path) -> None:
+        """Parses ansible-galaxy collection list JSON into (fqcn, version) tuples.
+
+        Args:
+            tmp_path: Pytest-provided temporary directory.
+        """
+        from apme_engine.venv_manager.session import list_installed_collections
+
+        venv = tmp_path / "venv"
+        bindir = venv / "bin"
+        bindir.mkdir(parents=True)
+        (bindir / "python").write_text("#!/bin/sh\n")
+        (bindir / "python").chmod(0o755)
+
+        galaxy_output = json.dumps(
+            {
+                "/path/to/collections": {
+                    "community.general": {"version": "8.0.0"},
+                    "ansible.posix": {"version": "1.5.4"},
+                },
+            }
+        )
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = galaxy_output
+
+        with patch("apme_engine.venv_manager.session.subprocess.run", return_value=mock_result):
+            colls = list_installed_collections(venv)
+
+        assert ("ansible.posix", "1.5.4") in colls
+        assert ("community.general", "8.0.0") in colls
+
+    def test_star_version_becomes_empty(self, tmp_path: Path) -> None:
+        """Version '*' (missing MANIFEST.json) is normalized to empty string.
+
+        Args:
+            tmp_path: Pytest-provided temporary directory.
+        """
+        from apme_engine.venv_manager.session import list_installed_collections
+
+        venv = tmp_path / "venv"
+        bindir = venv / "bin"
+        bindir.mkdir(parents=True)
+        (bindir / "python").write_text("#!/bin/sh\n")
+        (bindir / "python").chmod(0o755)
+
+        galaxy_output = json.dumps(
+            {"/p": {"community.general": {"version": "*"}}},
+        )
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = galaxy_output
+
+        with patch("apme_engine.venv_manager.session.subprocess.run", return_value=mock_result):
+            colls = list_installed_collections(venv)
+
+        assert colls == [("community.general", "")]
+
+    def test_skips_internal_collections(self, tmp_path: Path) -> None:
+        """Internal ansible._vendor-like collections are excluded.
+
+        Args:
+            tmp_path: Pytest-provided temporary directory.
+        """
+        from apme_engine.venv_manager.session import list_installed_collections
+
+        venv = tmp_path / "venv"
+        bindir = venv / "bin"
+        bindir.mkdir(parents=True)
+        (bindir / "python").write_text("#!/bin/sh\n")
+        (bindir / "python").chmod(0o755)
+
+        galaxy_output = json.dumps(
+            {"/p": {"ansible._vendor_x": {"version": "1.0.0"}, "real.coll": {"version": "2.0.0"}}},
+        )
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = galaxy_output
+
+        with patch("apme_engine.venv_manager.session.subprocess.run", return_value=mock_result):
+            colls = list_installed_collections(venv)
+
+        assert colls == [("real.coll", "2.0.0")]
+
+    def test_returns_empty_on_missing_venv(self, tmp_path: Path) -> None:
+        """Returns empty list if venv has no python executable.
+
+        Args:
+            tmp_path: Pytest-provided temporary directory.
+        """
+        from apme_engine.venv_manager.session import list_installed_collections
+
+        colls = list_installed_collections(tmp_path / "nonexistent")
+        assert colls == []
+
+    def test_returns_empty_on_subprocess_failure(self, tmp_path: Path) -> None:
+        """Returns empty list when ansible-galaxy returns non-zero.
+
+        Args:
+            tmp_path: Pytest-provided temporary directory.
+        """
+        from apme_engine.venv_manager.session import list_installed_collections
+
+        venv = tmp_path / "venv"
+        bindir = venv / "bin"
+        bindir.mkdir(parents=True)
+        (bindir / "python").write_text("#!/bin/sh\n")
+        (bindir / "python").chmod(0o755)
+
+        mock_result = MagicMock()
+        mock_result.returncode = 1
+        mock_result.stderr = "ansible not found"
+
+        with patch("apme_engine.venv_manager.session.subprocess.run", return_value=mock_result):
+            colls = list_installed_collections(venv)
+
+        assert colls == []
+
+    def test_sorted_output(self, tmp_path: Path) -> None:
+        """Output is deterministically sorted by FQCN.
+
+        Args:
+            tmp_path: Pytest-provided temporary directory.
+        """
+        from apme_engine.venv_manager.session import list_installed_collections
+
+        venv = tmp_path / "venv"
+        bindir = venv / "bin"
+        bindir.mkdir(parents=True)
+        (bindir / "python").write_text("#!/bin/sh\n")
+        (bindir / "python").chmod(0o755)
+
+        galaxy_output = json.dumps(
+            {"/p": {"z.z": {"version": "1.0"}, "a.a": {"version": "2.0"}, "m.m": {"version": "3.0"}}},
+        )
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = galaxy_output
+
+        with patch("apme_engine.venv_manager.session.subprocess.run", return_value=mock_result):
+            colls = list_installed_collections(venv)
+
+        assert colls == [("a.a", "2.0"), ("m.m", "3.0"), ("z.z", "1.0")]

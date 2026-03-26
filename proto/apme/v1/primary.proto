@@ -10,7 +10,6 @@ import "google/protobuf/struct.proto";
 // delegates internally to validators and remediation — clients never need
 // to know the internal service topology.
 service Primary {
-  rpc Scan(ScanRequest) returns (ScanResponse);
   rpc Format(FormatRequest) returns (FormatResponse);
   rpc FormatStream(stream ScanChunk) returns (FormatResponse);
   rpc Health(HealthRequest) returns (HealthResponse);
@@ -25,7 +24,7 @@ service Primary {
 }
 
 // ---------------------------------------------------------------------------
-// Shared messages (used by Scan, Format, and FixSession)
+// Shared messages (used by Format and FixSession)
 // ---------------------------------------------------------------------------
 
 // ScanChunk is one batch of files for streaming RPCs (FormatStream,
@@ -56,24 +55,6 @@ message FixOptions {
   bool enable_agentic = 6;       // Tier 3 (future)
   string ai_model = 7;
   string session_id = 8;         // client-provided session for venv reuse
-}
-
-message ScanRequest {
-  string scan_id = 1;
-  string project_root = 2;
-  repeated File files = 3;
-  ScanOptions options = 4;
-  string session_id = 5;             // client-provided session for venv reuse
-}
-
-message ScanResponse {
-  repeated Violation violations = 1;
-  string scan_id = 2;
-  bytes hierarchy_payload = 3;
-  ScanDiagnostics diagnostics = 4;
-  ScanSummary summary = 5;
-  string session_id = 6;             // echoed back for client reuse
-  repeated ProgressUpdate logs = 7;  // collected pipeline logs (ADR-033)
 }
 
 message ScanDiagnostics {

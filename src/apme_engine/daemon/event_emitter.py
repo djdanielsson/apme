@@ -1,7 +1,7 @@
-"""Pluggable event sink fan-out for scan/fix events (ADR-020).
+"""Pluggable event sink fan-out for fix events (ADR-020).
 
 The engine emits events to all registered sinks.  Each sink is best-effort:
-failures are logged and never block the scan/fix path.  Sinks are loaded
+failures are logged and never block the fix path.  Sinks are loaded
 from environment variables at startup.
 """
 
@@ -17,7 +17,7 @@ logger = logging.getLogger("apme.events")
 
 
 class EventSink(Protocol):
-    """Interface for scan/fix event destinations."""
+    """Interface for fix event destinations."""
 
     async def start(self) -> None:
         """Initialize the sink (open connections, start background tasks)."""
@@ -25,14 +25,6 @@ class EventSink(Protocol):
 
     async def stop(self) -> None:
         """Shut down the sink (close connections, cancel tasks)."""
-        ...
-
-    async def on_scan_completed(self, event: reporting_pb2.ScanCompletedEvent) -> None:
-        """Deliver a scan-completed event.
-
-        Args:
-            event: Completed scan event to deliver.
-        """
         ...
 
     async def on_fix_completed(self, event: reporting_pb2.FixCompletedEvent) -> None:
@@ -47,16 +39,6 @@ class EventSink(Protocol):
 _sinks: list[EventSink] = []
 
 
-async def _emit_scan_to_sink(
-    sink: EventSink,
-    event: reporting_pb2.ScanCompletedEvent,
-) -> None:
-    try:
-        await sink.on_scan_completed(event)
-    except Exception:
-        logger.warning("Sink %s failed for scan_id=%s", type(sink).__name__, event.scan_id, exc_info=True)
-
-
 async def _emit_fix_to_sink(
     sink: EventSink,
     event: reporting_pb2.FixCompletedEvent,
@@ -65,20 +47,6 @@ async def _emit_fix_to_sink(
         await sink.on_fix_completed(event)
     except Exception:
         logger.warning("Sink %s failed for scan_id=%s", type(sink).__name__, event.scan_id, exc_info=True)
-
-
-async def emit_scan_completed(event: reporting_pb2.ScanCompletedEvent) -> None:
-    """Fan-out ScanCompletedEvent to all registered sinks concurrently.
-
-    Args:
-        event: Completed scan event to broadcast.
-    """
-    if not _sinks:
-        return
-    await asyncio.gather(
-        *(_emit_scan_to_sink(sink, event) for sink in list(_sinks)),
-        return_exceptions=True,
-    )
 
 
 async def emit_fix_completed(event: reporting_pb2.FixCompletedEvent) -> None:

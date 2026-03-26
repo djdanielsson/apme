@@ -1,5 +1,7 @@
 """Stub for generated common_pb2 (proto types)."""
 
+from collections.abc import Iterable
+
 class Violation:
     rule_id: str
     level: str
@@ -80,3 +82,32 @@ class ProgressUpdate:
     progress: float
     level: int
     def __init__(self, **kwargs: object) -> None: ...
+
+class CollectionRef:
+    fqcn: str
+    version: str
+    source: str
+    def __init__(self, *, fqcn: str = "", version: str = "", source: str = "", **kwargs: object) -> None: ...
+
+class PythonPackageRef:
+    name: str
+    version: str
+    def __init__(self, *, name: str = "", version: str = "", **kwargs: object) -> None: ...
+
+class ProjectManifest:
+    ansible_core_version: str
+    collections: list[CollectionRef]
+    python_packages: list[PythonPackageRef]
+    requirements_files: list[str]
+    dependency_tree: str
+    def __init__(
+        self,
+        *,
+        ansible_core_version: str = "",
+        collections: Iterable[CollectionRef] | None = ...,
+        python_packages: Iterable[PythonPackageRef] | None = ...,
+        requirements_files: Iterable[str] | None = ...,
+        dependency_tree: str = "",
+        **kwargs: object,
+    ) -> None: ...
+    def ByteSize(self) -> int: ...

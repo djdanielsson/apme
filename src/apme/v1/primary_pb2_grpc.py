@@ -39,11 +39,6 @@ class PrimaryStub(object):
         Args:
             channel: A grpc.Channel.
         """
-        self.Scan = channel.unary_unary(
-                '/apme.v1.Primary/Scan',
-                request_serializer=apme_dot_v1_dot_primary__pb2.ScanRequest.SerializeToString,
-                response_deserializer=apme_dot_v1_dot_primary__pb2.ScanResponse.FromString,
-                _registered_method=True)
         self.Format = channel.unary_unary(
                 '/apme.v1.Primary/Format',
                 request_serializer=apme_dot_v1_dot_primary__pb2.FormatRequest.SerializeToString,
@@ -77,12 +72,6 @@ class PrimaryServicer(object):
     delegates internally to validators and remediation — clients never need
     to know the internal service topology.
     """
-
-    def Scan(self, request, context):
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
 
     def Format(self, request, context):
         """Missing associated documentation comment in .proto file."""
@@ -121,11 +110,6 @@ class PrimaryServicer(object):
 
 def add_PrimaryServicer_to_server(servicer, server):
     rpc_method_handlers = {
-            'Scan': grpc.unary_unary_rpc_method_handler(
-                    servicer.Scan,
-                    request_deserializer=apme_dot_v1_dot_primary__pb2.ScanRequest.FromString,
-                    response_serializer=apme_dot_v1_dot_primary__pb2.ScanResponse.SerializeToString,
-            ),
             'Format': grpc.unary_unary_rpc_method_handler(
                     servicer.Format,
                     request_deserializer=apme_dot_v1_dot_primary__pb2.FormatRequest.FromString,
@@ -165,33 +149,6 @@ class Primary(object):
     delegates internally to validators and remediation — clients never need
     to know the internal service topology.
     """
-
-    @staticmethod
-    def Scan(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/apme.v1.Primary/Scan',
-            apme_dot_v1_dot_primary__pb2.ScanRequest.SerializeToString,
-            apme_dot_v1_dot_primary__pb2.ScanResponse.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
 
     @staticmethod
     def Format(request,

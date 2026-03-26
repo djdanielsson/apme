@@ -28,7 +28,7 @@ _GRPC_MAX_MSG = 50 * 1024 * 1024  # 50 MiB — match Primary/validator limits
 
 
 class GrpcReportingSink:
-    """Pushes ScanCompleted / FixCompleted events to a gRPC Reporting service."""
+    """Pushes FixCompleted events to a gRPC Reporting service."""
 
     def __init__(self, endpoint: str) -> None:
         """Initialize with target endpoint.
@@ -81,33 +81,6 @@ class GrpcReportingSink:
                 await self._health_task
         if self._channel:
             await self._channel.close(grace=None)
-
-    async def on_scan_completed(self, event: reporting_pb2.ScanCompletedEvent) -> None:
-        """Push scan event to the Reporting service.
-
-        Uses a fast-fail timeout when the endpoint is known-down so the
-        scan path is not blocked.  A successful delivery while down marks
-        the endpoint as recovered.
-
-        Args:
-            event: Completed scan event to deliver.
-        """
-        if self._stub is None:
-            return
-        timeout = _TIMEOUT_S if self._available else _FAST_FAIL_TIMEOUT_S
-        try:
-            await self._stub.ReportScanCompleted(event, timeout=timeout)
-            if not self._available:
-                logger.info("Reporting endpoint recovered (scan delivery): %s", self._endpoint)
-                self._available = True
-        except Exception:
-            logger.warning(
-                "Failed to emit ScanCompletedEvent scan_id=%s to %s",
-                event.scan_id,
-                self._endpoint,
-                exc_info=True,
-            )
-            self._available = False
 
     async def on_fix_completed(self, event: reporting_pb2.FixCompletedEvent) -> None:
         """Push fix event to the Reporting service.

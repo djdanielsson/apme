@@ -11,7 +11,18 @@ from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from apme_gateway.db.models import Project, Proposal, Scan, ScanLog, ScanPatch, Session, Violation
+from apme_gateway.db.models import (
+    Project,
+    Proposal,
+    Scan,
+    ScanCollection,
+    ScanLog,
+    ScanManifest,
+    ScanPatch,
+    ScanPythonPackage,
+    Session,
+    Violation,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -114,18 +125,38 @@ async def get_project(db: AsyncSession, project_id: str) -> Project | None:
     return cast("Project | None", result.scalar_one_or_none())
 
 
+async def resolve_project(db: AsyncSession, id_or_name: str) -> Project | None:
+    """Fetch a project by UUID or by unique name.
+
+    Tries ``id`` first; falls back to ``name`` if no match.
+
+    Args:
+        db: Active async database session.
+        id_or_name: Project UUID hex **or** unique display name.
+
+    Returns:
+        Project with scans or None.
+    """
+    proj = await get_project(db, id_or_name)
+    if proj is not None:
+        return proj
+    stmt = select(Project).where(Project.name == id_or_name).options(selectinload(Project.scans))
+    result = await db.execute(stmt)
+    return cast("Project | None", result.scalar_one_or_none())
+
+
 async def update_project(db: AsyncSession, project_id: str, **fields: str) -> Project | None:
     """Partial-update a project.
 
     Args:
         db: Active async database session.
-        project_id: UUID of the project.
+        project_id: UUID or name of the project.
         **fields: Column-value pairs to update.
 
     Returns:
         Updated Project or None if not found.
     """
-    project = await get_project(db, project_id)
+    project = await resolve_project(db, project_id)
     if project is None:
         return None
     for key, value in fields.items():
@@ -141,12 +172,12 @@ async def delete_project(db: AsyncSession, project_id: str) -> bool:
 
     Args:
         db: Active async database session.
-        project_id: UUID of the project.
+        project_id: UUID or name of the project.
 
     Returns:
         True if the project existed and was deleted.
     """
-    project = await get_project(db, project_id)
+    project = await resolve_project(db, project_id)
     if project is None:
         return False
     await db.delete(project)
@@ -867,3 +898,380 @@ async def store_patches(
     for p in patches:
         db.add(ScanPatch(scan_id=scan_id, file=p["file"], diff=p["diff"]))
     await db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Dependency manifest queries (ADR-040)
+# ---------------------------------------------------------------------------
+
+
+async def _latest_scan_id_for_project(db: AsyncSession, project_id: str) -> str | None:
+    """Return the scan_id of the most recent scan for a project.
+
+    Args:
+        db: Active async database session.
+        project_id: UUID of the project.
+
+    Returns:
+        Scan UUID or None if no scans exist.
+    """
+    stmt = select(Scan.scan_id).where(Scan.project_id == project_id).order_by(Scan.created_at.desc()).limit(1)
+    result = await db.execute(stmt)
+    return cast("str | None", result.scalar_one_or_none())
+
+
+async def project_dependencies(
+    db: AsyncSession,
+    project_id: str,
+) -> tuple[ScanManifest | None, list[ScanCollection], list[ScanPythonPackage]]:
+    """Return the full dependency manifest for a project's latest scan.
+
+    Args:
+        db: Active async database session.
+        project_id: UUID of the project.
+
+    Returns:
+        Tuple of (manifest, collections, python_packages).
+    """
+    scan_id = await _latest_scan_id_for_project(db, project_id)
+    if scan_id is None:
+        return None, [], []
+
+    manifest_stmt = select(ScanManifest).where(ScanManifest.scan_id == scan_id)
+    manifest_result = await db.execute(manifest_stmt)
+    manifest = manifest_result.scalar_one_or_none()
+
+    coll_stmt = select(ScanCollection).where(ScanCollection.scan_id == scan_id).order_by(ScanCollection.fqcn)
+    coll_result = await db.execute(coll_stmt)
+    collections = list(coll_result.scalars().all())
+
+    pkg_stmt = select(ScanPythonPackage).where(ScanPythonPackage.scan_id == scan_id).order_by(ScanPythonPackage.name)
+    pkg_result = await db.execute(pkg_stmt)
+    packages = list(pkg_result.scalars().all())
+
+    return manifest, collections, packages
+
+
+async def all_collections(
+    db: AsyncSession,
+    *,
+    limit: int = 200,
+    offset: int = 0,
+) -> list[dict[str, object]]:
+    """Return all collections across projects with usage counts.
+
+    Aggregates from each project's latest scan to avoid counting
+    historical scans.
+
+    Args:
+        db: Active async database session.
+        limit: Maximum rows.
+        offset: Rows to skip.
+
+    Returns:
+        List of dicts with fqcn, version, source, project_count.
+    """
+    latest_scans = (
+        select(
+            Scan.scan_id,
+            Scan.project_id,
+            func.row_number().over(partition_by=Scan.project_id, order_by=Scan.created_at.desc()).label("rn"),
+        )
+        .where(Scan.project_id.is_not(None))
+        .subquery()
+    )
+    latest = select(latest_scans.c.scan_id).where(latest_scans.c.rn == 1).subquery()
+
+    most_recent = (
+        select(
+            ScanCollection.fqcn,
+            ScanCollection.version,
+            ScanCollection.source,
+            func.row_number().over(partition_by=ScanCollection.fqcn, order_by=Scan.created_at.desc()).label("rn"),
+        )
+        .join(Scan, ScanCollection.scan_id == Scan.scan_id)
+        .where(ScanCollection.scan_id.in_(select(latest.c.scan_id)))
+        .subquery()
+    )
+
+    cnt = (
+        select(
+            ScanCollection.fqcn,
+            func.count(func.distinct(Scan.project_id)).label("project_count"),
+        )
+        .join(Scan, ScanCollection.scan_id == Scan.scan_id)
+        .where(ScanCollection.scan_id.in_(select(latest.c.scan_id)))
+        .group_by(ScanCollection.fqcn)
+        .subquery()
+    )
+
+    stmt = (
+        select(
+            most_recent.c.fqcn,
+            most_recent.c.version,
+            most_recent.c.source,
+            cnt.c.project_count,
+        )
+        .join(cnt, most_recent.c.fqcn == cnt.c.fqcn)
+        .where(most_recent.c.rn == 1)
+        .order_by(cnt.c.project_count.desc(), most_recent.c.fqcn)
+        .limit(limit)
+        .offset(offset)
+    )
+    result = await db.execute(stmt)
+    return [
+        {
+            "fqcn": row.fqcn,
+            "version": row.version,
+            "source": row.source,
+            "project_count": row.project_count,
+        }
+        for row in result.all()
+    ]
+
+
+async def collection_detail(
+    db: AsyncSession,
+    fqcn: str,
+) -> dict[str, object] | None:
+    """Return details for a specific collection across projects.
+
+    Args:
+        db: Active async database session.
+        fqcn: Fully-qualified collection name.
+
+    Returns:
+        Dict with fqcn, versions, source, projects or None if not found.
+    """
+    latest_scans = (
+        select(
+            Scan.scan_id,
+            Scan.project_id,
+            func.row_number().over(partition_by=Scan.project_id, order_by=Scan.created_at.desc()).label("rn"),
+        )
+        .where(Scan.project_id.is_not(None))
+        .subquery()
+    )
+    latest = select(latest_scans.c.scan_id).where(latest_scans.c.rn == 1).subquery()
+
+    stmt = (
+        select(
+            ScanCollection.version,
+            ScanCollection.source,
+            Scan.project_id,
+            Project.name.label("project_name"),
+            Project.health_score,
+        )
+        .join(Scan, ScanCollection.scan_id == Scan.scan_id)
+        .join(Project, Scan.project_id == Project.id)
+        .where(
+            ScanCollection.fqcn == fqcn,
+            ScanCollection.scan_id.in_(select(latest.c.scan_id)),
+        )
+    )
+    result = await db.execute(stmt)
+    rows = result.all()
+    if not rows:
+        return None
+
+    versions = sorted({r.version for r in rows if r.version})
+    sources = sorted({r.source for r in rows if r.source})
+    projects = [
+        {
+            "id": r.project_id,
+            "name": r.project_name,
+            "health_score": r.health_score,
+            "version": r.version,
+        }
+        for r in rows
+    ]
+    return {
+        "fqcn": fqcn,
+        "versions": versions,
+        "source": sources[0] if sources else "unknown",
+        "project_count": len(projects),
+        "projects": projects,
+    }
+
+
+async def collection_projects(
+    db: AsyncSession,
+    fqcn: str,
+) -> list[dict[str, object]]:
+    """Return projects that depend on a specific collection.
+
+    Args:
+        db: Active async database session.
+        fqcn: Fully-qualified collection name.
+
+    Returns:
+        List of dicts with project id, name, and collection version.
+    """
+    latest_scans = (
+        select(
+            Scan.scan_id,
+            Scan.project_id,
+            func.row_number().over(partition_by=Scan.project_id, order_by=Scan.created_at.desc()).label("rn"),
+        )
+        .where(Scan.project_id.is_not(None))
+        .subquery()
+    )
+    latest = select(latest_scans.c.scan_id).where(latest_scans.c.rn == 1).subquery()
+
+    stmt = (
+        select(
+            Project.id.label("project_id"),
+            Project.name.label("project_name"),
+            Project.health_score,
+            ScanCollection.version,
+        )
+        .join(Scan, ScanCollection.scan_id == Scan.scan_id)
+        .join(Project, Scan.project_id == Project.id)
+        .where(
+            ScanCollection.fqcn == fqcn,
+            ScanCollection.scan_id.in_(select(latest.c.scan_id)),
+        )
+    )
+    result = await db.execute(stmt)
+    return [
+        {
+            "id": r.project_id,
+            "name": r.project_name,
+            "health_score": r.health_score,
+            "collection_version": r.version,
+        }
+        for r in result.all()
+    ]
+
+
+async def all_python_packages(
+    db: AsyncSession,
+    *,
+    limit: int = 200,
+    offset: int = 0,
+) -> list[dict[str, object]]:
+    """Return all Python packages across projects with usage counts.
+
+    Args:
+        db: Active async database session.
+        limit: Maximum rows.
+        offset: Rows to skip.
+
+    Returns:
+        List of dicts with name, version, project_count.
+    """
+    latest_scans = (
+        select(
+            Scan.scan_id,
+            Scan.project_id,
+            func.row_number().over(partition_by=Scan.project_id, order_by=Scan.created_at.desc()).label("rn"),
+        )
+        .where(Scan.project_id.is_not(None))
+        .subquery()
+    )
+    latest = select(latest_scans.c.scan_id).where(latest_scans.c.rn == 1).subquery()
+
+    most_recent = (
+        select(
+            ScanPythonPackage.name,
+            ScanPythonPackage.version,
+            func.row_number().over(partition_by=ScanPythonPackage.name, order_by=Scan.created_at.desc()).label("rn"),
+        )
+        .join(Scan, ScanPythonPackage.scan_id == Scan.scan_id)
+        .where(ScanPythonPackage.scan_id.in_(select(latest.c.scan_id)))
+        .subquery()
+    )
+
+    cnt = (
+        select(
+            ScanPythonPackage.name,
+            func.count(func.distinct(Scan.project_id)).label("project_count"),
+        )
+        .join(Scan, ScanPythonPackage.scan_id == Scan.scan_id)
+        .where(ScanPythonPackage.scan_id.in_(select(latest.c.scan_id)))
+        .group_by(ScanPythonPackage.name)
+        .subquery()
+    )
+
+    stmt = (
+        select(
+            most_recent.c.name,
+            most_recent.c.version,
+            cnt.c.project_count,
+        )
+        .join(cnt, most_recent.c.name == cnt.c.name)
+        .where(most_recent.c.rn == 1)
+        .order_by(cnt.c.project_count.desc(), most_recent.c.name)
+        .limit(limit)
+        .offset(offset)
+    )
+    result = await db.execute(stmt)
+    return [
+        {
+            "name": row.name,
+            "version": row.version,
+            "project_count": row.project_count,
+        }
+        for row in result.all()
+    ]
+
+
+async def python_package_detail(
+    db: AsyncSession,
+    name: str,
+) -> dict[str, object] | None:
+    """Return details for a specific Python package across projects.
+
+    Args:
+        db: Active async database session.
+        name: PyPI package name.
+
+    Returns:
+        Dict with name, versions, projects or None if not found.
+    """
+    latest_scans = (
+        select(
+            Scan.scan_id,
+            Scan.project_id,
+            func.row_number().over(partition_by=Scan.project_id, order_by=Scan.created_at.desc()).label("rn"),
+        )
+        .where(Scan.project_id.is_not(None))
+        .subquery()
+    )
+    latest = select(latest_scans.c.scan_id).where(latest_scans.c.rn == 1).subquery()
+
+    stmt = (
+        select(
+            ScanPythonPackage.version,
+            Scan.project_id,
+            Project.name.label("project_name"),
+            Project.health_score,
+        )
+        .join(Scan, ScanPythonPackage.scan_id == Scan.scan_id)
+        .join(Project, Scan.project_id == Project.id)
+        .where(
+            ScanPythonPackage.name == name,
+            ScanPythonPackage.scan_id.in_(select(latest.c.scan_id)),
+        )
+    )
+    result = await db.execute(stmt)
+    rows = result.all()
+    if not rows:
+        return None
+
+    versions = sorted({r.version for r in rows if r.version})
+    projects = [
+        {
+            "id": r.project_id,
+            "name": r.project_name,
+            "health_score": r.health_score,
+            "package_version": r.version,
+        }
+        for r in rows
+    ]
+    return {
+        "name": name,
+        "versions": versions,
+        "project_count": len(projects),
+        "projects": projects,
+    }

@@ -374,3 +374,56 @@ async def test_dashboard_rankings_empty(client: AsyncClient) -> None:
     resp = await client.get("/api/v1/dashboard/rankings")
     assert resp.status_code == 200
     assert resp.json() == []
+
+
+# ── Name-based resolution ────────────────────────────────────────────
+
+
+async def test_get_project_by_name(client: AsyncClient) -> None:
+    """GET /projects/{name} resolves by unique name.
+
+    Args:
+        client: Async HTTPX test client.
+    """
+    await _seed_project(add_scan=True, scan_violations=2)
+    resp = await client.get("/api/v1/projects/Test Project")
+    assert resp.status_code == 200
+    assert resp.json()["id"] == "proj-1"
+
+
+async def test_update_project_by_name(client: AsyncClient) -> None:
+    """PATCH /projects/{name} resolves by name.
+
+    Args:
+        client: Async HTTPX test client.
+    """
+    await _seed_project()
+    resp = await client.patch("/api/v1/projects/Test Project", json={"branch": "develop"})
+    assert resp.status_code == 200
+    assert resp.json()["branch"] == "develop"
+
+
+async def test_delete_project_by_name(client: AsyncClient) -> None:
+    """DELETE /projects/{name} resolves by name.
+
+    Args:
+        client: Async HTTPX test client.
+    """
+    await _seed_project()
+    resp = await client.delete("/api/v1/projects/Test Project")
+    assert resp.status_code == 204
+
+
+async def test_create_duplicate_name_rejected(client: AsyncClient) -> None:
+    """POST /projects rejects duplicate name with 409.
+
+    Args:
+        client: Async HTTPX test client.
+    """
+    payload = {"name": "Unique Name", "repo_url": "https://github.com/a/b.git"}
+    resp1 = await client.post("/api/v1/projects", json=payload)
+    assert resp1.status_code == 201
+
+    resp2 = await client.post("/api/v1/projects", json=payload)
+    assert resp2.status_code == 409
+    assert "already exists" in resp2.json()["detail"]

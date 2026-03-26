@@ -22,7 +22,7 @@ from galaxy_proxy.naming import dist_info_dirname, wheel_filename
 if TYPE_CHECKING:
     from pathlib import Path
 
-GALAXY_META_FILES = {"MANIFEST.json", "FILES.json"}
+GALAXY_META_FILES = {"FILES.json"}
 
 
 def tarball_to_wheel(tarball_data: bytes) -> tuple[str, bytes]:
@@ -151,6 +151,7 @@ def _extract_tarball(tarball_data: bytes) -> tuple[dict[str, Any], dict[str, byt
             if relative == "MANIFEST.json":
                 manifest = json.loads(file_bytes)
                 galaxy_data = manifest.get("collection_info", {})
+                contents[relative] = file_bytes
             elif relative == "galaxy.yml":
                 if galaxy_data is None:
                     galaxy_data = yaml.safe_load(file_bytes)

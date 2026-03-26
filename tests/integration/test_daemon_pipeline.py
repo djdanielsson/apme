@@ -286,7 +286,7 @@ def test_scan_persisted_to_gateway(scan_data: YAMLDict, infrastructure: object) 
     )
     assert scans, (
         f"scan_id {cli_scan_id} not found in gateway DB within timeout — "
-        "event emitter may not have delivered the ScanCompletedEvent"
+        "event emitter may not have delivered the FixCompletedEvent"
     )
 
     db_scan_id, db_session_id, db_scan_type, db_total, db_auto, db_ai, db_manual = scans[0]

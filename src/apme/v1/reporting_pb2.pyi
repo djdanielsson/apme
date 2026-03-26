@@ -4,6 +4,7 @@ from collections.abc import Iterable
 
 from apme.v1.common_pb2 import (
     ProgressUpdate,
+    ProjectManifest,
     ScanSummary,
     Violation,
 )
@@ -12,28 +13,6 @@ from apme.v1.primary_pb2 import (
     FixReport,
     ScanDiagnostics,
 )
-
-class ScanCompletedEvent:
-    scan_id: str
-    session_id: str
-    project_path: str
-    source: str
-    violations: list[Violation]
-    diagnostics: ScanDiagnostics
-    summary: ScanSummary
-    logs: list[ProgressUpdate]
-    def __init__(
-        self,
-        *,
-        scan_id: str = ...,
-        session_id: str = ...,
-        project_path: str = ...,
-        source: str = ...,
-        violations: Iterable[Violation] | None = ...,
-        diagnostics: ScanDiagnostics | None = ...,
-        summary: ScanSummary | None = ...,
-        logs: Iterable[ProgressUpdate] | None = ...,
-    ) -> None: ...
 
 class FixCompletedEvent:
     scan_id: str
@@ -48,6 +27,7 @@ class FixCompletedEvent:
     logs: list[ProgressUpdate]
     fixed_violations: list[Violation]
     patches: list[FilePatch]
+    manifest: ProjectManifest
     def __init__(
         self,
         *,
@@ -63,6 +43,7 @@ class FixCompletedEvent:
         logs: Iterable[ProgressUpdate] | None = ...,
         fixed_violations: Iterable[Violation] | None = ...,
         patches: Iterable[FilePatch] | None = ...,
+        manifest: ProjectManifest | None = ...,
     ) -> None: ...
 
 class ProposalOutcome:

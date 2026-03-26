@@ -63,6 +63,11 @@ class SessionState:
         scan_id: Client-provided scan identifier for event correlation.
         project_root: Project root path from the first upload chunk.
         progress_logs: Pipeline milestone logs collected during processing.
+        ansible_core_version: Ansible-core version from session venv (ADR-040).
+        installed_collections: ``(fqcn, version, source)`` tuples from session venv (ADR-040).
+        installed_packages: ``(name, version)`` tuples from ``pip list`` (ADR-040).
+        dependency_tree: Raw ``uv pip tree`` output (ADR-040).
+        requirements_files: Requirement file paths found in project (ADR-040).
     """
 
     session_id: str
@@ -99,6 +104,13 @@ class SessionState:
 
     # Pipeline milestone logs collected during processing for FixCompletedEvent
     progress_logs: list[ProgressUpdate] = field(default_factory=list)
+
+    # Manifest data captured from the first scan pass (ADR-040)
+    ansible_core_version: str = ""
+    installed_collections: list[tuple[str, str, str]] = field(default_factory=list)
+    installed_packages: list[tuple[str, str]] = field(default_factory=list)
+    dependency_tree: str = ""
+    requirements_files: list[str] = field(default_factory=list)
 
     @property
     def ttl_seconds(self) -> int:

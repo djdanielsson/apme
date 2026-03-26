@@ -196,3 +196,6 @@ where = ["src"]
 "apme_engine.validators.opa" = ["bundle/*.rego", "bundle/*.json", "bundle/*.md"]
 "apme_engine.data" = ["*.yml", "*.yaml"]
 "galaxy_proxy" = ["py.typed"]
+
+[tool.uv.workspace]
+members = []

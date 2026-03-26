@@ -13,7 +13,6 @@ from apme.v1.reporting_pb2 import (
     FixCompletedEvent,
     ProposalOutcome,
     ReportAck,
-    ScanCompletedEvent,
 )
 from apme_engine.daemon import event_emitter
 from apme_engine.daemon.sinks.grpc_reporting import GrpcReportingSink
@@ -21,23 +20,6 @@ from apme_engine.daemon.sinks.grpc_reporting import GrpcReportingSink
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _scan_event(**overrides: str) -> ScanCompletedEvent:
-    """Build a ScanCompletedEvent with sensible defaults.
-
-    Args:
-        **overrides: Field values to override.
-
-    Returns:
-        ScanCompletedEvent: Event with defaults merged with overrides.
-    """
-    return ScanCompletedEvent(
-        scan_id=overrides.get("scan_id", "test-scan-001"),
-        session_id=overrides.get("session_id", "abcdef123456"),
-        project_path=overrides.get("project_path", "/tmp/project"),
-        source=overrides.get("source", "cli"),
-    )
 
 
 def _fix_event(**overrides: str) -> FixCompletedEvent:
@@ -67,7 +49,6 @@ class FakeSink:
 
     def __init__(self) -> None:
         """Initialize empty event lists."""
-        self.scan_events: list[ScanCompletedEvent] = []
         self.fix_events: list[FixCompletedEvent] = []
         self.started = False
         self.stopped = False
@@ -79,14 +60,6 @@ class FakeSink:
     async def stop(self) -> None:
         """Mark stopped."""
         self.stopped = True
-
-    async def on_scan_completed(self, event: ScanCompletedEvent) -> None:
-        """Record scan event.
-
-        Args:
-            event: Scan event to record.
-        """
-        self.scan_events.append(event)
 
     async def on_fix_completed(self, event: FixCompletedEvent) -> None:
         """Record fix event.
@@ -105,17 +78,6 @@ class FailingSink:
 
     async def stop(self) -> None:
         """No-op stop."""
-
-    async def on_scan_completed(self, event: ScanCompletedEvent) -> None:
-        """Raise on scan event.
-
-        Args:
-            event: Scan event (unused, raises immediately).
-
-        Raises:
-            RuntimeError: Always raised.
-        """
-        raise RuntimeError("boom")
 
     async def on_fix_completed(self, event: FixCompletedEvent) -> None:
         """Raise on fix event.
@@ -141,18 +103,6 @@ def _clear_sinks() -> Iterator[None]:
     event_emitter._sinks.clear()
 
 
-async def test_emit_scan_completed_fans_out() -> None:
-    """Verify scan event reaches a registered sink."""
-    sink = FakeSink()
-    event_emitter._sinks.append(sink)
-
-    ev = _scan_event()
-    await event_emitter.emit_scan_completed(ev)
-
-    assert len(sink.scan_events) == 1
-    assert sink.scan_events[0].scan_id == "test-scan-001"
-
-
 async def test_emit_fix_completed_fans_out() -> None:
     """Verify fix event reaches a registered sink."""
     sink = FakeSink()
@@ -165,9 +115,9 @@ async def test_emit_fix_completed_fans_out() -> None:
     assert sink.fix_events[0].scan_id == "test-scan-001"
 
 
-async def test_emit_scan_completed_no_sinks() -> None:
+async def test_emit_fix_completed_no_sinks() -> None:
     """Emitting with no sinks is a no-op."""
-    await event_emitter.emit_scan_completed(_scan_event())
+    await event_emitter.emit_fix_completed(_fix_event())
 
 
 async def test_sink_failure_does_not_propagate() -> None:
@@ -175,9 +125,6 @@ async def test_sink_failure_does_not_propagate() -> None:
     good = FakeSink()
     bad = FailingSink()
     event_emitter._sinks.extend([bad, good])
-
-    await event_emitter.emit_scan_completed(_scan_event())
-    assert len(good.scan_events) == 1
 
     await event_emitter.emit_fix_completed(_fix_event())
     assert len(good.fix_events) == 1
@@ -188,9 +135,9 @@ async def test_multiple_sinks_receive_same_event() -> None:
     sinks = [FakeSink(), FakeSink()]
     event_emitter._sinks.extend(sinks)
 
-    await event_emitter.emit_scan_completed(_scan_event())
+    await event_emitter.emit_fix_completed(_fix_event())
     for s in sinks:
-        assert len(s.scan_events) == 1
+        assert len(s.fix_events) == 1
 
 
 async def test_start_sinks_loads_grpc_when_env_set() -> None:
@@ -239,16 +186,8 @@ async def test_grpc_sink_uses_fast_fail_when_unavailable() -> None:
     sink._available = False
 
     mock_stub = AsyncMock()
-    mock_stub.ReportScanCompleted.return_value = ReportAck()
-    sink._stub = mock_stub
-
-    await sink.on_scan_completed(_scan_event())
-    mock_stub.ReportScanCompleted.assert_awaited_once()
-    assert mock_stub.ReportScanCompleted.call_args.kwargs.get("timeout") == _FAST_FAIL_TIMEOUT_S
-    assert sink._available is True
-
-    sink._available = False
     mock_stub.ReportFixCompleted.return_value = ReportAck()
+    sink._stub = mock_stub
 
     await sink.on_fix_completed(_fix_event())
     mock_stub.ReportFixCompleted.assert_awaited_once()
@@ -261,7 +200,6 @@ async def test_grpc_sink_skips_when_stub_is_none() -> None:
     sink = GrpcReportingSink("localhost:99999")
     sink._stub = None
 
-    await sink.on_scan_completed(_scan_event())
     await sink.on_fix_completed(_fix_event())
 
 
@@ -273,13 +211,8 @@ async def test_grpc_sink_sends_when_available() -> None:
     sink._available = True
 
     mock_stub = AsyncMock()
-    mock_stub.ReportScanCompleted.return_value = ReportAck()
     mock_stub.ReportFixCompleted.return_value = ReportAck()
     sink._stub = mock_stub
-
-    await sink.on_scan_completed(_scan_event())
-    mock_stub.ReportScanCompleted.assert_awaited_once()
-    assert mock_stub.ReportScanCompleted.call_args.kwargs.get("timeout") == _TIMEOUT_S
 
     await sink.on_fix_completed(_fix_event())
     mock_stub.ReportFixCompleted.assert_awaited_once()
@@ -292,10 +225,10 @@ async def test_grpc_sink_flips_unavailable_on_send_failure() -> None:
     sink._available = True
 
     mock_stub = AsyncMock()
-    mock_stub.ReportScanCompleted.side_effect = Exception("connection refused")
+    mock_stub.ReportFixCompleted.side_effect = Exception("connection refused")
     sink._stub = mock_stub
 
-    await sink.on_scan_completed(_scan_event())
+    await sink.on_fix_completed(_fix_event())
     assert sink._available is False
 
 
@@ -339,13 +272,6 @@ async def test_grpc_sink_start_sets_channel_message_limits() -> None:
 # ---------------------------------------------------------------------------
 # ProposalOutcome construction
 # ---------------------------------------------------------------------------
-
-
-def test_scan_completed_event_fields() -> None:
-    """Verify ScanCompletedEvent fields are set correctly."""
-    ev = _scan_event(source="ci")
-    assert ev.source == "ci"
-    assert ev.scan_id == "test-scan-001"
 
 
 def test_fix_completed_event_with_proposals() -> None:

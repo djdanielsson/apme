@@ -2,7 +2,7 @@
 
 The gateway serves two protocols:
 - **gRPC** on ``APME_GATEWAY_GRPC_LISTEN`` (default ``0.0.0.0:50060``)
-  for receiving ``ScanCompletedEvent`` / ``FixCompletedEvent`` from engine pods.
+  for receiving ``FixCompletedEvent`` from engine pods.
 - **HTTP** on ``APME_GATEWAY_HTTP_PORT`` (default ``8080``)
   for the read-only REST API consumed by dashboards.
 """

@@ -1,13 +1,14 @@
-"""Build a ScanRequest from a local path (chunked filesystem)."""
+"""Build chunked file bundles from a local path for streaming RPCs."""
 
 import fnmatch
 import os
 import uuid
 from collections.abc import Iterator
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from apme.v1.common_pb2 import File
-from apme.v1.primary_pb2 import ScanChunk, ScanOptions, ScanRequest
+from apme.v1.primary_pb2 import ScanChunk, ScanOptions
 
 # Max bytes per ScanChunk message to stay under typical gRPC max message size (e.g. 4 MiB).
 CHUNK_MAX_BYTES = 1024 * 1024  # 1 MiB
@@ -136,15 +137,34 @@ def _should_include(path: Path, root: Path, ignore_patterns: list[str] | None = 
     return bool("roles" in parts or "playbooks" in parts or suffix in (".yml", ".yaml", ".j2"))
 
 
-def build_scan_request(
+@dataclass
+class _ScanBundle:
+    """Intermediate container for collected files and scan metadata.
+
+    Attributes:
+        scan_id: Unique scan identifier.
+        project_root: Logical project root name.
+        files: Collected File proto messages.
+        options: Scan options (ansible version, collection specs, etc.).
+        session_id: Session ID for venv reuse.
+    """
+
+    scan_id: str
+    project_root: str
+    files: list[File] = field(default_factory=list)
+    options: ScanOptions = field(default_factory=ScanOptions)
+    session_id: str = ""
+
+
+def build_scan_bundle(
     target_path: str | Path,
     scan_id: str | None = None,
     project_root_name: str = "project",
     ansible_core_version: str | None = None,
     collection_specs: list[str] | None = None,
     session_id: str = "",
-) -> ScanRequest:
-    """Walk target_path (file or directory) and build a ScanRequest with chunked files.
+) -> _ScanBundle:
+    """Walk target_path (file or directory) and collect files for scanning.
 
     Paths in File messages are relative to the project root (target_path if dir, else parent).
 
@@ -157,7 +177,7 @@ def build_scan_request(
         session_id: Session ID for venv reuse across scans.
 
     Returns:
-        ScanRequest with files and options populated.
+        _ScanBundle with files and options populated.
 
     Raises:
         FileNotFoundError: If target_path does not exist.
@@ -208,7 +228,7 @@ def build_scan_request(
 
     resolved_scan_id = scan_id or str(uuid.uuid4())
 
-    return ScanRequest(
+    return _ScanBundle(
         scan_id=resolved_scan_id,
         project_root=project_root_name,
         files=files,
@@ -243,7 +263,7 @@ def yield_scan_chunks(
     Yields:
         ScanChunk: ScanChunk messages for streaming.
     """
-    req = build_scan_request(
+    req = build_scan_bundle(
         target_path,
         scan_id=scan_id,
         project_root_name=project_root_name,
@@ -251,7 +271,7 @@ def yield_scan_chunks(
         collection_specs=collection_specs,
         session_id=session_id,
     )
-    files: list[File] = list(req.files)  # type: ignore[arg-type]
+    files: list[File] = list(req.files)
     if not files:
         yield ScanChunk(
             scan_id=req.scan_id or "",
