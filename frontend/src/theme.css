@@ -2,14 +2,14 @@
 
 :root {
   --apme-green: #5ba352;
-  --apme-sev-critical: #D32F2F;
-  --apme-sev-error: #6A1B9A;
-  --apme-sev-very-high: #F4511E;
-  --apme-sev-high: #FF9800;
-  --apme-sev-medium: #FFB300;
+  --apme-sev-critical: #D50000;
+  --apme-sev-error: #8E24AA;
+  --apme-sev-very-high: #E64A19;
+  --apme-sev-high: #F57C00;
+  --apme-sev-medium: #F9A825;
   --apme-sev-warning: #FDD835;
-  --apme-sev-low: #2196F3;
-  --apme-sev-very-low: #78909C;
+  --apme-sev-low: #1976D2;
+  --apme-sev-very-low: #607D8B;
   --apme-sev-hint: #9E9E9E;
 }
 
@@ -31,12 +31,12 @@
 }
 
 .apme-badge.failed {
-  background-color: rgba(255, 23, 68, 0.2);
+  background-color: rgba(213, 0, 0, 0.2);
   color: var(--apme-sev-critical);
 }
 
 .apme-badge.running {
-  background-color: rgba(66, 165, 245, 0.2);
+  background-color: rgba(25, 118, 210, 0.2);
   color: var(--apme-sev-low);
 }
 
@@ -46,12 +46,12 @@
 }
 
 .apme-badge.ai {
-  background-color: rgba(66, 165, 245, 0.2);
+  background-color: rgba(25, 118, 210, 0.2);
   color: var(--apme-sev-low);
 }
 
 .apme-badge.manual {
-  background-color: rgba(255, 152, 0, 0.2);
+  background-color: rgba(245, 124, 0, 0.2);
   color: var(--apme-sev-high);
 }
 
@@ -69,6 +69,11 @@
 
 .apme-count-error {
   color: var(--apme-sev-critical);
+  font-weight: 600;
+}
+
+.apme-count-warning {
+  color: var(--apme-sev-medium);
   font-weight: 600;
 }
 
@@ -93,48 +98,48 @@
 }
 
 .apme-severity.critical {
-  background-color: rgba(255, 23, 68, 0.25);
+  background-color: rgba(213, 0, 0, 0.25);
   color: var(--apme-sev-critical);
   font-weight: 700;
 }
 
 .apme-severity.error {
-  background-color: rgba(123, 31, 162, 0.2);
+  background-color: rgba(142, 36, 170, 0.22);
   color: var(--apme-sev-error);
 }
 
 .apme-severity.very-high {
-  background-color: rgba(244, 81, 30, 0.2);
+  background-color: rgba(230, 74, 25, 0.22);
   color: var(--apme-sev-very-high);
 }
 
 .apme-severity.high {
-  background-color: rgba(255, 152, 0, 0.2);
+  background-color: rgba(245, 124, 0, 0.22);
   color: var(--apme-sev-high);
 }
 
 .apme-severity.medium {
-  background-color: rgba(212, 168, 67, 0.2);
+  background-color: rgba(249, 168, 37, 0.22);
   color: var(--apme-sev-medium);
 }
 
 .apme-severity.warning {
-  background-color: rgba(253, 216, 53, 0.2);
+  background-color: rgba(253, 216, 53, 0.25);
   color: var(--apme-sev-warning);
 }
 
 .apme-severity.low {
-  background-color: rgba(33, 150, 243, 0.15);
+  background-color: rgba(25, 118, 210, 0.2);
   color: var(--apme-sev-low);
 }
 
 .apme-severity.very-low {
-  background-color: rgba(120, 144, 156, 0.15);
+  background-color: rgba(96, 125, 139, 0.2);
   color: var(--apme-sev-very-low);
 }
 
 .apme-severity.hint {
-  background-color: rgba(158, 158, 158, 0.12);
+  background-color: rgba(158, 158, 158, 0.18);
   color: var(--apme-sev-hint);
 }
 
@@ -146,8 +151,350 @@
   flex-shrink: 0;
 }
 
-/* ── Violations by file (ScanDetailPage) ────────────── */
+/* ── Dashboard metrics grid — always 4 per row ──────── */
 
+.apme-dashboard-scroll {
+  overflow-y: auto;
+  flex: 1;
+  padding-bottom: 24px;
+}
+
+.apme-dashboard-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  padding: 16px 16px 0 24px;
+}
+
+.apme-dashboard-rankings {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  padding: 16px 16px 0 24px;
+}
+
+/* ── AAP-style Job Output layout ───────────────────── */
+
+.apme-job-output-section {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 200px);
+  margin: 0 24px 24px;
+  border: 1px solid var(--pf-t--global--border--color--default);
+  border-radius: var(--pf-t--global--border--radius--small);
+  overflow: hidden;
+}
+
+.apme-job-output-section .apme-output-controls {
+  border-left: none;
+  border-right: none;
+}
+
+.apme-job-output-section .apme-output-scroll {
+  border-left: none;
+  border-right: none;
+  border-bottom: none;
+}
+
+/* Status bar — mirrors AAP JobStatusBar */
+.apme-status-bar {
+  padding: 12px 16px;
+  background: var(--pf-t--global--background--color--primary--default);
+  border-bottom: 1px solid var(--pf-t--global--border--color--default);
+}
+
+/* Severity proportional bar — mirrors AAP HostStatusBar */
+.apme-severity-bar-wrapper {
+  display: flex;
+  min-height: 7px;
+  margin-top: 12px;
+  margin-bottom: 6px;
+  width: 100%;
+  background-color: var(--pf-t--global--background--color--secondary--default);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.apme-severity-bar-segment {
+  min-height: 7px;
+  transition: flex-grow 0.3s;
+}
+
+.apme-severity-bar-legend {
+  display: flex;
+  gap: 16px;
+  justify-content: flex-end;
+  font-size: var(--pf-t--global--font--size--sm);
+  margin-bottom: 8px;
+}
+
+.apme-severity-bar-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.apme-severity-bar-legend-box {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  margin-right: 4px;
+}
+
+/* Toolbar — mirrors AAP JobOutputToolbar */
+.apme-output-toolbar {
+  border-bottom: 1px solid var(--pf-t--global--border--color--default);
+}
+
+.apme-toolbar-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--pf-t--global--border--color--default);
+  border-radius: var(--pf-t--global--border--radius--small);
+  padding: 0 8px;
+  background: var(--pf-t--global--background--color--primary--default);
+}
+
+.apme-toolbar-search-icon {
+  opacity: 0.5;
+  flex-shrink: 0;
+}
+
+.apme-toolbar-search-input {
+  border: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  min-width: 180px;
+}
+
+/* Output controls — mirrors AAP PageControls */
+.apme-output-controls {
+  display: flex;
+  height: 35px;
+  border: 1px solid var(--pf-t--global--border--color--default);
+  border-top: none;
+  width: 100%;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--pf-t--global--background--color--primary--default);
+  flex-shrink: 0;
+}
+
+.apme-output-controls-left {
+  display: flex;
+  justify-content: flex-start;
+  padding-left: 4px;
+}
+
+.apme-output-controls-right {
+  display: flex;
+  justify-content: flex-end;
+  padding-right: 4px;
+}
+
+/* Scrollable output area — mirrors AAP ScrollContainer */
+.apme-output-scroll {
+  overflow: auto;
+  background-color: var(--pf-t--global--background--color--secondary--default);
+  font-size: var(--pf-t--global--font--size--sm);
+  border: 1px solid var(--pf-t--global--border--color--default);
+  border-top: none;
+  flex: 1;
+  min-height: 0;
+}
+
+.apme-output-grid {
+  display: grid;
+  grid-template-columns: minmax(60px, auto) 1fr;
+}
+
+.apme-output-empty {
+  grid-column: span 2;
+  padding: 48px 24px;
+  text-align: center;
+  opacity: 0.6;
+}
+
+.apme-output-file-group {
+  grid-column: span 2;
+}
+
+/* Output row — mirrors AAP output-grid-row */
+.apme-output-row {
+  grid-column: span 2;
+  display: grid;
+  grid-template-columns: minmax(60px, auto) 1fr;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  border-bottom: 1px solid var(--pf-t--global--border--color--default);
+}
+
+.apme-output-row:last-child {
+  border-bottom: none;
+}
+
+/* Gutter (line number column) */
+.apme-output-gutter {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 8px;
+  font-family: var(--pf-t--global--font--family--mono);
+  font-size: 12px;
+  opacity: 0.5;
+  background: var(--pf-t--global--background--color--secondary--default);
+  user-select: none;
+  min-width: 60px;
+}
+
+.apme-output-line-num {
+  font-size: 11px;
+  text-align: right;
+}
+
+.apme-output-content {
+  padding: 6px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* File header row — like a PLAY header in AAP */
+.apme-output-row-header {
+  cursor: pointer;
+  background: var(--pf-t--global--background--color--primary--default);
+  font-weight: 600;
+}
+
+.apme-output-row-header:hover {
+  background: var(--pf-t--global--background--color--secondary--hover);
+}
+
+.apme-output-file-line {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.apme-output-file-path {
+  font-family: var(--pf-t--global--font--family--mono);
+  font-size: 13px;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.apme-output-file-meta {
+  font-size: 12px;
+  opacity: 0.6;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+/* Ellipsis row for collapsed sections — like AAP JobEventEllipsis */
+.apme-output-row-ellipsis {
+  opacity: 0.4;
+  font-size: 14px;
+  letter-spacing: 2px;
+}
+
+/* Violation item row — like task host output in AAP */
+.apme-output-row-item {
+  cursor: pointer;
+  background: var(--pf-t--global--background--color--primary--default);
+}
+
+.apme-output-row-item:hover {
+  background: var(--pf-t--global--background--color--secondary--hover);
+}
+
+.apme-output-violation-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+}
+
+.apme-output-violation-msg {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+/* Modal diff display */
+.apme-modal-diff {
+  background: var(--pf-t--global--background--color--secondary--default);
+  border: 1px solid var(--pf-t--global--border--color--default);
+  border-radius: var(--pf-t--global--border--radius--small);
+  margin-top: 16px;
+  overflow: auto;
+  max-height: 500px;
+}
+
+.apme-modal-diff pre {
+  margin: 0;
+  padding: 16px;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre;
+  font-family: var(--pf-t--global--font--family--mono);
+}
+
+/* Pipeline log section — same output grid, own scroll container */
+.apme-pipeline-log-section {
+  display: flex;
+  flex-direction: column;
+  max-height: 350px;
+  margin: 0 24px 24px;
+  border: 1px solid var(--pf-t--global--border--color--default);
+  border-radius: var(--pf-t--global--border--radius--small);
+  overflow: hidden;
+}
+
+.apme-pipeline-log-collapsed {
+  max-height: none;
+}
+
+.apme-pipeline-log-expanded {
+  max-height: calc(100vh - 300px);
+}
+
+.apme-pipeline-log-collapsed .apme-output-controls {
+  border-bottom: none;
+}
+
+.apme-pipeline-log-section .apme-output-controls {
+  border: none;
+  border-bottom: 1px solid var(--pf-t--global--border--color--default);
+}
+
+.apme-pipeline-log-section .apme-output-scroll {
+  border: none;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Log-level severity badges (reuse .apme-severity) */
+.apme-severity.info {
+  background-color: rgba(25, 118, 210, 0.2);
+  color: var(--apme-sev-low);
+}
+
+.apme-severity.debug {
+  background-color: rgba(158, 158, 158, 0.12);
+  color: var(--apme-sev-hint);
+}
+
+/* Legacy — keep for other pages still using these */
 .apme-violations-section {
   border: 1px solid var(--pf-t--global--border--color--default);
   border-radius: var(--pf-t--global--border--radius--small);
@@ -408,7 +755,7 @@
 }
 
 .apme-diff-remove {
-  background: rgba(211, 47, 47, 0.08);
+  background: rgba(213, 0, 0, 0.08);
 }
 
 .apme-diff-add {
@@ -526,4 +873,45 @@
   padding: 8px 0;
   border-bottom: 1px solid var(--pf-t--global--border--color--default);
   font-size: 13px;
+}
+
+/* ── Project violations table ──────────────────────── */
+
+.apme-violations-table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.apme-violations-table th {
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  padding: 10px 12px;
+  opacity: 0.85;
+}
+
+.apme-violations-table td {
+  padding: 8px 12px;
+  vertical-align: top;
+}
+
+.apme-vt-col-rule     { width: 90px; }
+.apme-vt-col-severity { width: 100px; }
+.apme-vt-col-file     { width: 22%; }
+.apme-vt-col-line     { width: 56px; }
+.apme-vt-col-message  { /* takes remaining space */ }
+
+.apme-vt-message {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  max-width: 0;
+}
+
+.apme-vt-message.expanded {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
 }

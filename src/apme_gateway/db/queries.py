@@ -427,7 +427,8 @@ async def dashboard_summary(db: AsyncSession) -> dict[str, object]:
 
     Returns:
         Dict with total_projects, total_scans, total_violations,
-        current_violations, total_remediated (``total_fixed`` key for API), avg_health_score.
+        current_violations, current_fixable, total_remediated (``total_fixed`` key for API),
+        avg_health_score.
     """
     total_projects = await project_count(db)
     total_scans_result = await db.execute(select(func.count()).select_from(Scan).where(Scan.project_id.is_not(None)))
@@ -455,6 +456,22 @@ async def dashboard_summary(db: AsyncSession) -> dict[str, object]:
     )
     current_violations = cast(int, current_viol_result.scalar_one())
 
+    current_fixable_result = await db.execute(
+        select(func.coalesce(func.sum(Scan.auto_fixable), 0)).join(
+            latest_scan,
+            (Scan.project_id == latest_scan.c.project_id) & (Scan.created_at == latest_scan.c.max_created),
+        )
+    )
+    current_fixable = cast(int, current_fixable_result.scalar_one())
+
+    current_ai_result = await db.execute(
+        select(func.coalesce(func.sum(Scan.ai_candidate), 0)).join(
+            latest_scan,
+            (Scan.project_id == latest_scan.c.project_id) & (Scan.created_at == latest_scan.c.max_created),
+        )
+    )
+    current_ai_candidates = cast(int, current_ai_result.scalar_one())
+
     fixed_result = await db.execute(
         select(func.coalesce(func.sum(Scan.fixed_count), 0)).where(
             Scan.project_id.is_not(None), Scan.scan_type == "remediate"
@@ -471,6 +488,8 @@ async def dashboard_summary(db: AsyncSession) -> dict[str, object]:
         "total_scans": total_scans,
         "total_violations": total_violations,
         "current_violations": current_violations,
+        "current_fixable": current_fixable,
+        "current_ai_candidates": current_ai_candidates,
         "total_fixed": total_fixed,
         "avg_health_score": avg_health,
     }

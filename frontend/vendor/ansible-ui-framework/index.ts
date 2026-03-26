@@ -6,6 +6,8 @@ export * from './PageBody';
 export * from './PageDashboard/PageDashboard';
 export * from './PageDashboard/PageDashboardCard';
 export * from './PageDashboard/PageDashboardCount';
+export * from './PageDetails/PageDetail';
+export * from './PageDetails/PageDetails';
 export * from './PageEmptyStates/PageNotFound';
 export * from './PageFramework';
 export * from './PageHeader';

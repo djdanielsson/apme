@@ -1,13 +1,13 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { PageLayout, PageHeader } from '@ansible/ansible-ui-framework';
+import { severityClass, severityLabel, severityOrder, SEVERITY_LABELS, bareRuleId, healthColor } from '../components/severity';
 import {
   Button,
   Card,
   CardBody,
   Flex,
   FlexItem,
-  Label,
   Split,
   SplitItem,
   Tab,
@@ -40,7 +40,8 @@ export function ProjectDetailPage() {
   const [scans, setScans] = useState<ActivitySummary[]>([]);
   const [violations, setViolations] = useState<ViolationDetail[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState(0);
+  const tabParam = searchParams.get('tab');
+  const [activeTab, setActiveTab] = useState(tabParam === 'settings' ? 3 : 0);
 
   const [ansibleVersion, setAnsibleVersion] = useState('');
   const [collections, setCollections] = useState('');
@@ -247,7 +248,7 @@ export function ProjectDetailPage() {
                       <Card>
                         <CardBody>
                           <div style={{ textAlign: 'center' }}>
-                            <div style={{ fontSize: 36, fontWeight: 700 }}>{project.health_score}</div>
+                            <div style={{ fontSize: 36, fontWeight: 700, color: healthColor(project.health_score) }}>{project.health_score}</div>
                             <div style={{ opacity: 0.7 }}>Health Score</div>
                           </div>
                         </CardBody>
@@ -292,16 +293,22 @@ export function ProjectDetailPage() {
                       <CardBody>
                         <h3>Severity Breakdown</h3>
                         <Flex gap={{ default: 'gapLg' }} style={{ marginTop: 8 }}>
-                          {Object.entries(project.severity_breakdown).map(([level, count]) => (
-                            <FlexItem key={level}>
-                              <Label
-                                color={level === 'error' ? 'red' : level === 'warning' ? 'orange' : 'blue'}
-                                isCompact
-                              >
-                                {level}: {count}
-                              </Label>
-                            </FlexItem>
-                          ))}
+                          {(() => {
+                            const merged = new Map<string, number>();
+                            for (const [level, count] of Object.entries(project.severity_breakdown)) {
+                              const cls = severityClass(level);
+                              merged.set(cls, (merged.get(cls) ?? 0) + count);
+                            }
+                            return Array.from(merged.entries())
+                              .sort((a, b) => severityOrder(a[0]) - severityOrder(b[0]))
+                              .map(([cls, count]) => (
+                                <FlexItem key={cls}>
+                                  <span className={`apme-severity ${cls}`}>
+                                    {SEVERITY_LABELS[cls] ?? cls}: {count}
+                                  </span>
+                                </FlexItem>
+                              ));
+                          })()}
                         </Flex>
                       </CardBody>
                     </Card>
@@ -353,7 +360,9 @@ export function ProjectDetailPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {scans.map((scan) => (
+                    {scans.map((scan) => {
+                      const isFix = scan.scan_type === 'fix' || scan.scan_type === 'remediate';
+                      return (
                       <tr
                         key={scan.scan_id}
                         role="row"
@@ -363,21 +372,27 @@ export function ProjectDetailPage() {
                         style={{ cursor: 'pointer' }}
                       >
                         <td role="cell">
-                          <span className={`apme-badge ${scan.scan_type === 'fix' || scan.scan_type === 'remediate' ? 'passed' : 'running'}`}>
+                          <span className={`apme-badge ${isFix ? 'passed' : 'running'}`}>
                             {scan.scan_type === 'scan' ? 'check' : scan.scan_type === 'fix' ? 'remediate' : scan.scan_type}
                           </span>
                         </td>
                         <td role="cell"><StatusBadge violations={scan.total_violations} scanType={scan.scan_type} /></td>
                         <td role="cell">{scan.total_violations}</td>
-                        <td role="cell"><span className="apme-count-success">{scan.fixable}</span></td>
-                        <td role="cell">{scan.remediated_count}</td>
+                        <td role="cell">
+                          {isFix
+                            ? <span>{0}</span>
+                            : <span className="apme-count-success">{scan.fixable}</span>
+                          }
+                        </td>
+                        <td role="cell"><span className="apme-count-success">{scan.remediated_count}</span></td>
                         <td role="cell">{scan.ai_proposed ?? 0}</td>
                         <td role="cell">{scan.ai_declined ?? 0}</td>
                         <td role="cell"><span className="apme-count-success">{scan.ai_accepted ?? 0}</span></td>
-                        <td role="cell"><span className="apme-count-error">{scan.manual_review}</span></td>
+                        <td role="cell"><span className="apme-count-warning">{scan.manual_review}</span></td>
                         <td role="cell" style={{ opacity: 0.7 }}>{timeAgo(scan.created_at)}</td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               )}
@@ -385,41 +400,7 @@ export function ProjectDetailPage() {
           </Tab>
 
           <Tab eventKey={2} title={<TabTitleText>Violations</TabTitleText>}>
-            <div style={{ marginTop: 16 }}>
-              {violations.length === 0 ? (
-                <div style={{ padding: 24, textAlign: 'center', opacity: 0.6 }}>No violations in the latest check.</div>
-              ) : (
-                <table className="pf-v6-c-table pf-m-compact pf-m-grid-md" role="grid">
-                  <thead>
-                    <tr role="row">
-                      <th role="columnheader">Rule</th>
-                      <th role="columnheader">Severity</th>
-                      <th role="columnheader">File</th>
-                      <th role="columnheader">Line</th>
-                      <th role="columnheader">Message</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {violations.map((v) => (
-                      <tr key={v.id} role="row">
-                        <td role="cell"><span className="apme-rule-id">{v.rule_id}</span></td>
-                        <td role="cell">
-                          <Label
-                            color={v.level === 'error' ? 'red' : v.level === 'warning' ? 'orange' : 'blue'}
-                            isCompact
-                          >
-                            {v.level}
-                          </Label>
-                        </td>
-                        <td role="cell" style={{ fontFamily: 'var(--pf-t--global--font--family--mono)' }}>{v.file}</td>
-                        <td role="cell">{v.line ?? ''}</td>
-                        <td role="cell">{v.message}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
+            <ViolationsTab violations={violations} />
           </Tab>
 
           <Tab eventKey={3} title={<TabTitleText>Settings</TabTitleText>}>
@@ -455,5 +436,86 @@ export function ProjectDetailPage() {
         </Tabs>
       </div>
     </PageLayout>
+  );
+}
+
+function ViolationsTab({ violations }: { violations: ViolationDetail[] }) {
+  const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
+
+  const sorted = useMemo(
+    () =>
+      [...violations].sort(
+        (a, b) =>
+          severityOrder(severityClass(a.level, a.rule_id)) -
+          severityOrder(severityClass(b.level, b.rule_id)),
+      ),
+    [violations],
+  );
+
+  const toggleRow = (id: number) => {
+    setExpandedRows((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  return (
+    <div style={{ marginTop: 16 }}>
+      {sorted.length === 0 ? (
+        <div style={{ padding: 24, textAlign: 'center', opacity: 0.6 }}>
+          No violations in the latest check.
+        </div>
+      ) : (
+        <table
+          className="pf-v6-c-table pf-m-compact pf-m-grid-md apme-violations-table"
+          role="grid"
+        >
+          <thead>
+            <tr role="row">
+              <th role="columnheader" className="apme-vt-col-rule">Rule</th>
+              <th role="columnheader" className="apme-vt-col-severity">Severity</th>
+              <th role="columnheader" className="apme-vt-col-file">File</th>
+              <th role="columnheader" className="apme-vt-col-line">Line</th>
+              <th role="columnheader" className="apme-vt-col-message">Message</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((v) => {
+              const isExpanded = expandedRows.has(v.id);
+              return (
+                <tr key={v.id} role="row">
+                  <td role="cell">
+                    <span className="apme-rule-id">{bareRuleId(v.rule_id)}</span>
+                  </td>
+                  <td role="cell">
+                    <span
+                      className={`apme-severity ${severityClass(v.level, v.rule_id)}`}
+                      style={{ whiteSpace: 'nowrap' }}
+                    >
+                      {severityLabel(v.level, v.rule_id)}
+                    </span>
+                  </td>
+                  <td role="cell" style={{ fontFamily: 'var(--pf-t--global--font--family--mono)' }}>
+                    {v.file}
+                  </td>
+                  <td role="cell">{v.line ?? ''}</td>
+                  <td
+                    role="cell"
+                    className={`apme-vt-message${isExpanded ? ' expanded' : ''}`}
+                    onClick={() => toggleRow(v.id)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggleRow(v.id); }}
+                    tabIndex={0}
+                  >
+                    {v.message}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+    </div>
   );
 }

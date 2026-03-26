@@ -13,6 +13,7 @@ import type { OperationResult } from '../types/operation';
 
 export interface OperationResultCardProps {
   result: OperationResult;
+  isRemediate?: boolean;
   onDismiss?: () => void;
   actions?: ReactNode;
 }
@@ -38,9 +39,11 @@ function SmallMetric({ value, label, color }: { value: number; label: string; co
 
 export function OperationResultCard({
   result,
+  isRemediate,
   onDismiss,
   actions,
 }: OperationResultCardProps) {
+  const wasRemediate = isRemediate || result.remediated_count != null;
   const hasAi = (result.ai_proposed ?? 0) > 0 || (result.ai_declined ?? 0) > 0 || (result.ai_accepted ?? 0) > 0;
 
   return (
@@ -51,9 +54,11 @@ export function OperationResultCard({
 
         <Split hasGutter style={{ justifyContent: 'center', margin: '16px 0' }}>
           <Metric value={result.total_violations} label="Violations" />
-          <Metric value={result.fixable} label="Fixable" color="var(--pf-t--global--color--status--success--default)" />
-          <Metric value={result.remediated_count ?? 0} label="Remediated" color="var(--pf-t--global--color--status--info--default)" />
-          <Metric value={result.manual_review} label="Manual" color="var(--pf-t--global--color--status--danger--default)" />
+          {!wasRemediate && (
+            <Metric value={result.fixable} label="Fixable" color="var(--pf-t--global--color--status--success--default)" />
+          )}
+          <Metric value={result.remediated_count ?? 0} label="Remediated" color="var(--pf-t--global--color--status--success--default)" />
+          <Metric value={result.manual_review} label="Manual" color="var(--apme-sev-medium)" />
         </Split>
 
         {hasAi && (

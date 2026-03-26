@@ -1,6 +1,9 @@
+import { useState } from 'react';
 import { PageMasthead, PageThemeSwitcher, PageNotificationsIcon } from '@ansible/ansible-ui-framework';
 import { PageMastheadDropdown } from '@ansible/ansible-ui-framework/PageMasthead/PageMastheadDropdown';
 import {
+  AboutModal,
+  Content,
   DropdownItem,
   ToolbarGroup,
   ToolbarItem,
@@ -8,6 +11,8 @@ import {
 import { QuestionCircleIcon } from '@patternfly/react-icons';
 
 export function ApmeMasthead() {
+  const [aboutOpen, setAboutOpen] = useState(false);
+
   return (
     <PageMasthead
       brand={
@@ -36,15 +41,32 @@ export function ApmeMasthead() {
             </DropdownItem>
             <DropdownItem
               id="about"
-              onClick={() => {
-                /* TODO: about modal */
-              }}
+              onClick={() => setAboutOpen(true)}
             >
               About APME
             </DropdownItem>
           </PageMastheadDropdown>
         </ToolbarItem>
       </ToolbarGroup>
+
+      <AboutModal
+        isOpen={aboutOpen}
+        onClose={() => setAboutOpen(false)}
+        trademark={`Copyright ${new Date().getFullYear()} Red Hat, Inc.`}
+        brandImageSrc=""
+        brandImageAlt="APME"
+        productName="APME"
+      >
+        <Content>
+          <Content component="dl">
+            <Content component="dt">Version</Content>
+            <Content component="dd">{__APME_VERSION__}</Content>
+          </Content>
+          <Content component="p" style={{ marginTop: 16, opacity: 0.7 }}>
+            Ansible Policy &amp; Modernization Engine
+          </Content>
+        </Content>
+      </AboutModal>
     </PageMasthead>
   );
 }

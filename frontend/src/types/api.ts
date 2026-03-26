@@ -159,6 +159,8 @@ export interface DashboardSummary {
   total_scans: number;
   total_violations: number;
   current_violations: number;
+  current_fixable: number;
+  current_ai_candidates: number;
   total_fixed: number;
   avg_health_score: number;
 }

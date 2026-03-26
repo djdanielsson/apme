@@ -414,6 +414,8 @@ class DashboardSummary(BaseModel):  # type: ignore[misc]
         total_scans: Number of completed runs across all projects (``total_scans`` column).
         total_violations: Cumulative violations across all runs.
         current_violations: Violations from each project's latest run.
+        current_fixable: Auto-fixable violations from each project's latest run.
+        current_ai_candidates: AI-candidate violations from each project's latest run.
         total_fixed: Sum of remediated violations (``total_fixed`` field name unchanged).
         avg_health_score: Mean health score across projects.
     """
@@ -422,6 +424,8 @@ class DashboardSummary(BaseModel):  # type: ignore[misc]
     total_scans: int
     total_violations: int
     current_violations: int
+    current_fixable: int
+    current_ai_candidates: int
     total_fixed: int
     avg_health_score: int
 

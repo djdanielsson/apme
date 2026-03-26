@@ -35,7 +35,7 @@ class Project(Base):
     repo_url: Mapped[str] = mapped_column(Text, nullable=False)
     branch: Mapped[str] = mapped_column(Text, nullable=False, default="main")
     created_at: Mapped[str] = mapped_column(Text, nullable=False)
-    health_score: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
+    health_score: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     scans: Mapped[list[Scan]] = relationship(back_populates="project", cascade="all, delete-orphan")
 

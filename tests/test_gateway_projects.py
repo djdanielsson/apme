@@ -122,7 +122,7 @@ async def test_create_project(client: AsyncClient) -> None:
     assert body["name"] == "My Project"
     assert body["repo_url"] == "https://github.com/org/repo.git"
     assert body["branch"] == "develop"
-    assert body["health_score"] == 100
+    assert body["health_score"] == 0
     assert "id" in body
 
 
@@ -328,6 +328,8 @@ async def test_dashboard_summary_empty(client: AsyncClient) -> None:
     assert body["total_projects"] == 0
     assert body["total_scans"] == 0
     assert body["current_violations"] == 0
+    assert body["current_fixable"] == 0
+    assert body["current_ai_candidates"] == 0
 
 
 async def test_dashboard_summary(client: AsyncClient) -> None:
@@ -344,6 +346,8 @@ async def test_dashboard_summary(client: AsyncClient) -> None:
     assert body["total_projects"] == 2
     assert body["total_scans"] == 2
     assert body["current_violations"] == 7
+    assert body["current_fixable"] == 0
+    assert body["current_ai_candidates"] == 0
 
 
 async def test_dashboard_rankings(client: AsyncClient) -> None:

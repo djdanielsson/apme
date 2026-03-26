@@ -75,7 +75,9 @@ export function ActivityPage() {
               </tr>
             </thead>
             <tbody>
-              {items.map((item) => (
+              {items.map((item) => {
+                const isRemediate = item.scan_type === 'fix' || item.scan_type === 'remediate';
+                return (
                 <tr
                   key={item.scan_id}
                   role="row"
@@ -91,7 +93,7 @@ export function ActivityPage() {
                     <span className="apme-badge running">{item.source}</span>
                   </td>
                   <td role="cell">
-                    <span className={`apme-badge ${item.scan_type === 'fix' || item.scan_type === 'remediate' ? 'passed' : 'running'}`}>
+                    <span className={`apme-badge ${isRemediate ? 'passed' : 'running'}`}>
                       {item.scan_type === 'scan' ? 'check' : item.scan_type === 'fix' ? 'remediate' : item.scan_type}
                     </span>
                   </td>
@@ -99,15 +101,21 @@ export function ActivityPage() {
                     <StatusBadge violations={item.total_violations} scanType={item.scan_type} />
                   </td>
                   <td role="cell">{item.total_violations}</td>
-                  <td role="cell"><span className="apme-count-success">{item.fixable ?? ''}</span></td>
-                  <td role="cell">{item.remediated_count ?? 0}</td>
+                  <td role="cell">
+                    {isRemediate
+                      ? <span>{0}</span>
+                      : <span className="apme-count-success">{item.fixable ?? ''}</span>
+                    }
+                  </td>
+                  <td role="cell"><span className="apme-count-success">{item.remediated_count ?? 0}</span></td>
                   <td role="cell">{item.ai_proposed ?? 0}</td>
                   <td role="cell">{item.ai_declined ?? 0}</td>
                   <td role="cell"><span className="apme-count-success">{item.ai_accepted ?? 0}</span></td>
-                  <td role="cell"><span className="apme-count-error">{item.manual_review ?? ''}</span></td>
+                  <td role="cell"><span className="apme-count-warning">{item.manual_review ?? ''}</span></td>
                   <td role="cell" style={{ opacity: 0.7 }}>{timeAgo(item.created_at)}</td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
           {total > PAGE_SIZE && (
