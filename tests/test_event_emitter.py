@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from collections.abc import Iterator
 from unittest.mock import AsyncMock, patch
 
@@ -306,6 +307,33 @@ async def test_grpc_sink_stop_cancels_health_task() -> None:
 
     await sink.stop()
     assert sink._health_task.cancelled()
+
+
+async def test_grpc_sink_start_sets_channel_message_limits() -> None:
+    """Channel is created with 50 MiB send/receive limits."""
+    from apme_engine.daemon.sinks.grpc_reporting import _GRPC_MAX_MSG
+
+    sink = GrpcReportingSink("localhost:99999")
+
+    with patch("apme_engine.daemon.sinks.grpc_reporting.grpc.aio") as mock_aio:
+        mock_channel = AsyncMock()
+        mock_aio.insecure_channel.return_value = mock_channel
+
+        with patch.object(sink, "_probe", new_callable=AsyncMock):
+            await sink.start()
+
+        mock_aio.insecure_channel.assert_called_once_with(
+            "localhost:99999",
+            options=[
+                ("grpc.max_send_message_length", _GRPC_MAX_MSG),
+                ("grpc.max_receive_message_length", _GRPC_MAX_MSG),
+            ],
+        )
+
+    if sink._health_task:
+        sink._health_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await sink._health_task
 
 
 # ---------------------------------------------------------------------------
