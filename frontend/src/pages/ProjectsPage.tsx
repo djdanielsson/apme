@@ -176,18 +176,25 @@ export function ProjectsPage() {
 
   const SortIcon = sortAsc ? SortAmountUpIcon : SortAmountDownIcon;
 
-  const sortableHeader = (label: string, field: SortField) => (
-    <th
-      role="columnheader"
-      style={{ cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}
-      onClick={() => handleSort(field)}
-    >
-      {label}
-      {sortField === field && (
-        <SortIcon style={{ marginLeft: 4, fontSize: 12, opacity: 0.7 }} />
-      )}
-    </th>
-  );
+  const sortableHeader = (label: string, field: SortField) => {
+    const active = sortField === field;
+    const ariaSortValue = active ? (sortAsc ? 'ascending' : 'descending') : undefined;
+    return (
+      <th
+        role="columnheader"
+        aria-sort={ariaSortValue}
+        tabIndex={0}
+        style={{ cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}
+        onClick={() => handleSort(field)}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleSort(field); } }}
+      >
+        {label}
+        {active && (
+          <SortIcon style={{ marginLeft: 4, fontSize: 12, opacity: 0.7 }} />
+        )}
+      </th>
+    );
+  };
 
   return (
     <PageLayout>

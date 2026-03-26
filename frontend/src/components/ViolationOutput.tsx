@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Button } from '@patternfly/react-core';
 import {
   AngleDownIcon,
@@ -61,6 +61,7 @@ export function ViolationOutput({ violations, patchByFile, hasFilters, scanType,
   const [allCollapsed, setAllCollapsed] = useState(false);
   const [selectedViolation, setSelectedViolation] = useState<ViolationRecord | null>(null);
   const [selectedIsCombined, setSelectedIsCombined] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   const groups = useMemo(() => groupByFile(violations), [violations]);
 
@@ -96,7 +97,7 @@ export function ViolationOutput({ violations, patchByFile, hasFilters, scanType,
 
   const ruleTitle = (ruleId: string) => getRuleDescription?.(ruleId) || ruleId;
 
-  const buildRows = (fileViolations: ViolationRecord[]): DisplayRow[] => {
+  const buildRows = (groupKey: string, fileViolations: ViolationRecord[]): DisplayRow[] => {
     if (!isRemediate) {
       const sorted = [...fileViolations].sort(
         (a, b) => severityOrder(severityClass(a.level, a.rule_id)) - severityOrder(severityClass(b.level, b.rule_id))
@@ -115,7 +116,7 @@ export function ViolationOutput({ violations, patchByFile, hasFilters, scanType,
         rule_id: '',
         level: 'info',
         message: `${fixed.length} violation${fixed.length !== 1 ? 's' : ''} fixed`,
-        file: fixed[0]!.file,
+        file: groupKey,
         line: null,
         path: '',
         remediation_class: 1,
@@ -166,8 +167,7 @@ export function ViolationOutput({ violations, patchByFile, hasFilters, scanType,
             <Button
               variant="plain"
               onClick={() => {
-                const container = document.querySelector('.apme-job-output-section .apme-output-scroll');
-                container?.scrollTo({ top: 0, behavior: 'smooth' });
+                scrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
               }}
               icon={<AngleDoubleUpIcon />}
               aria-label="Scroll to top"
@@ -176,8 +176,8 @@ export function ViolationOutput({ violations, patchByFile, hasFilters, scanType,
             <Button
               variant="plain"
               onClick={() => {
-                const container = document.querySelector('.apme-job-output-section .apme-output-scroll');
-                if (container) container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+                const el = scrollRef.current;
+                if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
               }}
               icon={<AngleDoubleDownIcon />}
               aria-label="Scroll to bottom"
@@ -187,7 +187,7 @@ export function ViolationOutput({ violations, patchByFile, hasFilters, scanType,
         )}
       </div>
 
-      {sectionOpen && <div className="apme-output-scroll">
+      {sectionOpen && <div className="apme-output-scroll" ref={scrollRef}>
         <div className="apme-output-grid">
           {groups.size === 0 ? (
             <div className="apme-output-empty">
@@ -196,7 +196,7 @@ export function ViolationOutput({ violations, patchByFile, hasFilters, scanType,
           ) : (
             Array.from(groups.entries()).map(([file, fileViolations]) => {
               const fixable = fileViolations.filter(v => v.remediation_class === 1);
-              const rows = buildRows(fileViolations);
+              const rows = buildRows(file, fileViolations);
 
               return (
                 <div className="apme-output-file-group" key={file}>
@@ -299,7 +299,7 @@ export function ViolationOutput({ violations, patchByFile, hasFilters, scanType,
           violation={selectedViolation}
           diff={selectedDiff}
           getRuleDescription={getRuleDescription}
-          mergedViolations={selectedIsCombined ? (groups.get(selectedViolation.file)?.filter(v => v.remediation_class === 1) ?? []) : undefined}
+          mergedViolations={selectedIsCombined ? (groups.get(selectedViolation.file || '(unknown)')?.filter(v => v.remediation_class === 1) ?? []) : undefined}
         />
       )}
     </>

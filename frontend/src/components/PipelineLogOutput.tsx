@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   Button,
   Modal,
@@ -92,6 +92,7 @@ export function PipelineLogOutput({ logs, expanded }: PipelineLogOutputProps) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [allCollapsed, setAllCollapsed] = useState(false);
   const [selectedEntry, setSelectedEntry] = useState<PipelineLogEntry | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   const groups = useMemo(() => groupByPhase(logs), [logs]);
 
@@ -154,8 +155,7 @@ export function PipelineLogOutput({ logs, expanded }: PipelineLogOutputProps) {
             <Button
               variant="plain"
               onClick={() => {
-                const container = document.querySelector('.apme-pipeline-log-section .apme-output-scroll');
-                container?.scrollTo({ top: 0, behavior: 'smooth' });
+                scrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
               }}
               icon={<AngleDoubleUpIcon />}
               aria-label="Scroll to top"
@@ -164,8 +164,8 @@ export function PipelineLogOutput({ logs, expanded }: PipelineLogOutputProps) {
             <Button
               variant="plain"
               onClick={() => {
-                const container = document.querySelector('.apme-pipeline-log-section .apme-output-scroll');
-                if (container) container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+                const el = scrollRef.current;
+                if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
               }}
               icon={<AngleDoubleDownIcon />}
               aria-label="Scroll to bottom"
@@ -175,7 +175,7 @@ export function PipelineLogOutput({ logs, expanded }: PipelineLogOutputProps) {
         )}
       </div>
 
-      {sectionOpen && <div className="apme-output-scroll">
+      {sectionOpen && <div className="apme-output-scroll" ref={scrollRef}>
         <div className="apme-output-grid">
           {Array.from(groups.entries()).map(([phase, entries]) => (
             <div className="apme-output-file-group" key={phase}>
