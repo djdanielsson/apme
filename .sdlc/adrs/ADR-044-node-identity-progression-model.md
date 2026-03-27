@@ -37,6 +37,22 @@ Consider 100 uniquely shaped puzzle pieces handed to 100 people who each make a 
 
 APME's current model is: disassemble the puzzle, throw away all the pieces, rebuild new pieces from the table surface, and hope the positions match.
 
+### Lessons from ansible-core's object model
+
+Ansible-core (`lib/ansible/playbook/`) maintains a proper hierarchy with explicit parent pointers — `Task._parent → Block`, `Block._parent → Block`, `Block._play → Play`, `Block._role → Role`, `Block._dep_chain → [Role]`. Property inheritance uses `FieldAttribute` descriptors whose `__get__` calls `_get_parent_attribute()`, which walks the full parent chain on every read. This means ansible-core always knows where an inherited value originates — it just never exposes that provenance as data.
+
+Key patterns to adopt or avoid:
+
+1. **`_get_parent_attribute()` is the `PropertyOrigin` blueprint.** The chain walk (Task → Block → parent Block → Role → dep chain → Play) preserves provenance at read time. ARI's scandata accumulation is equivalent to ansible-core's `squash()` — it materializes inherited values and discards the chain. ADR-044's model must never squash without recording origin.
+
+2. **`_uuid` is process-local and ephemeral.** ansible-core assigns a random-ish ID at construction (`get_unique_id()` — MAC prefix + monotonic counter). It is not stable across runs or processes. ADR-044's YAML-path-based `NodeIdentity` is strictly more stable.
+
+3. **Static vs dynamic includes create a partially-known tree.** `import_tasks` / `import_role` expand at parse time — fully resolved before execution. `include_tasks` / `include_role` remain as placeholder nodes until execution reaches them, and are host-divergent (different hosts may include different files). The effective tree is never globally complete. APME scans content structurally, not per-host, so dynamic includes are leaf nodes with unknown children.
+
+4. **`when:` on static imports gates the expanded tasks, not the import itself.** The file is always loaded; the condition is attached as a parent and inherited by every expanded task. For dynamic includes, `when:` is evaluated first — if false, the file is never loaded.
+
+5. **`NonInheritableFieldAttribute` distinguishes scope-sensitive from scope-insensitive properties.** `name` and `vars` are explicitly non-inheritable in ansible-core. This maps directly to ADR-043's scope-aware severity: only inheritable properties (become, ignore_errors) should escalate severity at broader scope; non-inheritable properties (name) should not.
+
 ### Decision drivers
 
 - Remediation convergence requires tracking "same node, different state" across passes
@@ -44,6 +60,7 @@ APME's current model is: disassemble the puzzle, throw away all the pieces, rebu
 - The formatter, scan engine, and remediation engine should share one model, not three
 - ARI's parsing and hierarchy logic is valuable; its stateless snapshot model is not
 - Inherited properties (become, vars) must be attributable to their defining scope, not every inheriting child
+- ansible-core's `_get_parent_attribute()` chain demonstrates how to preserve provenance; ARI's accumulation model destroys it
 
 ## Decision
 
@@ -59,9 +76,11 @@ Each meaningful unit of Ansible content (task, play, block, role reference, vari
 
 **Progression**: An ordered sequence of `NodeState` entries for a single `NodeIdentity`, representing how that node evolved through the pipeline.
 
-**ContentGraph**: The top-level container — a graph of identified nodes with their progressions and parent-child relationships. Replaces the current pattern of disconnected ARI tree + StructuredFile + file bytes.
+**ContentGraph**: The top-level container — a directed acyclic graph (DAG) of identified nodes with their progressions, parent-child relationships, and include edges. Replaces the current pattern of disconnected ARI tree + StructuredFile + file bytes. The graph is a DAG, not a tree, because roles and task files can be included by multiple parents — a role used by three playbooks exists once in the graph with three incoming include edges, not three copies.
 
-**PropertyOrigin**: When a node carries an inherited property (e.g. `become`, variables), the graph tracks the `NodeIdentity` of the defining scope. Violations on inherited properties reference both the affected task and the origin node, enabling messages like "Privilege escalation inherited from play at site.yml:3" rather than attributing to the task's own line.
+**NodeScope**: Each node carries an ownership scope — `owned` (inside the scan boundary, eligible for violations and remediation) or `referenced` (resolved for context and inheritance, but violations are not reported and content is never modified). When scanning a collection, the collection's own roles and playbooks are `owned`; dependencies from Galaxy are `referenced`. The scan boundary is determined by what was submitted for analysis.
+
+**PropertyOrigin**: When a node carries an inherited property (e.g. `become`, variables), the graph tracks the `NodeIdentity` of the defining scope — modeled after ansible-core's `_get_parent_attribute()` chain walk. Violations on inherited properties reference both the affected task and the origin node, enabling messages like "Privilege escalation inherited from play at site.yml:3" rather than attributing to the task's own line.
 
 ### Pipeline with progression
 
@@ -159,6 +178,8 @@ This preserves ARI's valuable parsing logic while decoupling APME from ARI's sta
 - Remediation attribution is explicit: "Transform T resolved violation V on node N at pass P"
 - Feedback issues include full node progression (original → formatted → scanned → transformed)
 - Single model serves parsing, validation, remediation, and reporting
+- DAG structure prevents duplicate violations and duplicate remediation for shared content (roles used by multiple playbooks)
+- Ownership borders cleanly separate "your code" from "your dependencies" without excluding dependencies from the analysis context
 - Formatter changes become trackable events, not invisible preprocessing
 - Inherited property violations reference their defining scope, not every inheriting child
 - Plays and playbooks become first-class violation targets — an R108 "this play enables privilege escalation" fires once on the play node instead of once per inheriting task, significantly reducing noise
@@ -231,6 +252,33 @@ Violation(
 
 The UI renders play-level violations with the play header as the snippet (hosts, vars, become directives), giving the user immediate context for why the violation exists and where to fix it.
 
+### Graph topology: DAG with ownership borders
+
+The `ContentGraph` is a DAG, not a tree. Include/import directives create edges, not copies:
+
+```
+site.yml::play[0]
+  ├── include_role: web         ──→ roles/web/tasks/main.yml (owned)
+  └── include_role: common      ──→ roles/common/tasks/main.yml (owned)
+
+deploy.yml::play[0]
+  ├── include_role: web         ──→ roles/web/tasks/main.yml (same node)
+  └── include_role: monitoring  ──→ galaxy.namespace.monitoring (referenced)
+```
+
+`roles/web` appears once in the graph with two incoming edges. A violation against it is reported once. A remediation fix is applied once. Both including playbooks benefit.
+
+**Static imports** (`import_tasks`, `import_role`) are fully resolved at parse time — their content is materialized in the graph with the import directive as the include edge.
+
+**Dynamic includes** (`include_tasks`, `include_role`) remain as leaf nodes with a `dynamic` edge type. Their children are unknown until execution and may vary per host. APME treats them as opaque scan boundaries — the include directive itself is scannable (rule L054 checks for missing files), but the included content is not part of the static graph.
+
+**Ownership borders** determine the scan boundary:
+
+- `owned`: content submitted for analysis. Violations reported, remediation applied, progression tracked.
+- `referenced`: resolved for context (so property inheritance and variable resolution work). Violations suppressed or surfaced as advisory ("your dependency has issues"). Content never modified.
+
+The border is set by what's submitted: scanning a role in isolation makes the role `owned` and its dependencies `referenced`. Scanning a collection makes all sibling roles `owned`. This is a property of the scan session, not intrinsic to the node — the same role can be `owned` in one scan and `referenced` in another.
+
 ### Compatibility
 
 - `NodeIndex` (current YAML-path lookup) evolves into `ContentGraph`
@@ -250,6 +298,7 @@ The UI renders play-level violations with the play header as the snippet (hosts,
 
 - Conversation analysis of snippet accuracy issues (2026-03-27)
 - Puzzle piece analogy for entity-with-history design
+- ansible-core source analysis: `lib/ansible/playbook/base.py` (FieldAttribute descriptors, `_get_parent_attribute`, `squash`), `block.py` (parent chain walk), `task.py` (task inheritance), `attribute.py` (FieldAttribute vs NonInheritableFieldAttribute), `helpers.py` (static import vs dynamic include resolution), `play_iterator.py` (HostState, dynamic task splicing)
 
 ---
 
@@ -258,3 +307,5 @@ The UI renders play-level violations with the play header as the snippet (hosts,
 | Date | Author | Change |
 |------|--------|--------|
 | 2026-03-27 | Bradley A. Thornton | Initial proposal |
+| 2026-03-27 | Bradley A. Thornton | Added inherited property attribution, scope-level violations |
+| 2026-03-27 | Bradley A. Thornton | Added ansible-core lessons, DAG topology, ownership borders |
