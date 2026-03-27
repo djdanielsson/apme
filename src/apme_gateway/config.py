@@ -27,7 +27,7 @@ class GatewayConfig:
     http_port: int = field(default_factory=lambda: int(os.environ.get("APME_GATEWAY_HTTP_PORT", "8080")))
     primary_address: str = field(default_factory=lambda: os.environ.get("APME_PRIMARY_ADDRESS", "localhost:50051"))
     feedback_enabled: bool = field(
-        default_factory=lambda: os.environ.get("APME_FEEDBACK_ENABLED", "true").lower() in ("1", "true", "yes"),
+        default_factory=lambda: os.environ.get("APME_FEEDBACK_ENABLED", "false").lower() in ("1", "true", "yes"),
     )
     feedback_github_repo: str = field(
         default_factory=lambda: os.environ.get("APME_FEEDBACK_GITHUB_REPO", ""),

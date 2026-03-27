@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Alert,
   Button,
@@ -47,6 +47,10 @@ export function FeedbackModal({ isOpen, onClose, prefill, gatewayUrl = '' }: Fee
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<{ url: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isOpen && prefill?.type) setIssueType(prefill.type);
+  }, [isOpen, prefill?.type]);
 
   const handleSubmit = useCallback(async () => {
     setSubmitting(true);

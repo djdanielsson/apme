@@ -123,7 +123,8 @@ async def feedback_enabled() -> dict[str, bool]:
         Dict with ``enabled`` boolean.
     """
     cfg = load_config()
-    return {"enabled": cfg.feedback_enabled}
+    usable = cfg.feedback_enabled and bool(cfg.feedback_github_repo) and bool(cfg.feedback_github_token)
+    return {"enabled": usable}
 
 
 @router.post("/feedback", response_model=FeedbackResponse)  # type: ignore[untyped-decorator]
@@ -159,17 +160,21 @@ async def submit_feedback(req: FeedbackRequest) -> FeedbackResponse:
 
     api_url = f"https://api.github.com/repos/{cfg.feedback_github_repo}/issues"
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            api_url,
-            json={"title": title, "body": body, "labels": labels},
-            headers={
-                "Authorization": f"Bearer {cfg.feedback_github_token}",
-                "Accept": "application/vnd.github+json",
-                "X-GitHub-Api-Version": "2022-11-28",
-            },
-            timeout=15.0,
-        )
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                api_url,
+                json={"title": title, "body": body, "labels": labels},
+                headers={
+                    "Authorization": f"Bearer {cfg.feedback_github_token}",
+                    "Accept": "application/vnd.github+json",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+                timeout=15.0,
+            )
+    except httpx.RequestError as exc:
+        logger.error("GitHub API network error: %s", exc)
+        raise HTTPException(status_code=502, detail=f"GitHub API unreachable: {exc}") from exc
 
     if resp.status_code not in (200, 201):
         logger.error("GitHub API error: %d %s", resp.status_code, resp.text[:500])

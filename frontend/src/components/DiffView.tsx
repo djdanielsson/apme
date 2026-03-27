@@ -30,9 +30,9 @@ export function DiffView({ diff, className }: DiffViewProps) {
       {lines.map((line, i) => {
         const kind = classifyLine(line);
         return (
-          <div key={i} style={{ ...lineStyles[kind], paddingLeft: 4, paddingRight: 4 }}>
+          <span key={i} style={{ display: 'block', ...lineStyles[kind], paddingLeft: 4, paddingRight: 4 }}>
             {line || '\u00A0'}
-          </div>
+          </span>
         );
       })}
     </pre>

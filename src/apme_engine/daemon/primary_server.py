@@ -157,8 +157,11 @@ def _attach_snippets(violations: list[ViolationDict], files: list[File]) -> None
         violations: Violation dicts to enrich (mutated in place).
         files: File protos with path and content from the scan.
     """
+    violated_paths = {str(v.get("file", "")) for v in violations}
     file_lines: dict[str, list[str]] = {}
     for f in files:
+        if f.path not in violated_paths:
+            continue
         try:
             file_lines[f.path] = f.content.decode("utf-8", errors="replace").splitlines()
         except Exception:  # noqa: BLE001
