@@ -112,6 +112,7 @@ spec:
       ports:
         - containerPort: 8081
           hostPort: 8081
+          hostIP: 0.0.0.0
     - name: abbenay
       image: ghcr.io/redhat-developer/abbenay:2026.3.8-alpha
       args: ["daemon", "--grpc-host", "0.0.0.0", "--grpc-port", "50057"]
@@ -131,6 +132,13 @@ spec:
           readOnly: true
     - name: galaxy-proxy
       image: apme-galaxy-proxy:latest
+      env:
+        - name: GALAXY_URL
+          value: "${GALAXY_URL}"
+        - name: GALAXY_TOKEN
+          value: "${GALAXY_TOKEN}"
+        - name: GALAXY_SERVER_LIST
+          value: "${GALAXY_SERVER_LIST}"
       ports:
         - containerPort: 8765
           hostPort: 8765
