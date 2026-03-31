@@ -2,7 +2,8 @@
 # Multi-stage: copies the OPA binary from the official image.
 FROM docker.io/openpolicyagent/opa:latest AS opa-bin
 
-FROM localhost/apme-base:latest
+ARG BASE_IMAGE=localhost/apme-base:latest
+FROM $BASE_IMAGE
 
 COPY --from=opa-bin /opa /usr/local/bin/opa
 

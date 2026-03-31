@@ -2,7 +2,8 @@
 # Multi-stage: copies gitleaks from the official image.
 FROM docker.io/zricethezav/gitleaks:latest AS gitleaks-bin
 
-FROM localhost/apme-base:latest
+ARG BASE_IMAGE=localhost/apme-base:latest
+FROM $BASE_IMAGE
 
 COPY --from=gitleaks-bin /usr/bin/gitleaks /usr/local/bin/gitleaks
 

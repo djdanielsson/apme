@@ -2,7 +2,8 @@
 # Persists scan/fix events to SQLite (ADR-020 / ADR-029).
 # Project operations require git for on-demand cloning (ADR-037).
 # Mount /data for SQLite persistence across restarts.
-FROM localhost/apme-base:latest
+ARG BASE_IMAGE=localhost/apme-base:latest
+FROM $BASE_IMAGE
 
 RUN apt-get update && apt-get install -y --no-install-recommends git \
     && rm -rf /var/lib/apt/lists/*
