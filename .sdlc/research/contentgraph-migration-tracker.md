@@ -9,15 +9,15 @@
 | Metric | Count |
 |--------|-------|
 | Total native rules | 96 |
-| Ported to GraphRule | 85 |
-| Active (all stubs activated) | 85 |
+| Ported to GraphRule | 87 |
+| Active (all stubs activated) | 87 |
 | Stub (awaiting infrastructure) | 0 |
 | Skipped (N/A) | 9 |
-| Deferred (Phase 3) | 2 |
+| Deferred (Phase 3) | 0 |
 | Remaining | 0 |
-| Migration % | 88.5% |
+| Migration % | 90.6% |
 
-## Ported Rules (85)
+## Ported Rules
 
 ### Phase 2A — Scanner bootstrap + R108 (PR #138)
 
@@ -187,21 +187,17 @@ active once COLLECTION/PLUGIN node types are populated in the graph.
 
 ---
 
-## Deferred Rules (2) — Phase 3 Prerequisites
+## Deferred Rules — COMPLETE
 
-These rules require the full variable resolution / provenance infrastructure
-(Phase 3 of ADR-044). They cannot be ported until `ContentNode` has
-`variable_use` and `variable_set` fields populated by the
-`VariableProvenanceResolver`.
+Both deferred rules are now ported. New ContentNode fields were **not needed**:
+L039 uses `VariableProvenanceResolver.resolve_variables()` + Jinja extraction;
+L050 reads existing `variables`, `module_options` (for set_fact keys),
+`register`, `default_variables`, and `role_variables` fields directly.
 
-| Rule | Name | Severity | What it needs |
-|------|------|----------|---------------|
-| L039 | UndefinedVariable | LOW | `variable_use` with resolution status — needs resolver to mark unknown variables |
-| L050 | VarNaming | VERY_LOW | `variable_set` with variable names — needs resolver to enumerate defined variables |
-
-**Tracking**: These rules will be ported as part of Phase 3 work item
-"PropertyOrigin consumed by rules" when the variable provenance
-infrastructure lands.
+| Rule | Name | Severity | Status |
+|------|------|----------|--------|
+| L039 | UndefinedVariable | LOW | Active — Jinja ref extraction + scope resolution + magic vars allowlist |
+| L050 | VarNaming | VERY_LOW | Active — regex check on variable definitions at all scopes |
 
 ## Stub Rules — Activation Status
 
@@ -261,8 +257,13 @@ Fields still needed for full migration:
 - [x] ~~`annotations: dict[str, object]`~~ — **NOT NEEDED**: Phase 2I rules
   read `module_options` directly via `_module_risk_mapping.py` instead of
   consuming `RiskAnnotation` objects. The annotation pipeline is bypassed.
-- [ ] `variable_use: list[VariableRef]` — variables referenced by this node
-- [ ] `variable_set: list[VariableRef]` — variables defined by this node
+- [x] ~~`variable_use: list[VariableRef]`~~ — **NOT NEEDED as a field**: L039
+  extracts Jinja references on the fly via regex and resolves scope with
+  `VariableProvenanceResolver.resolve_variables()`. No per-node storage needed.
+- [x] ~~`variable_set: list[VariableRef]`~~ — **NOT NEEDED as a field**: L050
+  reads existing `variables`, `module_options` (for set_fact keys),
+  `register`, `default_variables`, and `role_variables` fields directly.
+  Same pattern as L100/L101/L102.
 - [x] `COLLECTION` / `MODULE` node types in `NodeType` enum + `_SCANNABLE_TYPES`
 - [x] `module_line_count`, `module_functions_without_return_type` on `ContentNode`
 - [x] ~~`role_files: dict[str, str]`~~ — **NOT NEEDED as a field**: L077 now
@@ -348,12 +349,11 @@ After Phase 2 (all rules ported), Phase 3 adds:
 for native rules (PR #157). The old `NativeValidator.run()` path
 is no longer used.
 
-**111 tests pass, 2 rules skipped** (tracked in `_GRAPH_RULE_KNOWN_FAILURES`):
+**112 tests pass, 1 rule skipped** (tracked in `_GRAPH_RULE_KNOWN_FAILURES`):
 
 | Rule | Issue |
 |------|-------|
-| L039 | No graph rule — legacy-only (deferred to Phase 3) |
-| R402 | No graph rule — legacy-only (deferred to Phase 3) |
+| R402 | No graph rule — severity NONE informational listing rule |
 
 **Previously tracked gaps resolved in PR #160:**
 

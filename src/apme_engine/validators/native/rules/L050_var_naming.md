@@ -2,25 +2,26 @@
 rule_id: L050
 validator: native
 description: Variable names: lowercase, underscores.
-scope: inventory
+scope: task
 ---
 
 ## Var naming (L050)
 
-Variable names: lowercase, underscores.
+Variable names defined in `vars:`, `set_fact`, `register`, or role
+defaults/vars should use lowercase letters and underscores only.
 
 ### Example: violation
 
 ```yaml
-- name: Use variable
-  ansible.builtin.debug:
-    msg: "{{ MyVariable }}"
+- name: Set bad variable
+  ansible.builtin.set_fact:
+    MyVariable: "value"
 ```
 
 ### Example: pass
 
 ```yaml
-- name: Use variable
-  ansible.builtin.debug:
-    msg: "{{ my_variable }}"
+- name: Set good variable
+  ansible.builtin.set_fact:
+    my_variable: "value"
 ```
