@@ -14,10 +14,12 @@ Public API
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 from collections.abc import Iterator
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from enum import Enum
 from typing import TYPE_CHECKING, cast
 
@@ -172,6 +174,49 @@ class NodeIdentity:
 
 
 # ---------------------------------------------------------------------------
+# NodeState — immutable snapshot at a pipeline phase (ADR-044 Phase 3)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class NodeState:
+    """Immutable snapshot of a node's content at a specific pipeline phase.
+
+    Recorded at scan and transform boundaries during the convergence loop.
+    Each ``ContentNode`` accumulates an ordered ``progression`` of these
+    snapshots, enabling snippet accuracy, remediation attribution, and
+    full node history.
+
+    Attributes:
+        pass_number: Convergence pass (0 = initial scan).
+        phase: Pipeline phase (``"original"``, ``"scanned"``, ``"transformed"``).
+        yaml_lines: Raw YAML text for this node at this point in time.
+        content_hash: SHA-256 hex digest of ``yaml_lines``.
+        violations: Rule IDs of violations active at this state.
+        timestamp: ISO 8601 UTC timestamp when the snapshot was taken.
+    """
+
+    pass_number: int
+    phase: str
+    yaml_lines: str
+    content_hash: str
+    violations: tuple[str, ...]
+    timestamp: str
+
+
+def _content_hash(text: str) -> str:
+    """Compute SHA-256 hex digest of a text string.
+
+    Args:
+        text: Input string (typically ``yaml_lines``).
+
+    Returns:
+        Hex digest string.
+    """
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+# ---------------------------------------------------------------------------
 # ContentNode
 # ---------------------------------------------------------------------------
 
@@ -224,6 +269,8 @@ class ContentNode:
         ari_key: Legacy ARI object key for cross-checks.
         annotations: Annotator payloads (risk, module hints, etc.).
         scope: Owned vs referenced content classification.
+        state: Current ``NodeState`` snapshot (most recent entry in progression).
+        progression: Ordered list of ``NodeState`` snapshots across pipeline phases.
     """
 
     identity: NodeIdentity
@@ -287,6 +334,10 @@ class ContentNode:
     # Scope
     scope: NodeScope = NodeScope.OWNED
 
+    # Progression (ADR-044 Phase 3) — temporal state tracking
+    state: NodeState | None = None
+    progression: list[NodeState] = field(default_factory=list)
+
     @property
     def node_type(self) -> NodeType:
         """Return the node's type from its identity."""
@@ -296,6 +347,58 @@ class ContentNode:
     def node_id(self) -> str:
         """Return the node's stable string identifier."""
         return str(self.identity)
+
+    def record_state(
+        self,
+        pass_number: int,
+        phase: str,
+        violations: tuple[str, ...] = (),
+    ) -> NodeState:
+        """Record a progression snapshot at the current pipeline phase.
+
+        Creates a ``NodeState`` from the node's current ``yaml_lines``,
+        appends it to ``progression``, and sets ``state`` to the new entry.
+
+        Args:
+            pass_number: Convergence pass (0 = initial scan).
+            phase: Pipeline phase (``"original"``, ``"scanned"``,
+                ``"transformed"``).
+            violations: Rule IDs of violations active at this state.
+
+        Returns:
+            The newly created ``NodeState``.
+        """
+        ns = NodeState(
+            pass_number=pass_number,
+            phase=phase,
+            yaml_lines=self.yaml_lines,
+            content_hash=_content_hash(self.yaml_lines),
+            violations=violations,
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        )
+        self.progression.append(ns)
+        self.state = ns
+        return ns
+
+    def update_from_yaml(self, yaml_text: str) -> None:
+        """Rebuild typed fields from modified YAML text.
+
+        Called after a transform serializes a modified ``CommentedMap``
+        back to text.  Updates ``yaml_lines`` and re-extracts all
+        content fields that graph rules evaluate.
+
+        Only applicable to TASK, HANDLER, and BLOCK nodes.  Play/role/
+        playbook nodes have additional fields that are not extractable
+        from a single YAML mapping.
+
+        Args:
+            yaml_text: New YAML text for this node's span.
+        """
+        self.yaml_lines = yaml_text
+        parsed = _parse_yaml_for_update(yaml_text)
+        if parsed is None:
+            return
+        _apply_parsed_fields(self, parsed)
 
 
 # ---------------------------------------------------------------------------
@@ -782,6 +885,46 @@ _CONTENT_NODE_SIMPLE_FIELDS: tuple[str, ...] = (
 )
 
 
+def _node_state_to_dict(ns: NodeState) -> dict[str, object]:
+    """Serialize a NodeState to a JSON-compatible dict.
+
+    Args:
+        ns: NodeState snapshot to serialize.
+
+    Returns:
+        Plain dict with all NodeState fields.
+    """
+    return {
+        "pass_number": ns.pass_number,
+        "phase": ns.phase,
+        "yaml_lines": ns.yaml_lines,
+        "content_hash": ns.content_hash,
+        "violations": list(ns.violations),
+        "timestamp": ns.timestamp,
+    }
+
+
+def _node_state_from_dict(d: dict[str, object]) -> NodeState:
+    """Reconstruct a NodeState from a serialized dict.
+
+    Args:
+        d: Dict produced by ``_node_state_to_dict``.
+
+    Returns:
+        Reconstructed frozen NodeState.
+    """
+    violations_raw = d.get("violations", ())
+    violations = tuple(str(v) for v in violations_raw) if isinstance(violations_raw, list | tuple) else ()
+    return NodeState(
+        pass_number=int(cast(int, d.get("pass_number", 0))),
+        phase=str(d.get("phase", "")),
+        yaml_lines=str(d.get("yaml_lines", "")),
+        content_hash=str(d.get("content_hash", "")),
+        violations=violations,
+        timestamp=str(d.get("timestamp", "")),
+    )
+
+
 def _node_to_dict(node: ContentNode) -> dict[str, object]:
     """Serialize a ContentNode to a JSON-compatible dict.
 
@@ -803,6 +946,12 @@ def _node_to_dict(node: ContentNode) -> dict[str, object]:
     }
     for fname in _CONTENT_NODE_SIMPLE_FIELDS:
         d[fname] = getattr(node, fname)
+
+    if node.state is not None:
+        d["state"] = _node_state_to_dict(node.state)
+    if node.progression:
+        d["progression"] = [_node_state_to_dict(ns) for ns in node.progression]
+
     return d
 
 
@@ -828,7 +977,30 @@ def _node_from_dict(d: dict[str, object]) -> ContentNode:
         if fname in d:
             kwargs[fname] = d[fname]
 
-    return ContentNode(**kwargs)  # type: ignore[arg-type]
+    node = ContentNode(**kwargs)  # type: ignore[arg-type]
+
+    raw_state = d.get("state")
+    deserialized_state: NodeState | None = None
+    if isinstance(raw_state, dict):
+        deserialized_state = _node_state_from_dict(cast(dict[str, object], raw_state))
+
+    raw_progression = d.get("progression")
+    deserialized_progression: list[NodeState] | None = None
+    if isinstance(raw_progression, list):
+        deserialized_progression = [
+            _node_state_from_dict(cast(dict[str, object], entry))
+            for entry in raw_progression
+            if isinstance(entry, dict)
+        ]
+
+    # Reconcile: progression is source of truth; state == progression[-1].
+    if deserialized_progression:
+        node.progression = deserialized_progression
+        node.state = deserialized_progression[-1]
+    elif deserialized_state is not None:
+        node.state = deserialized_state
+
+    return node
 
 
 # ---------------------------------------------------------------------------
@@ -2104,6 +2276,204 @@ def _has_block_children(task: object) -> bool:
     """
     options = _safe_dict(getattr(task, "options", {}))
     return any(isinstance(options.get(k), list) for k in ("block", "rescue", "always"))
+
+
+# ---------------------------------------------------------------------------
+# YAML field extraction for update_from_yaml (ADR-044 Phase 3)
+# ---------------------------------------------------------------------------
+
+_TASK_META_KEYS = frozenset(
+    {
+        "name",
+        "when",
+        "changed_when",
+        "failed_when",
+        "register",
+        "notify",
+        "listen",
+        "become",
+        "become_user",
+        "become_method",
+        "become_flags",
+        "delegate_to",
+        "run_once",
+        "connection",
+        "ignore_errors",
+        "ignore_unreachable",
+        "no_log",
+        "tags",
+        "environment",
+        "vars",
+        "args",
+        "loop",
+        "loop_control",
+        "with_items",
+        "with_dict",
+        "with_fileglob",
+        "with_subelements",
+        "with_sequence",
+        "with_nested",
+        "with_first_found",
+        "block",
+        "rescue",
+        "always",
+        "any_errors_fatal",
+        "max_fail_percentage",
+        "check_mode",
+        "diff",
+        "throttle",
+        "timeout",
+        "retries",
+        "delay",
+        "until",
+        "debugger",
+        "module_defaults",
+        "collections",
+        "action",
+        "local_action",
+    }
+)
+
+
+def _parse_yaml_for_update(yaml_text: str) -> dict[str, object] | None:
+    """Parse a YAML text fragment into a plain dict for field extraction.
+
+    Uses ``yaml.safe_load`` (not ruamel) since we only need values,
+    not round-trip fidelity.  Returns ``None`` on parse failure.
+
+    Args:
+        yaml_text: Raw YAML string (typically a single task mapping).
+
+    Returns:
+        Parsed dict, or ``None`` if the text is unparseable.
+    """
+    import yaml  # noqa: PLC0415
+
+    try:
+        data = yaml.safe_load(yaml_text)
+    except yaml.YAMLError:
+        return None
+
+    if isinstance(data, list) and len(data) == 1 and isinstance(data[0], dict):
+        return cast(dict[str, object], data[0])
+    if isinstance(data, dict):
+        return cast(dict[str, object], data)
+    return None
+
+
+def _apply_parsed_fields(node: ContentNode, parsed: dict[str, object]) -> None:
+    """Update a ContentNode's typed fields from a parsed YAML dict.
+
+    Mirrors the field extraction logic in ``GraphBuilder._build_task``
+    but operates on a plain dict instead of an ARI object.
+
+    Args:
+        node: ContentNode to update in place.
+        parsed: Parsed YAML dict (single task/handler mapping).
+    """
+    module_key = None
+    for key in parsed:
+        if key not in _TASK_META_KEYS:
+            module_key = str(key)
+            break
+
+    if module_key is not None:
+        node.module = module_key
+        raw_opts = parsed.get(module_key)
+        if isinstance(raw_opts, dict):
+            node.module_options = cast(YAMLDict, raw_opts)
+        elif raw_opts is not None:
+            node.module_options = cast(YAMLDict, {"_raw": raw_opts})
+        else:
+            node.module_options = {}
+
+    node.name = parsed.get("name") if isinstance(parsed.get("name"), str) else None  # type: ignore[assignment]
+
+    when_raw = parsed.get("when")
+    if isinstance(when_raw, str):
+        node.when_expr = when_raw
+    elif isinstance(when_raw, list):
+        node.when_expr = [str(x) for x in when_raw]
+    else:
+        node.when_expr = None
+
+    node.variables = cast(YAMLDict, parsed["vars"]) if isinstance(parsed.get("vars"), dict) else {}
+
+    become_user = parsed.get("become_user")
+    become_val = parsed.get("become")
+    become_method = parsed.get("become_method")
+    become_flags = parsed.get("become_flags")
+    if any(v is not None for v in (become_val, become_user, become_method, become_flags)):
+        node.become = cast(
+            YAMLDict,
+            {
+                k: v
+                for k, v in [
+                    ("become", become_val),
+                    ("become_user", become_user),
+                    ("become_method", become_method),
+                    ("become_flags", become_flags),
+                ]
+                if v is not None
+            },
+        )
+    else:
+        node.become = None
+
+    node.tags = _as_str_list(parsed.get("tags"))
+
+    loop_val = parsed.get("loop") or next(
+        (parsed[k] for k in parsed if k.startswith("with_")),
+        None,
+    )
+    node.loop = cast(YAMLValue, loop_val)
+
+    loop_ctrl = parsed.get("loop_control")
+    node.loop_control = cast(YAMLDict, loop_ctrl) if isinstance(loop_ctrl, dict) else None
+
+    register_raw = parsed.get("register")
+    node.register = register_raw if isinstance(register_raw, str) else None
+
+    env_raw = parsed.get("environment")
+    node.environment = cast(YAMLDict, env_raw) if isinstance(env_raw, dict) else None
+
+    no_log_raw = parsed.get("no_log")
+    node.no_log = no_log_raw if isinstance(no_log_raw, bool) else None
+
+    ignore_raw = parsed.get("ignore_errors")
+    node.ignore_errors = ignore_raw if isinstance(ignore_raw, bool) else None
+
+    node.changed_when = cast(YAMLValue, parsed.get("changed_when"))
+    node.failed_when = cast(YAMLValue, parsed.get("failed_when"))
+
+    delegate_raw = parsed.get("delegate_to")
+    node.delegate_to = delegate_raw if isinstance(delegate_raw, str) else None
+
+    node.notify = _as_str_list(parsed.get("notify"))
+    node.listen = _as_str_list(parsed.get("listen"))
+
+    # set_facts: for set_fact modules, extract variable names from module args
+    _SET_FACT_MODULES = frozenset(  # noqa: N806
+        {"ansible.builtin.set_fact", "ansible.legacy.set_fact", "set_fact"},
+    )
+    if module_key in _SET_FACT_MODULES and isinstance(node.module_options, dict):
+        node.set_facts = cast(
+            YAMLDict,
+            {k: v for k, v in node.module_options.items() if k != "cacheable"},
+        )
+    else:
+        node.set_facts = {}
+
+    # Rebuild generic options so node.options stays consistent with the YAML.
+    # Mirrors GraphBuilder._build_task: exclude name, module key, and
+    # block-structure keys.
+    _BLOCK_KEYS = frozenset({"block", "rescue", "always"})  # noqa: N806
+    options: dict[str, object] = {}
+    for key, value in parsed.items():
+        if key == "name" or key == module_key or key in _BLOCK_KEYS:
+            continue
+        options[key] = value
+    node.options = cast(YAMLDict, options)
 
 
 def _extract_variable_references(node: ContentNode) -> set[str]:
