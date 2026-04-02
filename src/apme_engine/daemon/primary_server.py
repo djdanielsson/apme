@@ -1528,7 +1528,12 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
             SessionEvent: Progress, Tier1Summary, and result events.
         """
         from apme_engine.engine.content_graph import ContentGraph
-        from apme_engine.engine.graph_scanner import load_graph_rules
+        from apme_engine.engine.graph_scanner import (
+            graph_report_to_violations,
+            load_graph_rules,
+            native_rules_dir,
+            rescan_dirty,
+        )
         from apme_engine.remediation.graph_engine import (
             GraphRemediationEngine,
             splice_modifications,
@@ -1564,13 +1569,63 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
                     originals[str(Path(yp).relative_to(temp_dir))] = content
 
         # 2. Run graph remediation in executor
-        rules = load_graph_rules()
+        rules = load_graph_rules(rules_dir=native_rules_dir())
+
+        temp_dir_resolved = temp_dir.resolve()
+
+        def _rescan_bridge(
+            g: ContentGraph,
+            dirty_ids: frozenset[str],
+        ) -> list[ViolationDict]:
+            """Validator bridge: graph rules + full-pipeline scan.
+
+            1. Runs in-memory native graph rules via ``rescan_dirty``,
+               scoped to ``dirty_ids`` in the content graph.
+            2. Materialises modified files to ``temp_dir`` via
+               ``splice_modifications`` so external validators see
+               current state.
+            3. Calls ``scan_fn`` over all ``yaml_paths`` for full
+               validator fan-out (OPA, Ansible, Gitleaks).
+            4. Merges native (node-id paths) and external (file paths)
+               violations, filtering native-source duplicates from the
+               pipeline results.
+
+            Args:
+                g: Live ContentGraph (in-memory modifications).
+                dirty_ids: Node IDs modified this pass.
+
+            Returns:
+                Merged violation list for the convergence loop.
+            """
+            graph_report = rescan_dirty(g, rules, dirty_ids)
+            native_violations = graph_report_to_violations(graph_report)
+
+            if dirty_ids:
+                patches = splice_modifications(g, originals)
+                for patch in patches:
+                    patch_path = Path(patch.path)
+                    patch_abs = patch_path.resolve() if patch_path.is_absolute() else (temp_dir / patch_path).resolve()
+                    if patch_abs != temp_dir_resolved and temp_dir_resolved not in patch_abs.parents:
+                        logger.warning(
+                            "Skipping patch with path escaping temp_dir: %s",
+                            patch_path,
+                        )
+                        continue
+                    patch_abs.parent.mkdir(parents=True, exist_ok=True)
+                    patch_abs.write_text(patch.patched, encoding="utf-8")
+
+            pipeline_violations = scan_fn(yaml_paths)
+
+            external = [v for v in pipeline_violations if str(v.get("source", "")) != "native"]
+            return native_violations + external
+
         graph_engine = GraphRemediationEngine(
             registry=registry,  # type: ignore[arg-type]
             graph=graph,
             rules=rules,
             max_passes=max_passes,
             progress_callback=progress_callback,
+            rescan_fn=_rescan_bridge,
         )
 
         hb_task: asyncio.Task[None] = asyncio.create_task(_heartbeat())  # type: ignore[arg-type]

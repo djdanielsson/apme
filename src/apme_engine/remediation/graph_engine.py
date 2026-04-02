@@ -33,6 +33,7 @@ from apme_engine.validators.native.rules.graph_rule_base import GraphRule
 logger = logging.getLogger("apme.remediation.graph")
 
 ProgressCallback = Callable[[str, str, float, int], None]
+RescanFn = Callable[[ContentGraph, frozenset[str]], list["ViolationDict"]]
 
 
 @dataclass
@@ -83,6 +84,7 @@ class GraphRemediationEngine:
         *,
         max_passes: int = 5,
         progress_callback: ProgressCallback | None = None,
+        rescan_fn: RescanFn | None = None,
     ) -> None:
         """Initialize the graph remediation engine.
 
@@ -93,12 +95,19 @@ class GraphRemediationEngine:
             max_passes: Maximum convergence passes (default 5).
             progress_callback: Optional ``(phase, message, fraction, level)``
                 callback for streaming progress.
+            rescan_fn: Optional callback that replaces the built-in
+                ``rescan_dirty`` call during convergence.  Receives
+                ``(graph, dirty_node_ids)`` and returns violations.
+                When set, this enables the validator bridge — the
+                caller can fan out to real gRPC validators instead of
+                only in-memory graph rules.
         """
         self._registry = registry
         self._graph = graph
         self._rules = rules
         self._max_passes = max_passes
         self._progress_cb = progress_callback
+        self._rescan_fn = rescan_fn
 
     def _progress(
         self,
@@ -191,10 +200,14 @@ class GraphRemediationEngine:
                 )
                 break
 
-            # Rescan only dirty nodes
+            # Rescan only dirty nodes — use the injected bridge when
+            # available, otherwise fall back to in-memory graph rules.
             dirty = graph.dirty_nodes
-            rescan_report = rescan_dirty(graph, self._rules, dirty)
-            new_violations = graph_report_to_violations(rescan_report)
+            if self._rescan_fn is not None:
+                new_violations = self._rescan_fn(graph, dirty)
+            else:
+                rescan_report = rescan_dirty(graph, self._rules, dirty)
+                new_violations = graph_report_to_violations(rescan_report)
 
             # Record post-rescan state (includes clean confirmation
             # for dirty nodes that no longer have violations).

@@ -815,6 +815,11 @@ class TestSessionGraphRemediate:
 
         assert call_count[0] == 2, f"scan_fn should be called twice (initial + final), got {call_count[0]}"
 
+        # Verify the validator bridge (rescan_fn) was wired into the engine
+        _, gre_kwargs = MockGRE.call_args
+        assert "rescan_fn" in gre_kwargs, "rescan_fn must be passed to GraphRemediationEngine"
+        assert callable(gre_kwargs["rescan_fn"])
+
         event_types = [e.WhichOneof("event") for e in events]
         assert "progress" in event_types
         assert "tier1_complete" in event_types
@@ -1076,6 +1081,171 @@ class TestSessionGraphRemediate:
         assert "proposals" not in event_types
         assert "result" in event_types
         assert session.status == 3  # COMPLETE
+
+
+class TestSessionRescanBridge:
+    """Tests for the validator bridge (rescan_fn) wired into _session_graph_remediate.
+
+    PR 5: Verifies that _session_graph_remediate constructs a bridge
+    closure and passes it to GraphRemediationEngine as rescan_fn.
+    """
+
+    async def test_bridge_passed_to_graph_engine_as_rescan_fn(self, tmp_path: Path) -> None:
+        """Bridge closure is constructed and passed into GraphRemediationEngine as rescan_fn.
+
+        Args:
+            tmp_path: Pytest temporary directory fixture.
+        """
+        from unittest.mock import MagicMock
+
+        from apme_engine.daemon.primary_server import PrimaryServicer
+        from apme_engine.engine.content_graph import ContentGraph, ContentNode, NodeIdentity, NodeType
+        from apme_engine.remediation.engine import FilePatch as EngineFilePatch
+        from apme_engine.remediation.graph_engine import GraphFixReport
+
+        servicer = PrimaryServicer.__new__(PrimaryServicer)
+
+        yaml_content = "- name: Install\n  apt:\n    name: nginx\n    state: present\n"
+        patched_content = "- name: Install\n  ansible.builtin.apt:\n    name: nginx\n    state: present\n"
+        play_file = tmp_path / "play.yml"
+        play_file.write_text(yaml_content)
+
+        graph = ContentGraph()
+        graph.add_node(
+            ContentNode(
+                identity=NodeIdentity(path="play.yml/plays[0]/tasks[0]", node_type=NodeType.TASK),
+                file_path=str(play_file),
+                yaml_lines=yaml_content,
+            )
+        )
+
+        session = SessionState(session_id="test-bridge")
+        session.working_files = {"play.yml": yaml_content.encode()}
+        session.original_files = dict(session.working_files)
+
+        scan_call_count = [0]
+
+        def scan_fn(paths: list[str]) -> list[dict[str, object]]:
+            scan_call_count[0] += 1
+            if scan_call_count[0] == 1:
+                return [{"rule_id": "L001", "message": "Use FQCN", "file": "play.yml", "line": 2, "source": "native"}]
+            return []
+
+        mock_report = GraphFixReport(passes=1, fixed=1, nodes_modified=1, fixed_violations=[])
+        mock_patches = [
+            EngineFilePatch(
+                path=str(play_file),
+                original=yaml_content,
+                patched=patched_content,
+                diff="",
+                rule_ids=["L001"],
+            )
+        ]
+
+        loop = asyncio.get_running_loop()
+        progress_queue: asyncio.Queue[ProgressUpdate | None] = asyncio.Queue()
+
+        captured_rescan_fn: list[object] = [None]
+
+        def capture_gre_init(*args: object, **kwargs: object) -> MagicMock:
+            captured_rescan_fn[0] = kwargs.get("rescan_fn")
+            mock_engine = MagicMock()
+            mock_engine.remediate.return_value = mock_report
+            return mock_engine
+
+        with (
+            patch("apme_engine.engine.graph_scanner.load_graph_rules", return_value=[]),
+            patch(
+                "apme_engine.remediation.graph_engine.GraphRemediationEngine",
+                side_effect=capture_gre_init,
+            ),
+            patch("apme_engine.remediation.graph_engine.splice_modifications", return_value=mock_patches),
+            patch("apme_engine.remediation.partition.add_classification_to_violations"),
+            patch("apme_engine.remediation.partition.partition_violations", return_value=([], [], [])),
+        ):
+            events: list[SessionEvent] = []
+            async for event in servicer._session_graph_remediate(
+                session=session,
+                scan_id="scan-bridge-1",
+                registry=MagicMock(),
+                scan_fn=scan_fn,  # type: ignore[arg-type]
+                captured_graph=[graph],
+                yaml_paths=[str(play_file)],
+                temp_dir=tmp_path,
+                max_passes=5,
+                progress_queue=progress_queue,
+                progress_callback=lambda *a: None,
+                _heartbeat=_noop_heartbeat,
+                loop=loop,
+                format_content=_noop_format,
+                format_diffs=[],
+            ):
+                events.append(event)
+
+        assert captured_rescan_fn[0] is not None, "rescan_fn must be passed to engine"
+        assert callable(captured_rescan_fn[0])
+
+    async def test_bridge_uses_correct_rules_dir(self, tmp_path: Path) -> None:
+        """load_graph_rules is called with the native rules directory.
+
+        Args:
+            tmp_path: Pytest temporary directory fixture.
+        """
+        from unittest.mock import MagicMock
+
+        from apme_engine.daemon.primary_server import PrimaryServicer
+        from apme_engine.engine.content_graph import ContentGraph
+        from apme_engine.remediation.graph_engine import GraphFixReport
+
+        servicer = PrimaryServicer.__new__(PrimaryServicer)
+
+        play_file = tmp_path / "play.yml"
+        play_file.write_text("- name: OK\n  ansible.builtin.debug:\n    msg: hi\n")
+
+        session = SessionState(session_id="test-rules-dir")
+        session.working_files = {"play.yml": play_file.read_bytes()}
+        session.original_files = dict(session.working_files)
+
+        loop = asyncio.get_running_loop()
+        progress_queue: asyncio.Queue[ProgressUpdate | None] = asyncio.Queue()
+
+        captured_rules_dir: list[str | None] = [None]
+
+        def mock_load_graph_rules(rules_dir: str = "", **kwargs: object) -> list[object]:
+            captured_rules_dir[0] = rules_dir
+            return []
+
+        with (
+            patch("apme_engine.engine.graph_scanner.load_graph_rules", side_effect=mock_load_graph_rules),
+            patch("apme_engine.remediation.graph_engine.GraphRemediationEngine") as MockGRE,
+            patch("apme_engine.remediation.graph_engine.splice_modifications", return_value=[]),
+            patch("apme_engine.remediation.partition.add_classification_to_violations"),
+            patch("apme_engine.remediation.partition.partition_violations", return_value=([], [], [])),
+        ):
+            MockGRE.return_value.remediate.return_value = GraphFixReport()
+
+            events: list[SessionEvent] = []
+            async for event in servicer._session_graph_remediate(
+                session=session,
+                scan_id="scan-rules-dir",
+                registry=MagicMock(),
+                scan_fn=lambda _paths: [],
+                captured_graph=[ContentGraph()],
+                yaml_paths=[str(play_file)],
+                temp_dir=tmp_path,
+                max_passes=5,
+                progress_queue=progress_queue,
+                progress_callback=lambda *a: None,
+                _heartbeat=_noop_heartbeat,
+                loop=loop,
+                format_content=_noop_format,
+                format_diffs=[],
+            ):
+                events.append(event)
+
+        rules_dir = captured_rules_dir[0]
+        assert rules_dir is not None, "load_graph_rules must be called with rules_dir"
+        assert rules_dir.endswith("native/rules"), f"Expected native rules dir, got: {captured_rules_dir[0]}"
 
 
 # ---------------------------------------------------------------------------

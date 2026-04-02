@@ -392,6 +392,196 @@ class TestGraphRemediationEngine:
         assert report.passes <= 3
         assert report.oscillation_detected
 
+    def test_rescan_fn_called_instead_of_builtin(self) -> None:
+        """When rescan_fn is provided, it replaces the built-in rescan_dirty call."""
+        rescan_calls: list[tuple[ContentGraph, frozenset[str]]] = []
+
+        def _custom_rescan(
+            g: ContentGraph,
+            dirty: frozenset[str],
+        ) -> list[ViolationDict]:
+            rescan_calls.append((g, dirty))
+            return []
+
+        graph = ContentGraph()
+        node = _make_node(module="apt")
+        graph.add_node(node)
+        rules: list[GraphRule] = [_FQCNRule()]
+        registry = _build_registry_with_fqcn()
+
+        violations: list[ViolationDict] = [
+            {
+                "rule_id": "M001",
+                "path": node.node_id,
+                "file": node.file_path,
+                "line": 3,
+                "message": "Use FQCN for apt",
+                "severity": "medium",
+                "source": "native",
+                "scope": "task",
+            }
+        ]
+        engine = GraphRemediationEngine(
+            registry,
+            graph,
+            rules,
+            rescan_fn=_custom_rescan,
+        )
+        report = engine.remediate(initial_violations=violations)
+
+        assert report.fixed == 1
+        assert len(rescan_calls) == 1
+        captured_graph, captured_dirty = rescan_calls[0]
+        assert captured_graph is graph
+        assert node.node_id in captured_dirty
+
+    def test_rescan_fn_violations_drive_convergence(self) -> None:
+        """Violations returned by rescan_fn feed back into the convergence loop."""
+        pass_count = [0]
+
+        def _rescan_with_new_violation(
+            g: ContentGraph,
+            dirty: frozenset[str],
+        ) -> list[ViolationDict]:
+            pass_count[0] += 1
+            if pass_count[0] == 1:
+                return [
+                    {
+                        "rule_id": "M001",
+                        "path": "site.yml/plays[0]/tasks[0]",
+                        "file": "/workspace/site.yml",
+                        "line": 3,
+                        "message": "Still non-FQCN",
+                        "severity": "medium",
+                        "source": "native",
+                        "scope": "task",
+                    }
+                ]
+            return []
+
+        graph = ContentGraph()
+        node = _make_node(module="apt")
+        graph.add_node(node)
+        rules: list[GraphRule] = [_FQCNRule()]
+        registry = _build_registry_with_fqcn()
+
+        violations: list[ViolationDict] = [
+            {
+                "rule_id": "M001",
+                "path": node.node_id,
+                "file": node.file_path,
+                "line": 3,
+                "message": "Use FQCN for apt",
+                "severity": "medium",
+                "source": "native",
+                "scope": "task",
+            }
+        ]
+        engine = GraphRemediationEngine(
+            registry,
+            graph,
+            rules,
+            max_passes=5,
+            rescan_fn=_rescan_with_new_violation,
+        )
+        report = engine.remediate(initial_violations=violations)
+
+        assert pass_count[0] >= 1
+        assert report.passes >= 2
+
+    def test_rescan_fn_none_uses_builtin(self) -> None:
+        """When rescan_fn is None, the built-in rescan_dirty is used."""
+        graph = ContentGraph()
+        graph.add_node(_make_node(module="apt"))
+        rules: list[GraphRule] = [_FQCNRule()]
+        registry = _build_registry_with_fqcn()
+
+        engine = GraphRemediationEngine(
+            registry,
+            graph,
+            rules,
+            rescan_fn=None,
+        )
+        report = engine.remediate()
+
+        assert report.fixed == 1
+        assert report.nodes_modified == 1
+
+    def test_rescan_fn_external_violations_dont_crash(self) -> None:
+        """External (non-native) violations from rescan_fn are handled gracefully.
+
+        External violations (OPA, Ansible) have ``path`` = file_path rather
+        than node_id.  They cannot be transformed (no matching transforms)
+        and are not included in the graph-rules-only final scan, but they
+        must not crash the convergence loop.
+        """
+        rescan_calls: list[frozenset[str]] = []
+
+        def _bridge_with_opa(
+            g: ContentGraph,
+            dirty: frozenset[str],
+        ) -> list[ViolationDict]:
+            rescan_calls.append(dirty)
+            return [
+                {
+                    "rule_id": "P001",
+                    "path": "/workspace/site.yml",
+                    "file": "/workspace/site.yml",
+                    "line": 3,
+                    "message": "OPA policy violation",
+                    "severity": "high",
+                    "source": "opa",
+                    "scope": "task",
+                }
+            ]
+
+        graph = ContentGraph()
+        graph.add_node(_make_node(module="apt"))
+        rules: list[GraphRule] = [_FQCNRule()]
+        registry = _build_registry_with_fqcn()
+
+        violations: list[ViolationDict] = [
+            {
+                "rule_id": "M001",
+                "path": "site.yml/plays[0]/tasks[0]",
+                "file": "/workspace/site.yml",
+                "line": 3,
+                "message": "Use FQCN for apt",
+                "severity": "medium",
+                "source": "native",
+                "scope": "task",
+            }
+        ]
+        engine = GraphRemediationEngine(
+            registry,
+            graph,
+            rules,
+            rescan_fn=_bridge_with_opa,
+        )
+        report = engine.remediate(initial_violations=violations)
+
+        assert report.fixed == 1
+        assert len(rescan_calls) >= 1
+
+
+# ---------------------------------------------------------------------------
+# native_rules_dir
+# ---------------------------------------------------------------------------
+
+
+class TestNativeRulesDir:
+    """Tests for ``graph_scanner.native_rules_dir``."""
+
+    def test_returns_existing_directory(self) -> None:
+        """native_rules_dir returns a path that actually exists on disk."""
+        import os
+
+        from apme_engine.engine.graph_scanner import native_rules_dir
+
+        path = native_rules_dir()
+        assert os.path.isdir(path), f"Expected directory to exist: {path}"
+        assert path.endswith(os.path.join("validators", "native", "rules"))
+
 
 # ---------------------------------------------------------------------------
 # splice_modifications
