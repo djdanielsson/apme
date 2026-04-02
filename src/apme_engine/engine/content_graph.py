@@ -21,7 +21,7 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, ClassVar, cast
 
 import networkx as nx  # type: ignore[import-untyped]
 
@@ -273,6 +273,7 @@ class ContentNode:
         scope: Owned vs referenced content classification.
         state: Current ``NodeState`` snapshot (most recent entry in progression).
         progression: Ordered list of ``NodeState`` snapshots across pipeline phases.
+        MAX_PROGRESSION: Upper bound on progression length per node (class-level).
     """
 
     identity: NodeIdentity
@@ -350,6 +351,8 @@ class ContentNode:
         """Return the node's stable string identifier."""
         return str(self.identity)
 
+    MAX_PROGRESSION: ClassVar[int] = 20
+
     def record_state(
         self,
         pass_number: int,
@@ -360,6 +363,10 @@ class ContentNode:
 
         Creates a ``NodeState`` from the node's current ``yaml_lines``,
         appends it to ``progression``, and sets ``state`` to the new entry.
+
+        If progression already contains ``MAX_PROGRESSION`` entries the
+        oldest entry is dropped to prevent unbounded growth from bugs in
+        the convergence loop.
 
         Args:
             pass_number: Convergence pass (0 = initial scan).
@@ -378,6 +385,8 @@ class ContentNode:
             violations=violations,
             timestamp=datetime.now(timezone.utc).isoformat(),
         )
+        if len(self.progression) >= self.MAX_PROGRESSION:
+            self.progression.pop(0)
         self.progression.append(ns)
         self.state = ns
         return ns
@@ -424,7 +433,7 @@ class ContentGraph:
 
     # -- Serialization (ADR-044 Phase 2 switchover) -------------------------
 
-    def to_dict(self) -> dict[str, object]:
+    def to_dict(self, *, slim: bool = False) -> dict[str, object]:
         """Serialize the graph to a JSON-compatible dict.
 
         Produces a deterministic representation suitable for transmission
@@ -433,6 +442,12 @@ class ContentGraph:
         elements are not guaranteed to be JSON-safe).  Edges carry typed
         attributes and are sorted by ``(source, target)`` for stability.
 
+        Args:
+            slim: When ``True``, strip ``state`` and ``progression``
+                from serialized nodes.  Use for validator fan-out where
+                only current node fields are needed — avoids transmitting
+                per-pass snapshots that validators never read.
+
         Returns:
             Dict with ``nodes`` and ``edges`` lists plus metadata.
         """
@@ -440,7 +455,7 @@ class ContentGraph:
         for nid in sorted(self.g.nodes):
             node = self.get_node(nid)
             if node is not None:
-                nodes.append({"id": nid, "data": _node_to_dict(node)})
+                nodes.append({"id": nid, "data": _node_to_dict(node, slim=slim)})
 
         edges: list[dict[str, object]] = []
         for src, tgt, data in self.g.edges(data=True):
@@ -1008,11 +1023,12 @@ def _node_state_from_dict(d: dict[str, object]) -> NodeState:
     )
 
 
-def _node_to_dict(node: ContentNode) -> dict[str, object]:
+def _node_to_dict(node: ContentNode, *, slim: bool = False) -> dict[str, object]:
     """Serialize a ContentNode to a JSON-compatible dict.
 
     Args:
         node: ContentNode to serialize.
+        slim: When ``True``, omit ``state`` and ``progression`` fields.
 
     Returns:
         Dict with identity, scope, and all content fields.  ``node_type``
@@ -1030,10 +1046,11 @@ def _node_to_dict(node: ContentNode) -> dict[str, object]:
     for fname in _CONTENT_NODE_SIMPLE_FIELDS:
         d[fname] = getattr(node, fname)
 
-    if node.state is not None:
-        d["state"] = _node_state_to_dict(node.state)
-    if node.progression:
-        d["progression"] = [_node_state_to_dict(ns) for ns in node.progression]
+    if not slim:
+        if node.state is not None:
+            d["state"] = _node_state_to_dict(node.state)
+        if node.progression:
+            d["progression"] = [_node_state_to_dict(ns) for ns in node.progression]
 
     return d
 

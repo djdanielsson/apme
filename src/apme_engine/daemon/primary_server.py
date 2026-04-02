@@ -557,6 +557,7 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
         list[str],
         set[str],
         set[str],
+        object | None,
     ]:
         """Core scan pipeline: engine → collection discovery → venv → validators.
 
@@ -604,7 +605,8 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
             Tuple of (violations, ScanDiagnostics or None, resolved session_id,
             merged pipeline logs, hierarchy_payload Mapping or None,
             VenvSession or None, requirements file paths found,
-            specified collection FQCNs, learned collection FQCNs).
+            specified collection FQCNs, learned collection FQCNs,
+            ContentGraph or None).
         """
         from apme_engine.validators.ansible._venv import DEFAULT_VERSION
         from apme_engine.venv_manager.session import _venv_site_packages
@@ -639,7 +641,7 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
 
         if not context_obj.hierarchy_payload:
             logger.warning("Scan: no hierarchy payload produced (req=%s)", scan_id)
-            return [], ScanDiagnostics(), sid, [], None, None, [], set(), set()
+            return [], ScanDiagnostics(), sid, [], None, None, [], set(), set(), None
 
         # 2. Collection discovery
         discovered, requirements_found = _discover_collection_specs(files)
@@ -689,11 +691,15 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
 
         # 4. Validator fan-out
         content_graph_data = b""
+        content_graph: object | None = None
         if context_obj.scandata and hasattr(context_obj.scandata, "content_graph"):
             cg = context_obj.scandata.content_graph
             if cg is not None:
+                content_graph = cg
                 loop = asyncio.get_event_loop()
-                content_graph_data = await loop.run_in_executor(None, lambda: json.dumps(cg.to_dict()).encode())
+                content_graph_data = await loop.run_in_executor(
+                    None, lambda: json.dumps(cg.to_dict(slim=True)).encode()
+                )
                 logger.debug(
                     "ContentGraph serialized: %d bytes (req=%s)",
                     len(content_graph_data),
@@ -841,6 +847,7 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
             requirements_found,
             specified_fqcns,
             learned_fqcns,
+            content_graph,
         )
 
     @staticmethod
@@ -1266,6 +1273,8 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
 
         manifest_captured = False
 
+        captured_graph: list[object | None] = [None]
+
         def scan_fn(file_paths: list[str]) -> list[ViolationDict]:
             nonlocal node_index_set, manifest_captured
             rel_files = []
@@ -1296,7 +1305,11 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
                 req_files,
                 specified_fqcns,
                 learned_fqcns,
+                graph_obj,
             ) = future.result(timeout=300)
+
+            if graph_obj is not None:
+                captured_graph[0] = graph_obj
 
             if not manifest_captured and venv_sess is not None:
                 manifest_captured = True
@@ -1320,16 +1333,7 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
             return violations
 
         registry = build_default_registry()
-        ai_provider = self._resolve_ai_provider(fix_opts)
-        engine = RemediationEngine(
-            registry=registry,
-            scan_fn=scan_fn,
-            max_passes=max_passes,
-            verbose=True,
-            ai_provider=ai_provider,  # type: ignore[arg-type]
-            progress_callback=_progress_callback,
-        )
-        engine_ref[0] = engine
+        use_graph_engine = os.environ.get("APME_USE_GRAPH_ENGINE", "").strip() == "1"
 
         yaml_paths = [str(temp_dir / f.path) for f in formatted_files if f.path.endswith((".yml", ".yaml"))]
 
@@ -1339,11 +1343,244 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
                 await asyncio.sleep(_HEARTBEAT_INTERVAL)
                 progress_queue.put_nowait(ProgressUpdate(message="Processing...", phase="heartbeat", level=1))
 
-        heartbeat_task = asyncio.create_task(_heartbeat())
-        remediate_future = loop.run_in_executor(None, engine.remediate, yaml_paths)
+        if use_graph_engine:
+            async for event in self._session_graph_remediate(
+                session=session,
+                scan_id=scan_id,
+                registry=registry,
+                scan_fn=scan_fn,
+                captured_graph=captured_graph,
+                yaml_paths=yaml_paths,
+                temp_dir=temp_dir,
+                max_passes=max_passes,
+                progress_queue=progress_queue,
+                progress_callback=_progress_callback,
+                _heartbeat=_heartbeat,
+                loop=loop,
+                format_content=format_content,
+                format_diffs=format_diffs,
+            ):
+                yield event
+        else:
+            ai_provider = self._resolve_ai_provider(fix_opts)
+            engine = RemediationEngine(
+                registry=registry,
+                scan_fn=scan_fn,
+                max_passes=max_passes,
+                verbose=True,
+                ai_provider=ai_provider,  # type: ignore[arg-type]
+                progress_callback=_progress_callback,
+            )
+            engine_ref[0] = engine
+
+            heartbeat_task = asyncio.create_task(_heartbeat())
+            remediate_future = loop.run_in_executor(None, engine.remediate, yaml_paths)
+
+            try:
+                while not remediate_future.done():
+                    try:
+                        update = await asyncio.wait_for(progress_queue.get(), timeout=1.0)
+                    except asyncio.TimeoutError:
+                        continue
+                    if update is not None:
+                        session.progress_logs.append(update)
+                        yield SessionEvent(progress=update)
+
+                while not progress_queue.empty():
+                    update = progress_queue.get_nowait()
+                    if update is not None:
+                        session.progress_logs.append(update)
+                        yield SessionEvent(progress=update)
+
+                report = remediate_future.result()
+            finally:
+                heartbeat_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await heartbeat_task
+                if not remediate_future.done():
+                    remediate_future.cancel()
+
+            for patch in report.applied_patches:
+                result = format_content(patch.patched, filename=Path(patch.path).name)
+                if result.changed:
+                    patch.patched = result.formatted
+
+            for patch in report.applied_patches:
+                patch.diff = "".join(
+                    difflib.unified_diff(
+                        patch.original.splitlines(keepends=True),
+                        patch.patched.splitlines(keepends=True),
+                        fromfile=f"a/{Path(patch.path).name}",
+                        tofile=f"b/{Path(patch.path).name}",
+                    )
+                )
+
+            tier1_patches: list[FilePatch] = []
+            for patch in report.applied_patches:
+                rel_path = str(Path(patch.path).relative_to(temp_dir))
+                orig = session.original_files.get(rel_path, patch.original.encode("utf-8"))
+                proto_patch = FilePatch(
+                    path=rel_path,
+                    original=orig,
+                    patched=patch.patched.encode("utf-8"),
+                    diff=patch.diff,
+                    applied_rules=patch.rule_ids,
+                )
+                tier1_patches.append(proto_patch)
+                session.working_files[rel_path] = patch.patched.encode("utf-8")
+
+            session.tier1_patches = tier1_patches
+            session.remaining_ai = list(report.remaining_ai)
+            session.remaining_manual = list(report.remaining_manual)
+
+            remaining_violations = [violation_dict_to_proto(v) for v in report.remaining_ai + report.remaining_manual]
+            fixed_violation_protos = [violation_dict_to_proto(v) for v in report.fixed_violations]
+            session.report = FixReport(
+                passes=report.passes,
+                fixed=report.fixed,
+                remaining_ai=len(report.remaining_ai),
+                remaining_manual=len(report.remaining_manual),
+                oscillation_detected=report.oscillation_detected,
+                remaining_violations=remaining_violations,
+                fixed_violations=fixed_violation_protos,
+            )
+
+            _t1_done = ProgressUpdate(
+                message=(f"Tier 1 converged: {report.passes} pass(es), {report.fixed} fixed"),
+                phase="tier1",
+                level=2,
+            )
+            session.progress_logs.append(_t1_done)
+            yield SessionEvent(progress=_t1_done)
+
+            yield SessionEvent(
+                tier1_complete=Tier1Summary(
+                    applied_patches=tier1_patches,
+                    format_diffs=list(format_diffs),
+                    idempotency_ok=session.idempotency_ok,
+                    report=session.report,
+                ),
+            )
+
+            if report.ai_proposed:
+                session.current_tier = 2
+                proposals = self._build_proposals_from_ai(report.ai_proposed)
+                for p in proposals:
+                    with contextlib.suppress(ValueError):
+                        p.file = str(Path(p.file).relative_to(temp_dir))
+                session.proposals = {p.id: p for p in proposals}
+                session.status = 1  # AWAITING_APPROVAL
+                yield SessionEvent(
+                    proposals=ProposalsReady(
+                        proposals=proposals,
+                        tier=2,
+                        status=1,
+                    ),
+                )
+            else:
+                session.status = 3  # COMPLETE
+                async for event in self._session_build_result(session):
+                    yield event
+
+    async def _session_graph_remediate(  # type: ignore[explicit-any]  # noqa: PLR0913
+        self,
+        *,
+        session: SessionState,
+        scan_id: str,
+        registry: object,
+        scan_fn: Callable[[list[str]], list[ViolationDict]],
+        captured_graph: list[object | None],
+        yaml_paths: list[str],
+        temp_dir: Path,
+        max_passes: int,
+        progress_queue: asyncio.Queue[ProgressUpdate | None],
+        progress_callback: Callable[[str, str, float, int], None],
+        _heartbeat: Callable[[], Awaitable[None]],
+        loop: asyncio.AbstractEventLoop,
+        format_content: Callable[..., object],
+        format_diffs: Sequence[object],
+    ) -> AsyncIterator[SessionEvent]:
+        """Graph-engine remediation path (behind APME_USE_GRAPH_ENGINE=1).
+
+        Runs ``GraphRemediationEngine`` in-memory, splices results to disk,
+        then performs a final full-pipeline scan for the complete violation
+        picture.  Tier 2 AI is **not** wired in this path.
+
+        Args:
+            session: Active session state (mutated in place).
+            scan_id: Request identifier for logging.
+            registry: Transform registry with node transforms.
+            scan_fn: Scan function that calls ``_scan_pipeline`` (used for
+                initial + final full-pipeline scans).
+            captured_graph: Single-element list holding the captured
+                ``ContentGraph`` from the first ``scan_fn`` call.
+            yaml_paths: Absolute YAML file paths under ``temp_dir``.
+            temp_dir: Working directory with formatted files.
+            max_passes: Maximum convergence passes.
+            progress_queue: Queue for streaming progress events.
+            progress_callback: ``(phase, msg, frac, level)`` callback.
+            _heartbeat: Coroutine factory for periodic heartbeats.
+            loop: Running event loop.
+            format_content: Formatter function for post-remediation pass.
+            format_diffs: Accumulated format diffs from earlier step.
+
+        Yields:
+            SessionEvent: Progress, Tier1Summary, and result events.
+        """
+        from apme_engine.engine.content_graph import ContentGraph
+        from apme_engine.engine.graph_scanner import load_graph_rules
+        from apme_engine.remediation.graph_engine import (
+            GraphRemediationEngine,
+            splice_modifications,
+        )
+        from apme_engine.remediation.partition import (
+            add_classification_to_violations,
+            partition_violations,
+        )
+
+        # 1. Initial scan to get violations + graph
+        # scan_fn blocks on asyncio.run_coroutine_threadsafe, so it must
+        # run in an executor to avoid deadlocking the event loop.
+        initial_violations = await loop.run_in_executor(None, scan_fn, yaml_paths)
+
+        graph = captured_graph[0]
+        if not isinstance(graph, ContentGraph):
+            logger.warning(
+                "Graph engine requested but no ContentGraph available; falling back to empty graph (scan_id=%s)",
+                scan_id,
+            )
+            graph = ContentGraph()
+
+        # Capture original file contents for splice_modifications.
+        # Key by both absolute path and temp_dir-relative path so
+        # splice_modifications matches regardless of whether
+        # ContentNode.file_path is absolute or relative.
+        originals: dict[str, str] = {}
+        for yp in yaml_paths:
+            with contextlib.suppress(OSError):
+                content = Path(yp).read_text(encoding="utf-8")
+                originals[yp] = content
+                with contextlib.suppress(ValueError):
+                    originals[str(Path(yp).relative_to(temp_dir))] = content
+
+        # 2. Run graph remediation in executor
+        rules = load_graph_rules()
+        graph_engine = GraphRemediationEngine(
+            registry=registry,  # type: ignore[arg-type]
+            graph=graph,
+            rules=rules,
+            max_passes=max_passes,
+            progress_callback=progress_callback,
+        )
+
+        hb_task: asyncio.Task[None] = asyncio.create_task(_heartbeat())  # type: ignore[arg-type]
+        remediate_future = loop.run_in_executor(
+            None,
+            graph_engine.remediate,
+            initial_violations,
+        )
 
         try:
-            # Drain progress queue while remediation runs, yielding events
             while not remediate_future.done():
                 try:
                     update = await asyncio.wait_for(progress_queue.get(), timeout=1.0)
@@ -1353,28 +1590,29 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
                     session.progress_logs.append(update)
                     yield SessionEvent(progress=update)
 
-            # Drain any remaining queued progress
             while not progress_queue.empty():
                 update = progress_queue.get_nowait()
                 if update is not None:
                     session.progress_logs.append(update)
                     yield SessionEvent(progress=update)
 
-            report = remediate_future.result()
+            graph_report = remediate_future.result()
         finally:
-            heartbeat_task.cancel()
+            hb_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
-                await heartbeat_task
+                await hb_task
             if not remediate_future.done():
                 remediate_future.cancel()
 
-        # Post-remediation format pass
-        for patch in report.applied_patches:
-            result = format_content(patch.patched, filename=Path(patch.path).name)
-            if result.changed:
-                patch.patched = result.formatted
+        # 3. Splice modifications and write patched files to temp_dir
+        patches = splice_modifications(graph, originals)
 
-        for patch in report.applied_patches:
+        for patch in patches:
+            fmt_result = format_content(patch.patched, filename=Path(patch.path).name)
+            if getattr(fmt_result, "changed", False):
+                patch.patched = getattr(fmt_result, "formatted", patch.patched)
+
+        for patch in patches:
             patch.diff = "".join(
                 difflib.unified_diff(
                     patch.original.splitlines(keepends=True),
@@ -1384,10 +1622,31 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
                 )
             )
 
-        # Build Tier 1 summary
+        # Write patched content to disk so the final full scan sees it.
+        # patch.path may be absolute (under temp_dir) or relative —
+        # resolve against temp_dir to ensure correct write location.
+        for patch in patches:
+            patch_abs = Path(patch.path)
+            if not patch_abs.is_absolute():
+                patch_abs = temp_dir / patch_abs
+            patch_abs.write_text(patch.patched, encoding="utf-8")
+
+        # 4. Final full-pipeline scan for the complete violation picture
+        progress_callback("graph-tier1", "Running final full-pipeline scan", 0.0, 2)
+        final_violations = await loop.run_in_executor(None, scan_fn, yaml_paths)
+
+        # 5. Partition remaining violations
+        add_classification_to_violations(final_violations, registry)  # type: ignore[arg-type]
+        _, remaining_ai, remaining_manual = partition_violations(final_violations, registry)  # type: ignore[arg-type]
+
+        # 6. Build Tier 1 summary
         tier1_patches: list[FilePatch] = []
-        for patch in report.applied_patches:
-            rel_path = str(Path(patch.path).relative_to(temp_dir))
+        for patch in patches:
+            patch_path = Path(patch.path)
+            try:
+                rel_path = str(patch_path.relative_to(temp_dir))
+            except ValueError:
+                rel_path = str(patch_path)
             orig = session.original_files.get(rel_path, patch.original.encode("utf-8"))
             proto_patch = FilePatch(
                 path=rel_path,
@@ -1400,26 +1659,26 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
             session.working_files[rel_path] = patch.patched.encode("utf-8")
 
         session.tier1_patches = tier1_patches
-        session.remaining_ai = list(report.remaining_ai)
-        session.remaining_manual = list(report.remaining_manual)
+        session.remaining_ai = list(remaining_ai)
+        session.remaining_manual = list(remaining_manual)
 
-        remaining_violations = [violation_dict_to_proto(v) for v in report.remaining_ai + report.remaining_manual]
-        fixed_violation_protos = [violation_dict_to_proto(v) for v in report.fixed_violations]
+        remaining_protos = [violation_dict_to_proto(v) for v in remaining_ai + remaining_manual]
+        fixed_protos = [violation_dict_to_proto(v) for v in graph_report.fixed_violations]
         session.report = FixReport(
-            passes=report.passes,
-            fixed=report.fixed,
-            remaining_ai=len(report.remaining_ai),
-            remaining_manual=len(report.remaining_manual),
-            oscillation_detected=report.oscillation_detected,
-            remaining_violations=remaining_violations,
-            fixed_violations=fixed_violation_protos,
+            passes=graph_report.passes,
+            fixed=graph_report.fixed,
+            remaining_ai=len(remaining_ai),
+            remaining_manual=len(remaining_manual),
+            oscillation_detected=graph_report.oscillation_detected,
+            remaining_violations=remaining_protos,
+            fixed_violations=fixed_protos,
         )
 
-        _t1_done = ProgressUpdate(
-            message=(f"Tier 1 converged: {report.passes} pass(es), {report.fixed} fixed"),
-            phase="tier1",
-            level=2,
+        _t1_msg = (
+            f"Graph Tier 1 converged: {graph_report.passes} pass(es), "
+            f"{graph_report.fixed} fixed, {graph_report.nodes_modified} nodes modified"
         )
+        _t1_done = ProgressUpdate(message=_t1_msg, phase="graph-tier1", level=2)
         session.progress_logs.append(_t1_done)
         yield SessionEvent(progress=_t1_done)
 
@@ -1432,28 +1691,10 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
             ),
         )
 
-        # Only present proposals when the AI engine produced real fixes
-        # with before/after text.  Stub proposals (violations without diffs)
-        # are not actionable and just confuse the user.
-        if report.ai_proposed:
-            session.current_tier = 2
-            proposals = self._build_proposals_from_ai(report.ai_proposed)
-            for p in proposals:
-                with contextlib.suppress(ValueError):
-                    p.file = str(Path(p.file).relative_to(temp_dir))
-            session.proposals = {p.id: p for p in proposals}
-            session.status = 1  # AWAITING_APPROVAL
-            yield SessionEvent(
-                proposals=ProposalsReady(
-                    proposals=proposals,
-                    tier=2,
-                    status=1,
-                ),
-            )
-        else:
-            session.status = 3  # COMPLETE
-            async for event in self._session_build_result(session):
-                yield event
+        # Graph engine does not support Tier 2 AI yet — go straight to result
+        session.status = 3  # COMPLETE
+        async for event in self._session_build_result(session):
+            yield event
 
     @staticmethod
     def _resolve_ai_provider(fix_opts: FixOptions | None) -> object | None:
