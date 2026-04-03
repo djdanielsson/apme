@@ -1782,6 +1782,8 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
                     id=f"ai-{idx:04d}",
                     file=anp.file_path,
                     rule_id=rule_id,
+                    line_start=anp.line_start,
+                    line_end=anp.line_end,
                     before_text=anp.before_yaml,
                     after_text=anp.after_yaml,
                     diff_hunk=diff_hunk,

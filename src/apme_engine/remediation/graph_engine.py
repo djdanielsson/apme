@@ -106,6 +106,8 @@ class AINodeProposal:
         rule_ids: Rule IDs addressed by this fix.
         explanation: Human-readable summary.
         confidence: AI confidence score.
+        line_start: Starting line in the original source file (0 if unknown).
+        line_end: Ending line in the original source file (0 if unknown).
     """
 
     node_id: str
@@ -115,6 +117,8 @@ class AINodeProposal:
     rule_ids: list[str] = field(default_factory=list)
     explanation: str = ""
     confidence: float = 0.85
+    line_start: int = 0
+    line_end: int = 0
 
 
 class GraphRemediationEngine:
@@ -458,6 +462,8 @@ class GraphRemediationEngine:
                     rule_ids=fix.rule_ids,
                     explanation=fix.explanation,
                     confidence=fix.confidence,
+                    line_start=node.line_start,
+                    line_end=node.line_end,
                 ),
             )
             logger.info(

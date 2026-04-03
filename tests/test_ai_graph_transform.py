@@ -652,6 +652,8 @@ class TestUnifiedConvergence:
         assert proposal.before_yaml == original_yaml
         assert proposal.after_yaml == fixed_yaml
         assert "L013" in proposal.rule_ids
+        assert proposal.line_start == 3
+        assert proposal.line_end == 6
 
     async def test_ai_skip_unchanged_snippet(self) -> None:
         """AI returning unchanged YAML produces no proposal."""
@@ -724,3 +726,58 @@ class TestAINodeProposal:
         )
         assert p.node_id == "test"
         assert p.confidence == 0.95
+
+    def test_line_fields_default_to_zero(self) -> None:
+        """Line fields default to 0 when not specified."""
+        p = AINodeProposal(
+            node_id="n",
+            file_path="f.yml",
+            before_yaml="a",
+            after_yaml="b",
+        )
+        assert p.line_start == 0
+        assert p.line_end == 0
+
+    def test_line_fields_populated(self) -> None:
+        """Line fields are stored when explicitly provided."""
+        p = AINodeProposal(
+            node_id="site.yml/plays[0]/tasks[0]",
+            file_path="site.yml",
+            before_yaml="old",
+            after_yaml="new",
+            line_start=10,
+            line_end=15,
+        )
+        assert p.line_start == 10
+        assert p.line_end == 15
+
+
+# ---------------------------------------------------------------------------
+# _build_graph_proposals proto conversion
+# ---------------------------------------------------------------------------
+
+
+class TestBuildGraphProposals:
+    """Proto conversion preserves line info from AINodeProposal."""
+
+    def test_line_fields_forwarded_to_proto(self) -> None:
+        """Line start/end from AINodeProposal appear on the Proposal proto."""
+        from apme_engine.daemon.primary_server import PrimaryServicer
+
+        anp = AINodeProposal(
+            node_id="site.yml/plays[0]/tasks[0]",
+            file_path="site.yml",
+            before_yaml="- name: Old\n  debug:\n    msg: hi\n",
+            after_yaml="- name: New\n  debug:\n    msg: hi\n",
+            rule_ids=["L013"],
+            confidence=0.9,
+            line_start=5,
+            line_end=8,
+        )
+        proposals = PrimaryServicer._build_graph_proposals([anp])
+
+        assert len(proposals) == 1
+        assert proposals[0].line_start == 5
+        assert proposals[0].line_end == 8
+        assert proposals[0].file == "site.yml"
+        assert proposals[0].tier == 2
