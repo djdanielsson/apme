@@ -1,0 +1,43 @@
+# APME Pre-commit Configuration
+#
+# Copy this file to your Ansible repo as .pre-commit-config.yaml
+# Then run: pre-commit install
+#
+# Prerequisites:
+#   pip install pre-commit apme-engine
+#
+# Usage:
+#   git commit           # Hooks run automatically
+#   pre-commit run -a    # Run on all files manually
+---
+repos:
+  # APME hooks for Ansible content validation
+  - repo: local
+    hooks:
+      # Full violation scan - catches policy violations, deprecated modules, etc.
+      - id: apme-check
+        name: APME Ansible check
+        entry: apme check
+        language: system
+        types: [yaml]
+        pass_filenames: false
+        # Uncomment to scan specific directories only:
+        # entry: apme check playbooks/ roles/
+
+      # YAML format check - ensures consistent formatting
+      - id: apme-format
+        name: APME YAML format
+        entry: apme format --check
+        language: system
+        types: [yaml]
+        pass_filenames: false
+
+  # Optional: Add other common Ansible hooks
+  #
+  # - repo: https://github.com/pre-commit/pre-commit-hooks
+  #   rev: v5.0.0
+  #   hooks:
+  #     - id: trailing-whitespace
+  #     - id: end-of-file-fixer
+  #     - id: check-yaml
+  #       args: [--unsafe]  # Allow Ansible-specific YAML

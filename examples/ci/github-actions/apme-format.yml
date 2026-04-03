@@ -1,0 +1,42 @@
+# APME Format Check - YAML formatting validation
+#
+# Copy this file to .github/workflows/apme-format.yml in your Ansible repo.
+# Checks that YAML files are properly formatted without scanning for violations.
+# Faster than full check - useful for quick feedback.
+#
+# Exit codes:
+#   0 = Files are properly formatted
+#   1 = Files need formatting (run `apme format --apply .` to fix)
+---
+name: APME Format
+
+on:
+  pull_request:
+    paths:
+      - "**.yml"
+      - "**.yaml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+env:
+  FORCE_COLOR: "1"
+  PY_COLORS: "1"
+
+jobs:
+  apme-format:
+    name: YAML Format Check
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@6b9c6063abd6010835644d4c2e1bef4cf5cd0fca # v6
+
+      - name: Install APME
+        run: uv pip install --system apme-engine
+
+      - name: Check YAML formatting
+        run: apme format --check .

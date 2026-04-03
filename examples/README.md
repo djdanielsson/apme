@@ -1,4 +1,12 @@
-# Example Playbooks
+# Examples
+
+## CI/CD Integration
+
+See [ci/](ci/) for ready-to-use GitHub Actions workflows and pre-commit
+hook configurations. Copy these to your Ansible repos to integrate APME
+into your pipelines.
+
+## Example Playbooks
 
 These playbooks are **intentionally non-conformant**. They exist to
 demonstrate and test APME's scanner, auto-fix, and remediation capabilities.
