@@ -70,6 +70,7 @@ def _run_ansible_validate(
     hierarchy_payload: YAMLDict,
     req_id: str,
     venv_path: str,
+    content_graph_data: bytes = b"",
 ) -> _AnsibleResult:
     """Run Ansible validation against a session-scoped venv provided by Primary.
 
@@ -79,6 +80,7 @@ def _run_ansible_validate(
         hierarchy_payload: Parsed hierarchy payload for context.
         req_id: Request ID for logging.
         venv_path: Session venv path from Primary (read-only).
+        content_graph_data: Serialized ContentGraph for L057 node resolution.
 
     Returns:
         _AnsibleResult with violations and version.
@@ -111,7 +113,7 @@ def _run_ansible_validate(
             root_dir=str(temp_dir),
         )
         validator = AnsibleValidator(venv_root=venv_root)
-        run_result = validator.run_with_timing(scan_context)
+        run_result = validator.run_with_timing(scan_context, content_graph_data=content_graph_data)
         return _AnsibleResult(
             run_result=run_result,
             ansible_core_version=raw_version,
@@ -153,7 +155,7 @@ class AnsibleValidatorServicer(validate_pb2_grpc.ValidatorServicer):
         t0 = time.monotonic()
         with attach_collector() as sink:
             try:
-                if not request.files:
+                if not request.files and not request.hierarchy_payload:
                     return ValidateResponse(violations=[], request_id=req_id, logs=sink.entries)
 
                 raw_version = (request.ansible_core_version or "").strip() or DEFAULT_VERSION
@@ -180,6 +182,7 @@ class AnsibleValidatorServicer(validate_pb2_grpc.ValidatorServicer):
                     hierarchy_payload,
                     req_id,
                     request.venv_path or "",
+                    bytes(request.content_graph_data),
                 )
 
                 total_ms = (time.monotonic() - t0) * 1000

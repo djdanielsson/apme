@@ -591,6 +591,54 @@ class TestGraphRemediationEngine:
         assert report.fixed == 1
         assert len(rescan_calls) >= 1
 
+    async def test_violation_dicts_stored_on_nodestate(self) -> None:
+        """Full ViolationDicts are stored on NodeState.violation_dicts during convergence."""
+        graph = ContentGraph()
+        node = _make_node(module="apt")
+        graph.add_node(node)
+        rules: list[GraphRule] = [_FQCNRule()]
+        registry = TransformRegistry()  # empty — violations remain unfixed
+
+        engine = GraphRemediationEngine(registry, graph, rules)
+        report = await engine.remediate()
+
+        assert report.fixed == 0
+        assert node.state is not None
+        assert len(node.state.violation_dicts) >= 1
+        assert node.state.violation_dicts[0]["rule_id"] == "M001"
+
+    async def test_remaining_violations_from_graph(self) -> None:
+        """remaining_violations in the report come from graph.collect_violations()."""
+        graph = ContentGraph()
+        node = _make_node(module="apt")
+        graph.add_node(node)
+        rules: list[GraphRule] = [_FQCNRule()]
+        registry = TransformRegistry()  # empty — violations remain
+
+        engine = GraphRemediationEngine(registry, graph, rules)
+        report = await engine.remediate()
+
+        graph_violations = graph.collect_violations()
+        assert len(report.remaining_violations) == len(graph_violations)
+        assert report.remaining_violations[0]["rule_id"] == graph_violations[0]["rule_id"]
+
+    async def test_step_diffs_populated(self) -> None:
+        """step_diffs captures per-progression diffs after convergence."""
+        graph = ContentGraph()
+        graph.add_node(_make_node(module="apt"))
+        rules: list[GraphRule] = [_FQCNRule()]
+        registry = _build_registry_with_fqcn()
+
+        engine = GraphRemediationEngine(registry, graph, rules)
+        report = await engine.remediate()
+
+        assert report.fixed == 1
+        assert len(report.step_diffs) >= 1
+        step = report.step_diffs[0]
+        assert step["phase"] == "transformed"
+        assert isinstance(step["diff"], str)
+        assert len(str(step["diff"])) > 0
+
 
 # ---------------------------------------------------------------------------
 # native_rules_dir
@@ -815,3 +863,75 @@ class TestSpliceModifications:
         patches = splice_modifications(graph, originals, include_pending=True)
         assert len(patches) == 1
         assert "ansible.builtin.apt" in patches[0].patched
+
+
+# ---------------------------------------------------------------------------
+# Tests: Node-native L057 lookup (Ansible validator)
+# ---------------------------------------------------------------------------
+
+
+class TestAnsibleNodeLookup:
+    """Tests for ``build_node_lookup`` and ``resolve_file_line_to_node``."""
+
+    def test_build_lookup_from_graph_data(self) -> None:
+        """Lookup table is built correctly from serialized ContentGraph."""
+        import json
+
+        from apme_engine.validators.ansible import build_node_lookup
+
+        graph_data = json.dumps(
+            {
+                "version": 1,
+                "nodes": [
+                    {
+                        "id": "play.yml/tasks[0]",
+                        "data": {"file_path": "play.yml", "line_start": 4, "line_end": 7},
+                    },
+                    {
+                        "id": "play.yml/tasks[1]",
+                        "data": {"file_path": "play.yml", "line_start": 8, "line_end": 12},
+                    },
+                ],
+                "edges": [],
+            }
+        ).encode()
+
+        lookup = build_node_lookup(graph_data)
+        assert "play.yml" in lookup
+        assert len(lookup["play.yml"]) == 2
+
+    def test_resolve_exact_match(self) -> None:
+        """Line within a node range resolves to that node."""
+        from apme_engine.validators.ansible import resolve_file_line_to_node
+
+        lookup = {"play.yml": [(4, 7, "node-A"), (8, 12, "node-B")]}
+        assert resolve_file_line_to_node(lookup, "play.yml", 5) == "node-A"
+        assert resolve_file_line_to_node(lookup, "play.yml", 10) == "node-B"
+
+    def test_resolve_narrowest_wins(self) -> None:
+        """Overlapping ranges resolve to the narrower node."""
+        from apme_engine.validators.ansible import resolve_file_line_to_node
+
+        lookup = {"play.yml": [(1, 20, "outer"), (5, 8, "inner")]}
+        assert resolve_file_line_to_node(lookup, "play.yml", 6) == "inner"
+
+    def test_resolve_no_match(self) -> None:
+        """Line outside all ranges returns empty string."""
+        from apme_engine.validators.ansible import resolve_file_line_to_node
+
+        lookup = {"play.yml": [(4, 7, "node-A")]}
+        assert resolve_file_line_to_node(lookup, "play.yml", 99) == ""
+
+    def test_resolve_wrong_file(self) -> None:
+        """Missing file returns empty string."""
+        from apme_engine.validators.ansible import resolve_file_line_to_node
+
+        lookup = {"play.yml": [(4, 7, "node-A")]}
+        assert resolve_file_line_to_node(lookup, "other.yml", 5) == ""
+
+    def test_empty_graph_data(self) -> None:
+        """Empty input produces empty lookup."""
+        from apme_engine.validators.ansible import build_node_lookup
+
+        assert build_node_lookup(b"") == {}
+        assert build_node_lookup(b"{}") == {}

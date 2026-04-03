@@ -99,7 +99,6 @@ def _make_graph() -> ContentGraph:
         identity=NodeIdentity(path="site.yml", node_type=NodeType.PLAYBOOK),
         file_path="site.yml",
         name="site",
-        ari_key="playbook playbook:site.yml",
     )
     g.add_node(pb)
 
@@ -163,13 +162,6 @@ class TestContentGraph:
         """Verify get_node returns None for unknown ids."""
         g = _make_graph()
         assert g.get_node("nonexistent") is None
-
-    def test_get_node_by_ari_key(self) -> None:
-        """Verify lookup by ARI key resolves the playbook node."""
-        g = _make_graph()
-        node = g.get_node_by_ari_key("playbook playbook:site.yml")
-        assert node is not None
-        assert node.node_id == "site.yml"
 
     def test_nodes_filtered(self) -> None:
         """Verify nodes iterator filters by type."""
@@ -456,15 +448,6 @@ class TestContentGraphSerialization:
             assert rest_node.register == orig_node.register
             assert rest_node.scope == orig_node.scope
 
-    def test_roundtrip_ari_key_index(self) -> None:
-        """Verify ARI key lookup works after deserialization."""
-        original = _make_graph()
-        restored = ContentGraph.from_dict(original.to_dict())
-
-        node = restored.get_node_by_ari_key("playbook playbook:site.yml")
-        assert node is not None
-        assert node.node_id == "site.yml"
-
     def test_roundtrip_graph_queries(self) -> None:
         """Verify ancestors, children, descendants work on deserialized graph."""
         original = _make_graph()
@@ -541,7 +524,6 @@ class TestContentGraphSerialization:
             role_metadata={"galaxy_info": {"author": "test"}},
             collection_namespace="myorg",
             collection_name="deploy",
-            ari_key="task playbook:p.yml#play[0]#task[0]",
             scope=NodeScope.REFERENCED,
         )
         g.add_node(node)
@@ -579,7 +561,6 @@ class TestContentGraphSerialization:
         assert rn.role_metadata == {"galaxy_info": {"author": "test"}}
         assert rn.collection_namespace == "myorg"
         assert rn.collection_name == "deploy"
-        assert rn.ari_key == "task playbook:p.yml#play[0]#task[0]"
         assert rn.scope == NodeScope.REFERENCED
 
     def test_empty_graph_roundtrip(self) -> None:

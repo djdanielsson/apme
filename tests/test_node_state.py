@@ -13,9 +13,12 @@ from apme_engine.engine.content_graph import (
     NodeState,
     NodeType,
     _content_hash,
+    _detect_indent,
     _node_from_dict,
     _node_to_dict,
+    _reindent,
 )
+from apme_engine.engine.models import ViolationDict
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -91,6 +94,7 @@ class TestNodeState:
             yaml_lines="- name: foo\n",
             content_hash=_content_hash("- name: foo\n"),
             violations=("L007",),
+            violation_dicts=(),
             timestamp="2026-03-30T00:00:00+00:00",
         )
         with pytest.raises(AttributeError):
@@ -104,6 +108,40 @@ class TestNodeState:
     def test_content_hash_differs(self) -> None:
         """Different text must produce different hashes."""
         assert _content_hash("a") != _content_hash("b")
+
+    def test_violation_dicts_default(self) -> None:
+        """Default violation_dicts is an empty tuple."""
+        ns = NodeState(
+            id="test@0",
+            pass_number=0,
+            phase="scanned",
+            yaml_lines="- name: foo\n",
+            content_hash=_content_hash("- name: foo\n"),
+            violations=(),
+            violation_dicts=(),
+            timestamp="2026-03-30T00:00:00+00:00",
+        )
+        assert ns.violation_dicts == ()
+
+    def test_violation_dicts_stored(self) -> None:
+        """Full violation dicts are stored alongside rule IDs."""
+        vdict: ViolationDict = {
+            "rule_id": "L007",
+            "path": "site.yml/plays[0]/tasks[0]",
+            "message": "test",
+        }
+        ns = NodeState(
+            id="test@0",
+            pass_number=0,
+            phase="scanned",
+            yaml_lines="- name: foo\n",
+            content_hash=_content_hash("- name: foo\n"),
+            violations=("L007",),
+            violation_dicts=(vdict,),
+            timestamp="2026-03-30T00:00:00+00:00",
+        )
+        assert len(ns.violation_dicts) == 1
+        assert ns.violation_dicts[0]["rule_id"] == "L007"
 
 
 # ---------------------------------------------------------------------------
@@ -145,6 +183,20 @@ class TestRecordState:
         node = _make_task()
         ns = node.record_state(0, "original")
         assert ns.violations == ()
+        assert ns.violation_dicts == ()
+
+    def test_violation_dicts_parameter(self) -> None:
+        """record_state stores full violation dicts."""
+        node = _make_task()
+        vdict: ViolationDict = {
+            "rule_id": "M001",
+            "path": node.node_id,
+            "message": "Use FQCN",
+        }
+        ns = node.record_state(0, "scanned", ("M001",), violation_dicts=(vdict,))
+        assert ns.violations == ("M001",)
+        assert len(ns.violation_dicts) == 1
+        assert ns.violation_dicts[0]["rule_id"] == "M001"
 
     def test_state_captures_current_yaml(self) -> None:
         """After update_from_yaml, record_state captures the new content."""
@@ -799,3 +851,298 @@ class TestApprovalOperations:
         graph.approve_pending()
         assert node.state is node.progression[-1]
         assert node.state.approved is True
+
+
+# ---------------------------------------------------------------------------
+# ContentGraph.collect_violations
+# ---------------------------------------------------------------------------
+
+
+class TestCollectViolations:
+    """Tests for ``ContentGraph.collect_violations``."""
+
+    def test_empty_graph(self) -> None:
+        """Empty graph returns no violations."""
+        graph = ContentGraph()
+        assert graph.collect_violations() == []
+
+    def test_no_states_recorded(self) -> None:
+        """Nodes without recorded state contribute no violations."""
+        graph = ContentGraph()
+        graph.add_node(_make_task())
+        assert graph.collect_violations() == []
+
+    def test_collects_from_latest_state(self) -> None:
+        """Violations are gathered from each node's latest state."""
+        graph = ContentGraph()
+        node = _make_task()
+        graph.add_node(node)
+
+        vdict: ViolationDict = {
+            "rule_id": "M001",
+            "path": node.node_id,
+            "message": "Use FQCN",
+        }
+        node.record_state(0, "scanned", ("M001",), violation_dicts=(vdict,))
+
+        result = graph.collect_violations()
+        assert len(result) == 1
+        assert result[0]["rule_id"] == "M001"
+
+    def test_collects_across_nodes(self) -> None:
+        """Violations from multiple nodes are combined."""
+        graph = ContentGraph()
+        node1 = _make_task()
+        graph.add_node(node1)
+        node2 = ContentNode(
+            identity=NodeIdentity(path="site.yml/plays[0]/tasks[1]", node_type=NodeType.TASK),
+            file_path="site.yml",
+            line_start=14,
+            line_end=18,
+            yaml_lines="- name: Task2\n  ansible.builtin.debug:\n    msg: hi\n",
+        )
+        graph.add_node(node2)
+
+        v1: ViolationDict = {"rule_id": "M001", "path": node1.node_id}
+        v2: ViolationDict = {"rule_id": "L005", "path": node2.node_id}
+        node1.record_state(0, "scanned", ("M001",), violation_dicts=(v1,))
+        node2.record_state(0, "scanned", ("L005",), violation_dicts=(v2,))
+
+        result = graph.collect_violations()
+        assert len(result) == 2
+        rule_ids = {v["rule_id"] for v in result}
+        assert rule_ids == {"M001", "L005"}
+
+    def test_clean_node_contributes_nothing(self) -> None:
+        """Nodes whose latest state has no violations are excluded."""
+        graph = ContentGraph()
+        node = _make_task()
+        graph.add_node(node)
+
+        vdict: ViolationDict = {"rule_id": "M001", "path": node.node_id}
+        node.record_state(0, "scanned", ("M001",), violation_dicts=(vdict,))
+        node.record_state(1, "scanned")
+
+        result = graph.collect_violations()
+        assert result == []
+
+
+# ---------------------------------------------------------------------------
+# ContentGraph.collect_step_diffs
+# ---------------------------------------------------------------------------
+
+
+class TestCollectStepDiffs:
+    """Tests for ``ContentGraph.collect_step_diffs``."""
+
+    def test_empty_graph(self) -> None:
+        """Empty graph returns no step diffs."""
+        graph = ContentGraph()
+        assert graph.collect_step_diffs() == []
+
+    def test_same_content_no_diff(self) -> None:
+        """No diff produced when content_hash is unchanged between entries."""
+        graph = ContentGraph()
+        node = _make_task()
+        graph.add_node(node)
+        node.record_state(0, "scanned", ("M001",))
+        node.record_state(1, "scanned")
+        assert graph.collect_step_diffs() == []
+
+    def test_content_change_produces_diff(self) -> None:
+        """A content change between progression entries produces a diff record."""
+        graph = ContentGraph()
+        node = _make_task()
+        graph.add_node(node)
+        node.record_state(0, "scanned", ("M001",))
+        node.update_from_yaml(_TASK_YAML_FQCN_FIXED)
+        node.record_state(1, "transformed", source="deterministic")
+
+        diffs = graph.collect_step_diffs()
+        assert len(diffs) == 1
+        d = diffs[0]
+        assert d["node_id"] == node.node_id
+        assert d["phase"] == "transformed"
+        assert d["source"] == "deterministic"
+        assert isinstance(d["diff"], str)
+        assert len(d["diff"]) > 0
+        removed = d["violations_removed"]
+        assert isinstance(removed, list)
+        assert "M001" in removed
+
+    def test_violation_lineage(self) -> None:
+        """Tracks violations added and removed across steps."""
+        graph = ContentGraph()
+        node = _make_task()
+        graph.add_node(node)
+        node.record_state(0, "scanned", ("L005", "M001"))
+        node.update_from_yaml(_TASK_YAML_FQCN_FIXED)
+        node.record_state(1, "scanned", ("L059",))
+
+        diffs = graph.collect_step_diffs()
+        assert len(diffs) == 1
+        d = diffs[0]
+        removed = d["violations_removed"]
+        added = d["violations_added"]
+        assert isinstance(removed, list)
+        assert isinstance(added, list)
+        assert sorted(removed) == ["L005", "M001"]
+        assert added == ["L059"]
+
+
+# ---------------------------------------------------------------------------
+# Indent helpers
+# ---------------------------------------------------------------------------
+
+_INDENT0 = """\
+- name: Install nginx
+  ansible.builtin.apt:
+    name: nginx
+"""
+
+_INDENT4 = """\
+    - name: Install nginx
+      ansible.builtin.apt:
+        name: nginx
+"""
+
+_INDENT8 = """\
+        - name: Install nginx
+          ansible.builtin.apt:
+            name: nginx
+"""
+
+
+class TestDetectIndent:
+    """Tests for _detect_indent."""
+
+    def test_zero_indent(self) -> None:
+        """Detects zero indent on root-level YAML."""
+        assert _detect_indent(_INDENT0) == 0
+
+    def test_four_indent(self) -> None:
+        """Detects four-space indent on play-level tasks."""
+        assert _detect_indent(_INDENT4) == 4
+
+    def test_eight_indent(self) -> None:
+        """Detects eight-space indent on block children."""
+        assert _detect_indent(_INDENT8) == 8
+
+    def test_empty_string(self) -> None:
+        """Returns 0 for empty input."""
+        assert _detect_indent("") == 0
+
+    def test_blank_lines_skipped(self) -> None:
+        """Skips leading blank lines when detecting indent."""
+        assert _detect_indent("\n\n    - name: test\n") == 4
+
+
+class TestReindent:
+    """Tests for _reindent."""
+
+    def test_add_indent(self) -> None:
+        """Adds 4-space indent to root-level content."""
+        result = _reindent(_INDENT0, 4)
+        assert _detect_indent(result) == 4
+        assert "    - name: Install nginx\n" in result
+        assert "      ansible.builtin.apt:\n" in result
+
+    def test_remove_indent(self) -> None:
+        """Removes indent from 4-space content to root level."""
+        result = _reindent(_INDENT4, 0)
+        assert _detect_indent(result) == 0
+        assert "- name: Install nginx\n" in result
+
+    def test_noop_when_matching(self) -> None:
+        """Returns input unchanged when indent already matches."""
+        result = _reindent(_INDENT4, 4)
+        assert result == _INDENT4
+
+    def test_blank_lines_preserved(self) -> None:
+        """Blank lines pass through without modification."""
+        text = "\n    - name: test\n\n    - name: test2\n"
+        result = _reindent(text, 0)
+        assert result.startswith("\n- name: test\n")
+
+    def test_shift_deeper(self) -> None:
+        """Shifts 4-space content to 8-space depth."""
+        result = _reindent(_INDENT4, 8)
+        assert _detect_indent(result) == 8
+
+
+class TestIndentPreservation:
+    """Verify apply_transform preserves file-level indent."""
+
+    @pytest.mark.asyncio  # type: ignore[untyped-decorator]
+    async def test_transform_preserves_indent(self) -> None:
+        """A node at indent 4 stays at indent 4 after a transform."""
+        from ruamel.yaml.comments import CommentedMap
+
+        graph = ContentGraph()
+        yaml_text = "    - name: install nginx\n      apt:\n        name: nginx\n"
+        node = ContentNode(
+            identity=NodeIdentity(path="site.yml/plays[0]/tasks[0]", node_type=NodeType.TASK),
+            file_path="site.yml",
+            line_start=10,
+            line_end=12,
+            yaml_lines=yaml_text,
+            indent_depth=4,
+            module="apt",
+        )
+        graph.add_node(node)
+
+        def rename_module(task_map: CommentedMap, _violation: ViolationDict) -> bool:
+            task_map["ansible.builtin.apt"] = task_map.pop("apt")
+            return True
+
+        violation: ViolationDict = {"rule_id": "L042", "path": node.node_id}
+
+        applied = await graph.apply_transform(node.node_id, rename_module, violation)
+        assert applied
+
+        assert _detect_indent(node.yaml_lines) == 4
+        for line in node.yaml_lines.splitlines():
+            if line.strip():
+                assert line.startswith("    "), f"Line not at indent 4: {line!r}"
+
+    @pytest.mark.asyncio  # type: ignore[untyped-decorator]
+    async def test_zero_indent_unchanged(self) -> None:
+        """A node at indent 0 stays at indent 0 (standalone task file)."""
+        from ruamel.yaml.comments import CommentedMap
+
+        graph = ContentGraph()
+        yaml_text = "- name: install nginx\n  apt:\n    name: nginx\n"
+        node = ContentNode(
+            identity=NodeIdentity(path="tasks/install.yml/tasks[0]", node_type=NodeType.TASK),
+            file_path="tasks/install.yml",
+            line_start=1,
+            line_end=3,
+            yaml_lines=yaml_text,
+            indent_depth=0,
+            module="apt",
+        )
+        graph.add_node(node)
+
+        def rename_module(task_map: CommentedMap, _violation: ViolationDict) -> bool:
+            task_map["ansible.builtin.apt"] = task_map.pop("apt")
+            return True
+
+        violation: ViolationDict = {"rule_id": "L042", "path": node.node_id}
+
+        applied = await graph.apply_transform(node.node_id, rename_module, violation)
+        assert applied
+        assert _detect_indent(node.yaml_lines) == 0
+
+    def test_serialization_round_trip_preserves_indent(self) -> None:
+        """indent_depth survives node serialization and deserialization."""
+        node = ContentNode(
+            identity=NodeIdentity(path="site.yml/plays[0]/tasks[0]", node_type=NodeType.TASK),
+            file_path="site.yml",
+            yaml_lines="    - name: test\n",
+            indent_depth=4,
+        )
+        d = _node_to_dict(node)
+        assert d["indent_depth"] == 4
+
+        restored = _node_from_dict(d)
+        assert restored.indent_depth == 4

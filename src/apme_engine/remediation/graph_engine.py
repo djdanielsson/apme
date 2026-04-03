@@ -25,7 +25,6 @@ from apme_engine.engine.graph_scanner import (
     scan,
 )
 from apme_engine.engine.models import ViolationDict
-from apme_engine.remediation.engine import FilePatch
 from apme_engine.remediation.partition import normalize_rule_id, partition_violations
 from apme_engine.remediation.registry import TransformRegistry
 from apme_engine.validators.native.rules.graph_rule_base import GraphRule
@@ -34,6 +33,25 @@ logger = logging.getLogger("apme.remediation.graph")
 
 ProgressCallback = Callable[[str, str, float, int], None]
 RescanFn = Callable[[ContentGraph, frozenset[str]], Awaitable[list["ViolationDict"]]]
+
+
+@dataclass
+class FilePatch:
+    """A single file patch with diff and applied rule IDs.
+
+    Attributes:
+        path: File path that was patched.
+        original: Original file content before patching.
+        patched: Content after applying transforms.
+        diff: Unified diff string (original -> patched).
+        rule_ids: List of rule IDs applied to this file.
+    """
+
+    path: str
+    original: str
+    patched: str
+    diff: str
+    rule_ids: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -49,10 +67,13 @@ class GraphFixReport:
         fixed: Count of violations fixed by Tier 1 transforms.
         applied_patches: File patches produced by ``splice_modifications``
             (populated by the caller, not by ``remediate``).
-        remaining_violations: Violations still present after convergence.
+        remaining_violations: Violations still present after convergence,
+            collected directly from the ContentGraph (authoritative).
         fixed_violations: Violations resolved by transforms.
         oscillation_detected: True if the loop bailed due to oscillation.
         nodes_modified: Number of ContentNodes modified.
+        step_diffs: Per-progression-step diffs showing what each
+            transform did and which violations appeared/disappeared.
     """
 
     passes: int = 0
@@ -62,6 +83,7 @@ class GraphFixReport:
     fixed_violations: list[ViolationDict] = field(default_factory=list)
     oscillation_detected: bool = False
     nodes_modified: int = 0
+    step_diffs: list[dict[str, object]] = field(default_factory=list)
 
 
 class GraphRemediationEngine:
@@ -252,8 +274,8 @@ class GraphRemediationEngine:
         # Auto-approve all deterministic transforms
         graph.approve_pending()
 
-        final_report = scan(graph, self._rules)
-        remaining = graph_report_to_violations(final_report)
+        remaining = graph.collect_violations()
+        step_diffs = graph.collect_step_diffs()
 
         return GraphFixReport(
             passes=passes,
@@ -262,6 +284,7 @@ class GraphRemediationEngine:
             fixed_violations=all_fixed,
             oscillation_detected=oscillation,
             nodes_modified=_count_modified_nodes(graph),
+            step_diffs=step_diffs,
         )
 
 
@@ -378,30 +401,38 @@ def _record_violations(
 ) -> None:
     """Record a NodeState snapshot for nodes with violations.
 
+    Violations are grouped by ``path`` (which must already be resolved
+    to a graph ``node_id`` — validators return ``path = node_id``
+    natively via node-native serialization strategies).
+
     When ``dirty_node_ids`` is provided, also records a clean snapshot
     (empty violations) for dirty nodes that are *absent* from
-    ``violations``.  This distinguishes "transformed but not yet
-    verified" from "rescanned and confirmed clean."
+    ``violations``.
 
     Args:
         graph: ContentGraph with nodes to update.
-        violations: Violation dicts (each must have ``path`` set to a node ID).
+        violations: Violation dicts (``path`` should be a graph node ID).
         pass_number: Convergence pass number.
         phase: Pipeline phase (``"scanned"``, ``"transformed"``).
         dirty_node_ids: When set, dirty nodes absent from violations
             get a clean ``(phase, violations=())`` entry.
     """
-    by_node: dict[str, list[str]] = defaultdict(list)
+    by_node: dict[str, list[ViolationDict]] = defaultdict(list)
     for v in violations:
         node_id = str(v.get("path", ""))
-        rule_id = str(v.get("rule_id", ""))
-        if node_id and rule_id:
-            by_node[node_id].append(rule_id)
+        if node_id:
+            by_node[node_id].append(v)
 
-    for node_id, rule_ids in by_node.items():
+    for node_id, vdicts in by_node.items():
         node = graph.get_node(node_id)
         if node is not None:
-            node.record_state(pass_number, phase, violations=tuple(sorted(set(rule_ids))))
+            rule_ids = tuple(sorted(rid for v in vdicts if (rid := str(v.get("rule_id", "")))))
+            node.record_state(
+                pass_number,
+                phase,
+                violations=rule_ids,
+                violation_dicts=tuple(vdicts),
+            )
 
     if dirty_node_ids is not None:
         for nid in dirty_node_ids - set(by_node):

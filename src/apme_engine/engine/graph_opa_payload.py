@@ -149,7 +149,7 @@ def content_node_to_opa_dict(node: ContentNode) -> YAMLDict:
 
     d: YAMLDict = {
         "type": opa_type,
-        "key": node.ari_key or node.node_id,
+        "key": node.node_id,
         "file": node.file_path,
         "line": [node.line_start, node.line_end] if node.line_start else None,
         "defined_in": node.file_path,
@@ -310,7 +310,7 @@ def _build_trees(graph: ContentGraph) -> list[YAMLDict]:
             if d:
                 nodes_list.append(d)
 
-        root_key = root.ari_key or root.node_id
+        root_key = root.node_id
         root_type = root.node_type.value
         root_path = root.file_path
 

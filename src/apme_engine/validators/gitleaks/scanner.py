@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import bisect
 import contextlib
 import json
 import re
@@ -11,6 +12,8 @@ import tempfile
 from pathlib import Path
 from typing import cast
 
+from apme_engine.engine.models import ViolationDict
+
 GITLEAKS_BIN = "gitleaks"
 
 RULE_PREFIX = "SEC"
@@ -19,6 +22,7 @@ RULE_ID_MAP: dict[str, str] = {}
 
 _VAULT_HEADER = re.compile(r"^\s*\$ANSIBLE_VAULT;")
 _JINJA_REF = re.compile(r"\{\{.*?\}\}")
+_NODE_DELIMITER = "# __apme_node__ "
 
 
 def _is_vault_encrypted(content: str) -> bool:
@@ -166,6 +170,177 @@ def _convert_findings(
                 "file": rel,
                 "line": line if line == end_line else [line, end_line],
                 "path": "",
+                "scope": "playbook",
+                "source": "gitleaks",
+            }
+        )
+
+    return violations
+
+
+# ---------------------------------------------------------------------------
+# Node-native stdin scanning (Strategy 2 — concatenated with delimiters)
+# ---------------------------------------------------------------------------
+
+
+def _build_stdin_payload(
+    nodes: list[tuple[str, str]],
+) -> tuple[str, list[int], list[str], dict[str, str]]:
+    """Concatenate node content with delimiter lines and build a line-to-node map.
+
+    Args:
+        nodes: ``(node_id, content)`` tuples.
+
+    Returns:
+        Tuple of ``(payload_text, delimiter_lines, node_ids,
+        node_content_by_id)`` in the same order as ``nodes``, where
+        ``delimiter_lines[i]`` is the 1-based line number of the delimiter
+        for ``node_ids[i]``.
+    """
+    parts: list[str] = []
+    delimiter_lines: list[int] = []
+    node_ids: list[str] = []
+    content_by_id: dict[str, str] = {}
+    current_line = 1
+
+    for node_id, content in nodes:
+        delimiter = f"{_NODE_DELIMITER}{node_id}\n"
+        parts.append(delimiter)
+        delimiter_lines.append(current_line)
+        node_ids.append(node_id)
+        content_by_id[node_id] = content
+        current_line += 1
+
+        if content and not content.endswith("\n"):
+            content += "\n"
+        parts.append(content)
+        current_line += content.count("\n")
+
+    return "".join(parts), delimiter_lines, node_ids, content_by_id
+
+
+def _resolve_node_id(
+    finding_line: int,
+    delimiter_lines: list[int],
+    node_ids: list[str],
+) -> tuple[str, int]:
+    """Walk backwards from finding_line to the nearest delimiter.
+
+    Args:
+        finding_line: 1-based line from gitleaks StartLine.
+        delimiter_lines: 1-based line numbers of delimiters (input order).
+        node_ids: Parallel list of node IDs.
+
+    Returns:
+        Tuple of ``(node_id, delimiter_line)`` for the owning node,
+        or ``("", 0)`` if before any delimiter.
+    """
+    idx = bisect.bisect_right(delimiter_lines, finding_line) - 1
+    if idx < 0:
+        return "", 0
+    return node_ids[idx], delimiter_lines[idx]
+
+
+def run_gitleaks_nodes(
+    nodes: list[tuple[str, str]],
+    *,
+    timeout: int = 120,
+) -> list[ViolationDict]:
+    """Scan node content for secrets via ``gitleaks detect --pipe`` stdin.
+
+    Concatenates all ``(node_id, content)`` with unique delimiter comments,
+    pipes the result to gitleaks via stdin, and maps each finding back to
+    the originating ``node_id`` by walking backwards from the reported
+    line number to the nearest delimiter.
+
+    Args:
+        nodes: ``(node_id, content)`` tuples to scan.
+        timeout: Subprocess timeout in seconds.
+
+    Returns:
+        List of violation dicts with ``path`` set to the owning ``node_id``.
+    """
+    if not nodes:
+        return []
+
+    payload, delimiter_lines, node_ids, content_by_id = _build_stdin_payload(nodes)
+
+    cmd = [
+        GITLEAKS_BIN,
+        "detect",
+        "--pipe",
+        "--report-format",
+        "json",
+        "--report-path",
+        "/dev/stdout",
+        "--exit-code",
+        "0",
+    ]
+
+    try:
+        proc = subprocess.run(
+            cmd,
+            input=payload,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        if proc.returncode not in (0, 1):
+            sys.stderr.write(f"gitleaks exited {proc.returncode}: {proc.stderr[:500]}\n")
+            sys.stderr.flush()
+            return []
+    except FileNotFoundError:
+        sys.stderr.write("gitleaks binary not found; skipping secret scan\n")
+        sys.stderr.flush()
+        return []
+    except subprocess.TimeoutExpired:
+        sys.stderr.write(f"gitleaks timed out after {timeout}s\n")
+        sys.stderr.flush()
+        return []
+
+    stdout = proc.stdout.strip()
+    if not stdout:
+        return []
+
+    try:
+        findings = cast(list[dict[str, object]], json.loads(stdout))
+    except json.JSONDecodeError as exc:
+        sys.stderr.write(f"gitleaks JSON parse error: {exc}\n")
+        sys.stderr.flush()
+        return []
+
+    violations: list[ViolationDict] = []
+    for f in findings:
+        match_text = str(f.get("Match", ""))
+        if _value_is_jinja(match_text):
+            continue
+
+        line_val = f.get("StartLine", 0)
+        end_val = f.get("EndLine", line_val)
+        start_line = int(line_val) if isinstance(line_val, int | float | str) else 0
+        end_line = int(end_val) if isinstance(end_val, int | float | str) else start_line
+
+        node_id, delim_line = _resolve_node_id(start_line, delimiter_lines, node_ids)
+        if not node_id:
+            continue
+
+        node_content = content_by_id.get(node_id, "")
+        if _is_vault_encrypted(node_content):
+            continue
+
+        gitleaks_rule = str(f.get("RuleID", "unknown"))
+        desc = str(f.get("Description", f"Secret detected: {gitleaks_rule}"))
+
+        rel_start = max(1, start_line - delim_line)
+        rel_end = max(1, end_line - delim_line)
+        violations.append(
+            {
+                "rule_id": _build_rule_id(gitleaks_rule),
+                "severity": "critical",
+                "message": desc,
+                "file": "",
+                "line": rel_start if rel_start == rel_end else [rel_start, rel_end],
+                "path": node_id,
                 "scope": "playbook",
                 "source": "gitleaks",
             }

@@ -12,7 +12,7 @@ import difflib
 import logging
 from collections import defaultdict
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 from apme_engine.engine.models import RemediationClass, RemediationResolution, ViolationDict
@@ -25,6 +25,7 @@ from apme_engine.remediation.ai_provider import (
     apply_patches,
 )
 from apme_engine.remediation.enrich import enrich_violations
+from apme_engine.remediation.graph_engine import FilePatch as FilePatch
 from apme_engine.remediation.partition import (
     add_classification_to_violations,
     normalize_rule_id,
@@ -40,25 +41,6 @@ from apme_engine.remediation.unit_segmenter import (
 )
 
 logger = logging.getLogger("apme.remediation")
-
-
-@dataclass
-class FilePatch:
-    """A single file patch with diff and applied rule IDs.
-
-    Attributes:
-        path: File path that was patched.
-        original: Original file content before patching.
-        patched: Content after applying transforms.
-        diff: Unified diff string (original -> patched).
-        rule_ids: List of rule IDs applied to this file.
-    """
-
-    path: str
-    original: str
-    patched: str
-    diff: str
-    rule_ids: list[str] = field(default_factory=list)
 
 
 @dataclass

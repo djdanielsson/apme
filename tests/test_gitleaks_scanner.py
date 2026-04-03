@@ -6,13 +6,17 @@ import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from apme_engine.engine.models import ViolationDict
 from apme_engine.validators.gitleaks.scanner import (
     RULE_PREFIX,
     _build_rule_id,
+    _build_stdin_payload,
     _convert_findings,
     _is_vault_encrypted,
+    _resolve_node_id,
     _value_is_jinja,
     run_gitleaks,
+    run_gitleaks_nodes,
 )
 
 
@@ -288,14 +292,14 @@ class TestGitleaksServicer:
 
         servicer = GitleaksValidatorServicer()
 
-        fake_violations = [
+        fake_violations: list[ViolationDict] = [
             {
                 "rule_id": "SEC:aws-access-key-id",
                 "severity": "critical",
                 "message": "AWS Key",
-                "file": "vars.yml",
+                "file": "",
                 "line": 1,
-                "path": "",
+                "path": "vars.yml",
             }
         ]
 
@@ -303,7 +307,7 @@ class TestGitleaksServicer:
             request_id="gl-2", files=[common_pb2.File(path="vars.yml", content=b"api_key: AKIAIOSFODNN7EXAMPLE\n")]
         )
 
-        with patch("apme_engine.daemon.gitleaks_validator_server.run_gitleaks", return_value=fake_violations):
+        with patch("apme_engine.daemon.gitleaks_validator_server.run_gitleaks_nodes", return_value=fake_violations):
             resp = await servicer.Validate(request, None)  # type: ignore[arg-type]
 
         assert len(resp.violations) == 1  # type: ignore[attr-defined]
@@ -335,3 +339,292 @@ class TestGitleaksServicer:
         with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, side_effect=FileNotFoundError):
             resp = await servicer.Health(common_pb2.HealthRequest(), None)  # type: ignore[arg-type]
         assert "not found" in resp.status
+
+
+# ---------------------------------------------------------------------------
+# Tests for _extract_nodes_from_graph_data and _run_scan coverage
+# ---------------------------------------------------------------------------
+
+
+class TestExtractNodesFromGraphData:
+    """Tests for ``_extract_nodes_from_graph_data`` node extraction and covered paths."""
+
+    def test_returns_nodes_and_covered_paths(self) -> None:
+        """Nodes with yaml_lines are extracted; their file_path is tracked."""
+        from apme_engine.daemon.gitleaks_validator_server import _extract_nodes_from_graph_data
+
+        graph = {
+            "version": 1,
+            "nodes": [
+                {"id": "site.yml/plays[0]/tasks[0]", "data": {"yaml_lines": "- name: foo\n", "file_path": "site.yml"}},
+                {"id": "site.yml/plays[0]", "data": {"yaml_lines": "", "file_path": "site.yml"}},
+                {"id": "vars/main.yml", "data": {"yaml_lines": "", "file_path": "vars/main.yml"}},
+            ],
+            "edges": [],
+        }
+        nodes, covered = _extract_nodes_from_graph_data(json.dumps(graph).encode())
+        assert len(nodes) == 1
+        assert nodes[0] == ("site.yml/plays[0]/tasks[0]", "- name: foo\n")
+        assert covered == {"site.yml"}
+
+    def test_empty_input(self) -> None:
+        """Empty bytes returns empty results."""
+        from apme_engine.daemon.gitleaks_validator_server import _extract_nodes_from_graph_data
+
+        nodes, covered = _extract_nodes_from_graph_data(b"")
+        assert nodes == []
+        assert covered == set()
+
+    def test_invalid_json(self) -> None:
+        """Invalid JSON returns empty results."""
+        from apme_engine.daemon.gitleaks_validator_server import _extract_nodes_from_graph_data
+
+        nodes, covered = _extract_nodes_from_graph_data(b"not json")
+        assert nodes == []
+        assert covered == set()
+
+
+class TestRunScanCoverage:
+    """Tests for ``_run_scan`` combining graph nodes with uncovered files."""
+
+    def test_uncovered_files_included(self) -> None:
+        """Files not covered by graph nodes are included in the scan."""
+        from apme.v1.common_pb2 import File
+        from apme_engine.daemon.gitleaks_validator_server import _run_scan
+
+        graph = {
+            "version": 1,
+            "nodes": [
+                {"id": "play.yml/plays[0]/tasks[0]", "data": {"yaml_lines": "- debug:\n", "file_path": "play.yml"}},
+            ],
+            "edges": [],
+        }
+        files = [
+            File(path="play.yml", content=b"---\n- hosts: all\n  tasks:\n    - debug:\n"),
+            File(path="vars/secrets.yml", content=b"api_key: AKIAIOSFODNN7EXAMPLE\n"),
+        ]
+
+        with patch("apme_engine.daemon.gitleaks_validator_server.run_gitleaks_nodes") as mock_scan:
+            mock_scan.return_value = []
+            _run_scan(json.dumps(graph).encode(), files)
+
+            called_nodes = mock_scan.call_args[0][0]
+
+        assert len(called_nodes) == 2
+        node_keys = {n[0] for n in called_nodes}
+        assert "play.yml/plays[0]/tasks[0]" in node_keys
+        assert "vars/secrets.yml" in node_keys
+
+    def test_covered_files_excluded(self) -> None:
+        """Files whose path matches a graph node's file_path are excluded."""
+        from apme.v1.common_pb2 import File
+        from apme_engine.daemon.gitleaks_validator_server import _run_scan
+
+        graph = {
+            "version": 1,
+            "nodes": [
+                {"id": "play.yml/plays[0]/tasks[0]", "data": {"yaml_lines": "- debug:\n", "file_path": "play.yml"}},
+            ],
+            "edges": [],
+        }
+        files = [
+            File(path="play.yml", content=b"---\n- hosts: all\n  tasks:\n    - debug:\n"),
+        ]
+
+        with patch("apme_engine.daemon.gitleaks_validator_server.run_gitleaks_nodes") as mock_scan:
+            mock_scan.return_value = []
+            _run_scan(json.dumps(graph).encode(), files)
+
+            called_nodes = mock_scan.call_args[0][0]
+
+        assert len(called_nodes) == 1
+        assert called_nodes[0][0] == "play.yml/plays[0]/tasks[0]"
+
+    def test_no_graph_data_uses_all_files(self) -> None:
+        """Without graph data all files are scanned as file-keyed nodes."""
+        from apme.v1.common_pb2 import File
+        from apme_engine.daemon.gitleaks_validator_server import _run_scan
+
+        files = [
+            File(path="a.yml", content=b"key: val\n"),
+            File(path="b.yml", content=b"other: val\n"),
+        ]
+
+        with patch("apme_engine.daemon.gitleaks_validator_server.run_gitleaks_nodes") as mock_scan:
+            mock_scan.return_value = []
+            _run_scan(b"", files)
+
+            called_nodes = mock_scan.call_args[0][0]
+
+        assert len(called_nodes) == 2
+        assert {n[0] for n in called_nodes} == {"a.yml", "b.yml"}
+
+
+# ---------------------------------------------------------------------------
+# Tests for stdin-based node scanner (run_gitleaks_nodes)
+# ---------------------------------------------------------------------------
+
+
+class TestBuildStdinPayload:
+    """Tests for ``_build_stdin_payload`` delimiter generation."""
+
+    def test_single_node(self) -> None:
+        """Single node produces delimiter + content."""
+        nodes = [("node-1", "password: s3cret\n")]
+        text, delims, ids, content_map = _build_stdin_payload(nodes)
+
+        assert "# __apme_node__ node-1\n" in text
+        assert "password: s3cret\n" in text
+        assert len(delims) == 1
+        assert ids == ["node-1"]
+        assert content_map["node-1"] == "password: s3cret\n"
+
+    def test_multiple_nodes(self) -> None:
+        """Multiple nodes each get their own delimiter line."""
+        nodes = [("a", "line1\n"), ("b", "line2\n"), ("c", "line3\n")]
+        text, delims, ids, _ = _build_stdin_payload(nodes)
+
+        assert len(delims) == 3
+        assert ids == ["a", "b", "c"]
+        assert text.count("# __apme_node__ ") == 3
+
+    def test_delimiter_lines_ascending(self) -> None:
+        """Delimiter lines increase monotonically."""
+        nodes = [("a", "l1\nl2\n"), ("b", "l3\n")]
+        _, delims, _, _ = _build_stdin_payload(nodes)
+
+        assert delims[0] < delims[1]
+
+    def test_content_without_trailing_newline(self) -> None:
+        """Content without trailing newline gets one appended."""
+        nodes = [("x", "no-newline")]
+        text, _, _, _ = _build_stdin_payload(nodes)
+
+        assert text.endswith("no-newline\n")
+
+
+class TestResolveNodeId:
+    """Tests for ``_resolve_node_id`` line-to-delimiter mapping."""
+
+    def test_line_in_first_node(self) -> None:
+        """Finding in first node resolves correctly."""
+        delims = [1, 4]
+        ids = ["node-a", "node-b"]
+        assert _resolve_node_id(2, delims, ids) == ("node-a", 1)
+
+    def test_line_in_second_node(self) -> None:
+        """Finding in second node resolves correctly."""
+        delims = [1, 4]
+        ids = ["node-a", "node-b"]
+        assert _resolve_node_id(5, delims, ids) == ("node-b", 4)
+
+    def test_line_on_delimiter(self) -> None:
+        """Finding exactly on delimiter resolves to that node."""
+        delims = [1, 4]
+        ids = ["node-a", "node-b"]
+        assert _resolve_node_id(4, delims, ids) == ("node-b", 4)
+
+    def test_line_before_any_delimiter(self) -> None:
+        """Finding before first delimiter returns empty."""
+        delims = [5]
+        ids = ["node-a"]
+        assert _resolve_node_id(1, delims, ids) == ("", 0)
+
+
+class TestRunGitleaksNodes:
+    """Tests for ``run_gitleaks_nodes`` stdin piping."""
+
+    def test_empty_nodes(self) -> None:
+        """Empty input returns no violations."""
+        assert run_gitleaks_nodes([]) == []
+
+    def test_binary_not_found(self) -> None:
+        """Missing gitleaks binary returns empty list."""
+        with patch("apme_engine.validators.gitleaks.scanner.GITLEAKS_BIN", "/nonexistent/gitleaks"):
+            result = run_gitleaks_nodes([("n1", "secret: abc")])
+        assert result == []
+
+    def test_findings_attributed_to_nodes(self) -> None:
+        """Findings are correctly attributed to node_ids via delimiter lines."""
+        nodes = [("node-A", "clean\n"), ("node-B", "api_key: AKIA12345\n")]
+        payload, delims, ids, _ = _build_stdin_payload(nodes)
+
+        finding_line = delims[1] + 1
+        findings_json = json.dumps(
+            [
+                {
+                    "RuleID": "aws-access-key-id",
+                    "Description": "AWS Key",
+                    "File": "",
+                    "StartLine": finding_line,
+                    "EndLine": finding_line,
+                    "Match": "AKIA12345",
+                }
+            ]
+        )
+
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = findings_json
+        mock_proc.stderr = ""
+
+        with patch("apme_engine.validators.gitleaks.scanner.subprocess.run", return_value=mock_proc):
+            violations = run_gitleaks_nodes(nodes)
+
+        assert len(violations) == 1
+        assert violations[0]["path"] == "node-B"
+        assert violations[0]["source"] == "gitleaks"
+
+    def test_jinja_values_filtered(self) -> None:
+        """Jinja template matches are filtered from stdin results."""
+        nodes = [("n1", "token: '{{ vault_token }}'\n")]
+
+        findings_json = json.dumps(
+            [
+                {
+                    "RuleID": "generic-api-key",
+                    "Description": "API Key",
+                    "File": "",
+                    "StartLine": 2,
+                    "EndLine": 2,
+                    "Match": "{{ vault_token }}",
+                }
+            ]
+        )
+
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = findings_json
+        mock_proc.stderr = ""
+
+        with patch("apme_engine.validators.gitleaks.scanner.subprocess.run", return_value=mock_proc):
+            violations = run_gitleaks_nodes(nodes)
+
+        assert len(violations) == 0
+
+    def test_vault_encrypted_filtered(self) -> None:
+        """Nodes with vault-encrypted content are filtered."""
+        nodes = [("n1", "$ANSIBLE_VAULT;1.1;AES256\ndeadbeef\n")]
+
+        findings_json = json.dumps(
+            [
+                {
+                    "RuleID": "generic-api-key",
+                    "Description": "Key",
+                    "File": "",
+                    "StartLine": 2,
+                    "EndLine": 2,
+                    "Match": "deadbeef",
+                }
+            ]
+        )
+
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = findings_json
+        mock_proc.stderr = ""
+
+        with patch("apme_engine.validators.gitleaks.scanner.subprocess.run", return_value=mock_proc):
+            violations = run_gitleaks_nodes(nodes)
+
+        assert len(violations) == 0

@@ -1,16 +1,16 @@
 """Gitleaks validator daemon: async gRPC server for secret detection.
 
-Writes files to a temp dir, runs gitleaks detect, and returns violations.
+Uses ``run_gitleaks_nodes()`` for all scanning — content is piped to
+gitleaks via stdin with delimiter-based node attribution.  No temp
+files are written.
 """
 
 import asyncio
-import contextlib
+import json
 import logging
 import os
-import shutil
-import tempfile
 import time
-from pathlib import Path
+from typing import cast
 
 import grpc
 import grpc.aio
@@ -19,50 +19,94 @@ from apme.v1 import common_pb2, validate_pb2_grpc
 from apme.v1.common_pb2 import File, HealthResponse, RuleTiming, ValidatorDiagnostics
 from apme.v1.validate_pb2 import ValidateRequest, ValidateResponse
 from apme_engine.daemon.violation_convert import violation_dict_to_proto
+from apme_engine.engine.models import ViolationDict
 from apme_engine.log_bridge import attach_collector
-from apme_engine.validators.gitleaks.scanner import GITLEAKS_BIN, run_gitleaks
+from apme_engine.validators.gitleaks.scanner import GITLEAKS_BIN, run_gitleaks_nodes
 
 logger = logging.getLogger("apme.gitleaks")
 
 _MAX_CONCURRENT_RPCS = int(os.environ.get("APME_GITLEAKS_MAX_RPCS", "16"))
 
-_SCANNABLE_EXTENSIONS = (
-    ".yml",
-    ".yaml",
-    ".cfg",
-    ".ini",
-    ".conf",
-    ".env",
-    ".py",
-    ".sh",
-    ".json",
-)
 
-
-def _run_scan(files: list[File]) -> tuple[list[dict[str, str | int | list[int] | None]], int]:
-    """Blocking function: write files to temp dir, run gitleaks, return (violations, files_written).
+def _extract_nodes_from_graph_data(raw: bytes) -> tuple[list[tuple[str, str]], set[str]]:
+    """Parse serialized ContentGraph JSON and extract ``(node_id, yaml_lines)`` tuples.
 
     Args:
-        files: List of File protos with path and content.
+        raw: JSON-encoded ContentGraph (from ``ContentGraph.to_dict(slim=True)``).
 
     Returns:
-        Tuple of (violations list, count of files written).
+        Tuple of (scan nodes, covered file paths).  Scan nodes are
+        ``(node_id, yaml_lines)`` for nodes with non-empty content.
+        Covered file paths are the set of ``file_path`` values for those
+        nodes, used to avoid re-scanning the same content via raw files.
     """
-    temp_dir = Path(tempfile.mkdtemp(prefix="apme_gitleaks_"))
     try:
-        file_count = 0
-        for f in files:
-            if not f.path.endswith(_SCANNABLE_EXTENSIONS):
-                continue
-            out = temp_dir / f.path
-            out.parent.mkdir(parents=True, exist_ok=True)
-            out.write_bytes(f.content)
-            file_count += 1
+        data = cast(dict[str, object], json.loads(raw))
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return [], set()
 
-        return run_gitleaks(temp_dir), file_count
-    finally:
-        with contextlib.suppress(OSError):
-            shutil.rmtree(temp_dir)
+    result: list[tuple[str, str]] = []
+    covered_paths: set[str] = set()
+    raw_nodes = data.get("nodes")
+    if not isinstance(raw_nodes, list):
+        return result, covered_paths
+
+    for entry in raw_nodes:
+        if not isinstance(entry, dict):
+            continue
+        node_id = str(entry.get("id", ""))
+        node_data = entry.get("data")
+        if not isinstance(node_data, dict) or not node_id:
+            continue
+        yaml_lines = str(node_data.get("yaml_lines", ""))
+        if yaml_lines:
+            result.append((node_id, yaml_lines))
+            file_path = node_data.get("file_path")
+            if isinstance(file_path, str) and file_path:
+                covered_paths.add(file_path)
+
+    return result, covered_paths
+
+
+def _run_scan(
+    content_graph_data: bytes,
+    files: list[File],
+) -> tuple[list[ViolationDict], int]:
+    """Build node tuples from graph data + uncovered files, scan via stdin.
+
+    Graph nodes with ``yaml_lines`` get node-native attribution.  Files
+    whose paths are **not** covered by any graph node are included as
+    file-keyed entries so secrets outside the task-level graph (vars
+    files, play headers, etc.) are still scanned.
+
+    Args:
+        content_graph_data: Serialized ContentGraph JSON (may be empty).
+        files: File protos from the original scan request.
+
+    Returns:
+        Tuple of ``(violations, node_count)``.
+    """
+    nodes: list[tuple[str, str]] = []
+    covered_paths: set[str] = set()
+
+    if content_graph_data:
+        graph_nodes, covered_paths = _extract_nodes_from_graph_data(content_graph_data)
+        nodes.extend(graph_nodes)
+
+    for f in files:
+        if f.path in covered_paths:
+            continue
+        try:
+            content = f.content.decode("utf-8", errors="replace")
+        except Exception:  # noqa: BLE001
+            continue
+        if content:
+            nodes.append((f.path, content))
+
+    if not nodes:
+        return [], 0
+
+    return run_gitleaks_nodes(nodes), len(nodes)
 
 
 def _get_gitleaks_version() -> str:
@@ -88,10 +132,10 @@ class GitleaksValidatorServicer(validate_pb2_grpc.ValidatorServicer):
         request: ValidateRequest,
         context: grpc.aio.ServicerContext,  # type: ignore[type-arg]
     ) -> ValidateResponse:
-        """Handle Validate RPC: write files to temp dir, run gitleaks, return violations.
+        """Handle Validate RPC: scan content for secrets via stdin piping.
 
         Args:
-            request: ValidateRequest with files to scan.
+            request: ValidateRequest with files and/or content_graph_data.
             context: gRPC servicer context.
 
         Returns:
@@ -101,20 +145,25 @@ class GitleaksValidatorServicer(validate_pb2_grpc.ValidatorServicer):
         t0 = time.monotonic()
         with attach_collector() as sink:
             try:
-                if not request.files:
+                if not request.files and not request.content_graph_data:
                     return ValidateResponse(violations=[], request_id=req_id, logs=sink.entries)
 
-                logger.info("Gitleaks: validate start (%d files, req=%s)", len(request.files), req_id)
+                logger.info(
+                    "Gitleaks: validate start (%d files, %d graph bytes, req=%s)",
+                    len(request.files),
+                    len(request.content_graph_data),
+                    req_id,
+                )
 
-                violations, files_written = await asyncio.get_event_loop().run_in_executor(
+                violations, node_count = await asyncio.get_event_loop().run_in_executor(
                     None,
                     _run_scan,  # type: ignore[arg-type]
+                    bytes(request.content_graph_data),
                     list(request.files),
                 )
 
                 total_ms = (time.monotonic() - t0) * 1000
                 logger.info("Gitleaks: validate done (%.0fms, %d findings, req=%s)", total_ms, len(violations), req_id)
-                logger.debug("Gitleaks: %d/%d files scanned (req=%s)", files_written, len(request.files), req_id)
 
                 diag = ValidatorDiagnostics(
                     validator_name="gitleaks",
@@ -131,7 +180,7 @@ class GitleaksValidatorServicer(validate_pb2_grpc.ValidatorServicer):
                     ],
                     metadata={
                         "subprocess_ms": f"{total_ms:.1f}",
-                        "files_written": str(files_written),
+                        "nodes_scanned": str(node_count),
                     },
                 )
 

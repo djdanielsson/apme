@@ -349,68 +349,6 @@ def _add_task_spacing(text: str) -> str:
     return "\n".join(result)
 
 
-def _compute_name_prefix(filename: str) -> str:
-    """Compute the ``name[prefix]`` prefix from the file path.
-
-    Per ansible-lint ``name[prefix]``, included task files not named
-    ``main.yml`` should prefix task names with the path stems relative to
-    the ``tasks/`` directory.
-
-    Examples::
-
-        tasks/deploy.yml          -> "deploy | "
-        tasks/foo/destroy.yml     -> "foo | destroy | "
-        tasks/main.yml            -> ""   (no prefix for main.yml at root)
-        tasks/foo/main.yml        -> "foo | main | "
-
-    Args:
-        filename: Path to the YAML file being formatted.
-
-    Returns:
-        Prefix string (e.g. ``"deploy | "``), or empty string if none needed.
-    """
-    p = Path(filename)
-
-    parts = p.parts
-    try:
-        tasks_idx = len(parts) - 1 - list(reversed(parts)).index("tasks")
-    except ValueError:
-        return ""
-
-    sub_parts = list(parts[tasks_idx + 1 :])
-    if not sub_parts:
-        return ""
-
-    sub_parts[-1] = Path(sub_parts[-1]).stem
-
-    if sub_parts == ["main"]:
-        return ""
-
-    return " | ".join(sub_parts) + " | "
-
-
-def _add_name_prefix(data: object, prefix: str) -> None:
-    """Prepend ``prefix`` to task ``name`` values that don't already have it.
-
-    Args:
-        data: CommentedSeq, CommentedMap, or nested structure with tasks.
-        prefix: The prefix string (e.g. ``"deploy | "``).
-    """
-    if not prefix:
-        return
-    if isinstance(data, CommentedSeq):
-        for item in data:
-            _add_name_prefix(item, prefix)
-    elif isinstance(data, CommentedMap):
-        name = data.get("name")
-        if isinstance(name, str) and name and not name.lower().startswith(prefix.lower()):
-            data["name"] = prefix + name
-
-        for nested_key in ("block", "rescue", "always"):
-            if nested_key in data:
-                _add_name_prefix(data[nested_key], prefix)
-
-
 def _capitalize_task_name(name: str) -> str:
     """Capitalize the meaningful part of a task name, respecting ``name[prefix]``.
 
@@ -835,16 +773,12 @@ def format_content(text: str, filename: str = "<stdin>") -> FormatResult:
             diff="",
         )
 
-    name_prefix = _compute_name_prefix(filename)
-
     if isinstance(data, CommentedSeq):
         for item in data:
             _expand_inline_kv_args(item)
             _force_tags_block_style(item)
             _capitalize_name(item)
             _reorder_task_keys(item)
-        if name_prefix:
-            _add_name_prefix(data, name_prefix)
     elif isinstance(data, CommentedMap):
         _expand_inline_kv_args(data)
         _force_tags_block_style(data)

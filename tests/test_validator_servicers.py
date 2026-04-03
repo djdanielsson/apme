@@ -256,7 +256,7 @@ class TestGitleaksValidatorServicerDiagnostics:
             files=[common_pb2.File(path="test.yml", content=b"password: hunter2\n")],
         )
 
-        mock_violations = [
+        mock_violations: list[dict[str, str | int | list[int] | bool | None]] = [
             {"rule_id": "R502", "severity": "critical", "message": "secret", "file": "test.yml", "line": 1, "path": ""},
         ]
 
@@ -272,8 +272,8 @@ class TestGitleaksValidatorServicerDiagnostics:
         assert diag.total_ms > 0
         assert len(diag.rule_timings) == 1
         assert diag.rule_timings[0].rule_id == "gitleaks_subprocess"
-        assert "files_written" in diag.metadata
-        assert diag.metadata["files_written"] == "1"
+        assert "nodes_scanned" in diag.metadata
+        assert diag.metadata["nodes_scanned"] == "1"
 
     async def test_validate_empty_files_no_diagnostics(self) -> None:
         """Validate with empty files returns empty violations."""

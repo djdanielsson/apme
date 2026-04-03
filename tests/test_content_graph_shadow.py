@@ -165,32 +165,7 @@ class TestStructuralEquivalence:
 # ---------------------------------------------------------------------------
 
 
-class TestARIKeyCrossReference:
-    """Verify ARI keys are tracked in the ContentGraph."""
-
-    def test_playbook_nodes_have_ari_keys(self, content_graph: ContentGraph) -> None:
-        """Every playbook node should carry an ARI key.
-
-        Args:
-            content_graph: ContentGraph from fixture.
-        """
-        playbooks = list(content_graph.nodes(NodeType.PLAYBOOK))
-        assert playbooks, "No playbook nodes"
-        for node in playbooks:
-            assert node.ari_key, f"Playbook node {node.node_id} has no ari_key"
-
-    def test_ari_key_lookup_works(self, content_graph: ContentGraph) -> None:
-        """get_node_by_ari_key should find at least one node.
-
-        Args:
-            content_graph: ContentGraph from fixture.
-        """
-        found = False
-        for node in content_graph.nodes():
-            if node.ari_key and content_graph.get_node_by_ari_key(node.ari_key) is not None:
-                found = True
-                break
-        assert found, "No ARI key lookup returned a node"
+# TestARIKeyCrossReference removed: ari_key has been removed from ContentNode.
 
 
 # ---------------------------------------------------------------------------

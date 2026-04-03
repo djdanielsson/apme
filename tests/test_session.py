@@ -560,170 +560,11 @@ class TestSessionReplayState:
         assert "result" in types
 
 
-class TestSessionNodeIndexWiring:
-    """Verify _session_process wires NodeIndex from hierarchy payload."""
-
-    async def test_scan_fn_sets_node_index_on_engine(self) -> None:
-        """scan_fn captures hierarchy_payload and calls engine.set_node_index().
-
-        Mocks _scan_pipeline to return a hierarchy payload and verifies that
-        RemediationEngine.set_node_index is called with a populated NodeIndex.
-        """
-        from unittest.mock import MagicMock
-
-        from apme_engine.daemon.primary_server import PrimaryServicer
-        from apme_engine.engine.node_index import NodeIndex
-        from apme_engine.remediation.engine import RemediationEngine
-
-        servicer = PrimaryServicer.__new__(PrimaryServicer)
-
-        hierarchy_payload: dict[str, object] = {
-            "hierarchy": [
-                {
-                    "nodes": [
-                        {"key": "task0", "type": "taskcall", "file": "play.yml", "line": [1, 3]},
-                        {"key": "task1", "type": "taskcall", "file": "play.yml", "line": [5, 7]},
-                    ],
-                },
-            ],
-        }
-
-        async def fake_scan_pipeline(
-            temp_dir: object,
-            files: object,
-            scan_id: object,
-            **kwargs: object,
-        ) -> tuple[list[object], None, str, list[object], dict[str, object], None, list[str], set[str], set[str], None]:
-            return [], None, "sid", [], hierarchy_payload, None, [], set(), set(), None
-
-        servicer._scan_pipeline = fake_scan_pipeline  # type: ignore[assignment]
-
-        session = SessionState(session_id="test-ni")
-        session.working_files = {"play.yml": b"- name: test\n  debug:\n    msg: hi\n"}
-        session.original_files = dict(session.working_files)
-        session.fix_options = MagicMock()
-        session.fix_options.ansible_core_version = ""
-        session.fix_options.collection_specs = []
-        session.fix_options.session_id = ""
-        session.fix_options.max_passes = 1
-        session.fix_options.enable_ai = False
-        session.fix_options.ai_model = ""
-        session.scan_options = None
-
-        captured_node_index: list[NodeIndex | None] = [None]
-
-        def fake_remediate(engine_self: RemediationEngine, file_paths: list[str], apply: bool = True) -> MagicMock:
-            engine_self._scan_fn(file_paths)
-            return MagicMock(applied_patches=[], ai_proposed=[], remaining=[])
-
-        with (
-            patch.object(PrimaryServicer, "_format_files", return_value=[]),
-            patch.object(
-                RemediationEngine,
-                "remediate",
-                fake_remediate,
-            ),
-            patch.object(
-                RemediationEngine,
-                "set_node_index",
-                side_effect=lambda ni: captured_node_index.__setitem__(0, ni),
-            ) as mock_set_ni,
-        ):
-            async for _ in servicer._session_process(session, "scan-1"):
-                pass
-
-            assert mock_set_ni.called, "set_node_index was never called"
-            ni = captured_node_index[0]
-            assert ni is not None
-            assert len(ni) == 2
-            assert ni.get("task0") is not None
-            assert ni.get("task1") is not None
-
-
-class TestSessionProgressStreaming:
-    """Verify _session_process yields progress events during remediation."""
-
-    async def test_progress_events_during_remediation(self) -> None:
-        """Progress events from the engine drain loop appear in the stream.
-
-        Mocks _scan_pipeline and RemediationEngine.remediate so the
-        convergence loop produces progress callbacks which should be
-        yielded as SessionEvent(progress=...) through the drain loop.
-        """
-        from unittest.mock import MagicMock
-
-        from apme_engine.daemon.primary_server import PrimaryServicer
-        from apme_engine.remediation.engine import RemediationEngine
-
-        servicer = PrimaryServicer.__new__(PrimaryServicer)
-
-        async def fake_scan_pipeline(
-            temp_dir: object,
-            files: object,
-            scan_id: object,
-            **kwargs: object,
-        ) -> tuple[list[object], None, str, list[object], None, None, list[str], set[str], set[str], None]:
-            return [], None, "sid", [], None, None, [], set(), set(), None
-
-        servicer._scan_pipeline = fake_scan_pipeline  # type: ignore[assignment]
-
-        session = SessionState(session_id="test-prog")
-        session.working_files = {"play.yml": b"- name: test\n  debug:\n    msg: hi\n"}
-        session.original_files = dict(session.working_files)
-        session.fix_options = MagicMock()
-        session.fix_options.ansible_core_version = ""
-        session.fix_options.collection_specs = []
-        session.fix_options.session_id = ""
-        session.fix_options.max_passes = 1
-        session.fix_options.enable_ai = False
-        session.fix_options.ai_model = ""
-        session.scan_options = None
-
-        def fake_remediate(
-            engine_self: RemediationEngine,
-            file_paths: list[str],
-            **kwargs: object,
-        ) -> MagicMock:
-            engine_self._progress("tier1", "Pass 1/1: scanning...", 0.0)
-            engine_self._progress("tier1", "Pass 1: 3 fixable violations", 0.0)
-            engine_self._progress("tier1", "Pass 1: 3 transforms applied", 0.0)
-            engine_self._progress("tier1", "Converged at pass 1 (0 fixable)", 1.0)
-            return MagicMock(
-                applied_patches=[],
-                ai_proposed=[],
-                remaining_ai=[],
-                remaining_manual=[],
-                passes=1,
-                fixed=3,
-                oscillation_detected=False,
-            )
-
-        with (
-            patch.object(PrimaryServicer, "_format_files", return_value=[]),
-            patch.object(RemediationEngine, "remediate", fake_remediate),
-        ):
-            events: list[SessionEvent] = []
-            async for event in servicer._session_process(session, "scan-1"):
-                events.append(event)
-
-        progress_events = [e for e in events if e.HasField("progress")]
-        progress_msgs = [e.progress.message for e in progress_events]
-
-        assert any("Pass 1" in m for m in progress_msgs), (
-            f"Expected 'Pass 1' progress from drain loop, got: {progress_msgs}"
-        )
-        assert any("scanning" in m for m in progress_msgs), f"Expected 'scanning' progress, got: {progress_msgs}"
-        assert any("transforms applied" in m for m in progress_msgs), (
-            f"Expected 'transforms applied' progress, got: {progress_msgs}"
-        )
-
-
 class TestSessionGraphRemediate:
-    """Tests for _session_graph_remediate (graph engine remediation path, PR 4).
+    """Tests for _session_graph_remediate (graph engine remediation path).
 
-    Exercises the ``APME_USE_GRAPH_ENGINE=1`` code path that runs
-    ``GraphRemediationEngine`` in-memory, splices results to disk,
-    and performs a final full-pipeline scan.
+    Exercises ``GraphRemediationEngine`` in-memory convergence, splicing
+    results to disk, and graph-authoritative reporting of remaining violations.
     """
 
     async def test_happy_path_produces_patches_and_events(self, tmp_path: Path) -> None:
@@ -736,7 +577,7 @@ class TestSessionGraphRemediate:
 
         from apme_engine.daemon.primary_server import PrimaryServicer
         from apme_engine.engine.content_graph import ContentGraph, ContentNode, NodeIdentity, NodeType
-        from apme_engine.remediation.engine import FilePatch as EngineFilePatch
+        from apme_engine.remediation.graph_engine import FilePatch as EngineFilePatch
         from apme_engine.remediation.graph_engine import GraphFixReport
 
         servicer = PrimaryServicer.__new__(PrimaryServicer)
@@ -790,7 +631,6 @@ class TestSessionGraphRemediate:
             patch("apme_engine.remediation.graph_engine.GraphRemediationEngine") as MockGRE,
             patch("apme_engine.remediation.graph_engine.splice_modifications", return_value=mock_patches),
             patch("apme_engine.remediation.partition.add_classification_to_violations"),
-            patch("apme_engine.remediation.partition.partition_violations", return_value=([], [], [])),
         ):
             MockGRE.return_value.remediate = AsyncMock(return_value=mock_report)
 
@@ -812,7 +652,7 @@ class TestSessionGraphRemediate:
             ):
                 events.append(event)
 
-        assert call_count[0] == 2, f"scan_fn should be called twice (initial + final), got {call_count[0]}"
+        assert call_count[0] == 1, f"scan_fn should be called once (initial only, no final scan), got {call_count[0]}"
 
         # Verify the validator bridge (rescan_fn) was wired into the engine
         _, gre_kwargs = MockGRE.call_args
@@ -875,7 +715,6 @@ class TestSessionGraphRemediate:
             patch("apme_engine.remediation.graph_engine.GraphRemediationEngine") as MockGRE,
             patch("apme_engine.remediation.graph_engine.splice_modifications", return_value=[]),
             patch("apme_engine.remediation.partition.add_classification_to_violations"),
-            patch("apme_engine.remediation.partition.partition_violations", return_value=([], [], [])),
         ):
             MockGRE.return_value.remediate = AsyncMock(return_value=GraphFixReport(passes=1, fixed=0))
 
@@ -933,7 +772,6 @@ class TestSessionGraphRemediate:
             patch("apme_engine.remediation.graph_engine.GraphRemediationEngine") as MockGRE,
             patch("apme_engine.remediation.graph_engine.splice_modifications", return_value=[]),
             patch("apme_engine.remediation.partition.add_classification_to_violations"),
-            patch("apme_engine.remediation.partition.partition_violations", return_value=([], [], [])),
         ):
             MockGRE.return_value.remediate = AsyncMock(return_value=GraphFixReport(passes=1, fixed=0))
 
@@ -958,8 +796,11 @@ class TestSessionGraphRemediate:
         assert session.status == 3
         MockGRE.assert_called_once()
 
-    async def test_remaining_violations_partitioned(self, tmp_path: Path) -> None:
-        """Remaining violations from final scan are split into AI and manual.
+    async def test_remaining_violations_from_graph(self, tmp_path: Path) -> None:
+        """Remaining violations come from graph_report, not a final scan.
+
+        All remaining violations are stored in session.remaining_ai.
+        Classification counts come from count_by_remediation_class.
 
         Args:
             tmp_path: Pytest temporary directory fixture.
@@ -979,29 +820,29 @@ class TestSessionGraphRemediate:
         session.working_files = {"play.yml": play_file.read_bytes()}
         session.original_files = dict(session.working_files)
 
-        ai_violations: list[ViolationDict] = [
+        remaining: list[ViolationDict] = [
             {"rule_id": "L042", "message": "Complex fix needed", "file": "play.yml", "line": 1},
-        ]
-        manual_violations: list[ViolationDict] = [
             {"rule_id": "L099", "message": "Manual review needed", "file": "play.yml", "line": 1},
         ]
 
         progress_queue: asyncio.Queue[ProgressUpdate | None] = asyncio.Queue()
 
         async def async_scan_fn_part(_paths: list[str]) -> list[ViolationDict]:
-            return ai_violations + manual_violations
+            return remaining
+
+        mock_report = GraphFixReport(
+            passes=1,
+            fixed=0,
+            remaining_violations=remaining,
+        )
 
         with (
             patch("apme_engine.engine.graph_scanner.load_graph_rules", return_value=[]),
             patch("apme_engine.remediation.graph_engine.GraphRemediationEngine") as MockGRE,
             patch("apme_engine.remediation.graph_engine.splice_modifications", return_value=[]),
             patch("apme_engine.remediation.partition.add_classification_to_violations"),
-            patch(
-                "apme_engine.remediation.partition.partition_violations",
-                return_value=([], ai_violations, manual_violations),
-            ),
         ):
-            MockGRE.return_value.remediate = AsyncMock(return_value=GraphFixReport(passes=1, fixed=0))
+            MockGRE.return_value.remediate = AsyncMock(return_value=mock_report)
 
             events: list[SessionEvent] = []
             async for event in servicer._session_graph_remediate(
@@ -1021,11 +862,11 @@ class TestSessionGraphRemediate:
             ):
                 events.append(event)
 
-        assert session.remaining_ai == ai_violations
-        assert session.remaining_manual == manual_violations
+        assert session.remaining_ai == remaining
+        assert session.remaining_manual == []
         assert session.report is not None
-        assert session.report.remaining_ai == 1
-        assert session.report.remaining_manual == 1
+        assert session.report.remaining_ai == 2
+        assert session.report.remaining_manual == 0
 
     async def test_skips_tier2_ai(self, tmp_path: Path) -> None:
         """Graph path goes directly to COMPLETE — no Tier 2 proposals.
@@ -1058,7 +899,6 @@ class TestSessionGraphRemediate:
             patch("apme_engine.remediation.graph_engine.GraphRemediationEngine") as MockGRE,
             patch("apme_engine.remediation.graph_engine.splice_modifications", return_value=[]),
             patch("apme_engine.remediation.partition.add_classification_to_violations"),
-            patch("apme_engine.remediation.partition.partition_violations", return_value=([], [], [])),
         ):
             MockGRE.return_value.remediate = AsyncMock(return_value=GraphFixReport(passes=1, fixed=0))
 
@@ -1103,7 +943,7 @@ class TestSessionRescanBridge:
 
         from apme_engine.daemon.primary_server import PrimaryServicer
         from apme_engine.engine.content_graph import ContentGraph, ContentNode, NodeIdentity, NodeType
-        from apme_engine.remediation.engine import FilePatch as EngineFilePatch
+        from apme_engine.remediation.graph_engine import FilePatch as EngineFilePatch
         from apme_engine.remediation.graph_engine import GraphFixReport
 
         servicer = PrimaryServicer.__new__(PrimaryServicer)
@@ -1163,7 +1003,6 @@ class TestSessionRescanBridge:
             ),
             patch("apme_engine.remediation.graph_engine.splice_modifications", return_value=mock_patches),
             patch("apme_engine.remediation.partition.add_classification_to_violations"),
-            patch("apme_engine.remediation.partition.partition_violations", return_value=([], [], [])),
         ):
             events: list[SessionEvent] = []
             async for event in servicer._session_graph_remediate(
@@ -1223,7 +1062,6 @@ class TestSessionRescanBridge:
             patch("apme_engine.remediation.graph_engine.GraphRemediationEngine") as MockGRE,
             patch("apme_engine.remediation.graph_engine.splice_modifications", return_value=[]),
             patch("apme_engine.remediation.partition.add_classification_to_violations"),
-            patch("apme_engine.remediation.partition.partition_violations", return_value=([], [], [])),
         ):
             MockGRE.return_value.remediate = AsyncMock(return_value=GraphFixReport())
 

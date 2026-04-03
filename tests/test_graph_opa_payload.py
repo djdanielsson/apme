@@ -27,7 +27,6 @@ def _make_minimal_graph() -> ContentGraph:
         identity=NodeIdentity(path="site.yml", node_type=NodeType.PLAYBOOK),
         file_path="site.yml",
         name="site",
-        ari_key="playbook playbook:site.yml",
     )
     g.add_node(pb)
 
@@ -38,7 +37,6 @@ def _make_minimal_graph() -> ContentGraph:
         line_end=25,
         name="Install web",
         become={"become": True, "become_user": "root"},
-        ari_key="play playbook:site.yml#play:[0]",
     )
     g.add_node(play)
     g.add_edge("site.yml", "site.yml/plays[0]", EdgeType.CONTAINS)
@@ -52,7 +50,6 @@ def _make_minimal_graph() -> ContentGraph:
         module="ansible.builtin.package",
         module_options={"name": "nginx", "state": "present"},
         options={"when": "ansible_os_family == 'Debian'"},
-        ari_key="task playbook:site.yml#play:[0]#task:[0]",
     )
     g.add_node(task)
     g.add_edge("site.yml/plays[0]", "site.yml/plays[0]/tasks[0]", EdgeType.CONTAINS)
@@ -95,6 +92,30 @@ class TestContentNodeToOpaDict:
         topts = d["options"]
         assert isinstance(topts, dict)
         assert topts["when"] == "ansible_os_family == 'Debian'"
+
+    def test_key_is_node_id(self) -> None:
+        """Verify 'key' in OPA dict is always node_id (not ari_key)."""
+        g = _make_minimal_graph()
+
+        play = g.get_node("site.yml/plays[0]")
+        assert play is not None
+        d = content_node_to_opa_dict(play)
+        assert d["key"] == "site.yml/plays[0]"
+
+        task = g.get_node("site.yml/plays[0]/tasks[0]")
+        assert task is not None
+        d = content_node_to_opa_dict(task)
+        assert d["key"] == "site.yml/plays[0]/tasks[0]"
+
+    def test_hierarchy_root_key_is_node_id(self) -> None:
+        """Verify hierarchy root_key uses node_id."""
+        g = _make_minimal_graph()
+        payload = build_hierarchy_from_graph(g, scan_type="playbook", scan_name="site")
+        hierarchy = payload["hierarchy"]
+        assert isinstance(hierarchy, list) and len(hierarchy) > 0
+        tree = hierarchy[0]
+        assert isinstance(tree, dict)
+        assert tree["root_key"] == "site.yml"
 
     def test_vars_file_returns_empty(self) -> None:
         """Verify VARS_FILE nodes yield an empty dict."""

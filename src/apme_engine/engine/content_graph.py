@@ -14,6 +14,7 @@ Public API
 
 from __future__ import annotations
 
+import difflib
 import hashlib
 import inspect
 import os
@@ -201,6 +202,9 @@ class NodeState:
         yaml_lines: Raw YAML text for this node at this point in time.
         content_hash: SHA-256 hex digest of ``yaml_lines``.
         violations: Rule IDs of violations active at this state.
+        violation_dicts: Full violation details at this state.  The
+            graph is authoritative: after convergence these are the
+            remaining violations, not a re-scan result.
         timestamp: ISO 8601 UTC timestamp when the snapshot was taken.
         approved: Whether this entry has been approved.  All entries
             start pending (``False``).  Deterministic transforms are
@@ -217,6 +221,7 @@ class NodeState:
     yaml_lines: str
     content_hash: str
     violations: tuple[str, ...]
+    violation_dicts: tuple[ViolationDict, ...]
     timestamp: str
     approved: bool = False
     source: str = ""
@@ -232,6 +237,51 @@ def _content_hash(text: str) -> str:
         Hex digest string.
     """
     return hashlib.sha256(text.encode()).hexdigest()
+
+
+def _detect_indent(text: str) -> int:
+    """Count leading spaces on the first non-blank line.
+
+    Args:
+        text: YAML text fragment.
+
+    Returns:
+        Number of leading spaces (0 for root-level content).
+    """
+    for line in text.splitlines():
+        stripped = line.lstrip()
+        if stripped:
+            return len(line) - len(stripped)
+    return 0
+
+
+def _reindent(text: str, target: int) -> str:
+    """Shift every line so the first content line starts at *target* spaces.
+
+    Blank lines are passed through unchanged.
+
+    Args:
+        text: YAML text to re-indent.
+        target: Desired leading-space count for the first content line.
+
+    Returns:
+        Re-indented text.
+    """
+    current = _detect_indent(text)
+    delta = target - current
+    if delta == 0:
+        return text
+    lines = text.splitlines(keepends=True)
+    result: list[str] = []
+    for line in lines:
+        if not line.strip():
+            result.append(line)
+        elif delta > 0:
+            result.append(" " * delta + line)
+        else:
+            remove = min(-delta, len(line) - len(line.lstrip()))
+            result.append(line[remove:])
+    return "".join(result)
 
 
 # ---------------------------------------------------------------------------
@@ -272,6 +322,7 @@ class ContentNode:
         failed_when: failed_when expression.
         delegate_to: delegate_to target string.
         yaml_lines: Raw YAML source fragment for this node's span.
+        indent_depth: Leading spaces on the first content line of ``yaml_lines``.
         role_fqcn: Role FQCN when this node is role-related.
         default_variables: Role defaults mapping.
         role_variables: Role vars mapping.
@@ -284,7 +335,6 @@ class ContentNode:
         module_line_count: Line count of the plugin ``.py`` file (MODULE nodes).
         module_functions_without_return_type: Function names lacking ``-> type``
             return annotations (MODULE nodes).
-        ari_key: Legacy ARI object key for cross-checks.
         annotations: Annotator payloads (risk, module hints, etc.).
         scope: Owned vs referenced content classification.
         state: Current ``NodeState`` snapshot (most recent entry in progression).
@@ -326,6 +376,7 @@ class ContentNode:
 
     # Raw YAML source
     yaml_lines: str = ""
+    indent_depth: int = 0
 
     # Role metadata
     role_fqcn: str = ""
@@ -343,9 +394,6 @@ class ContentNode:
     # Module / plugin metadata (MODULE nodes)
     module_line_count: int = 0
     module_functions_without_return_type: list[str] = field(default_factory=list)
-
-    # ARI cross-reference (populated during build for validation)
-    ari_key: str = ""
 
     # Annotations from risk/module annotators
     annotations: list[object] = field(default_factory=list)
@@ -374,6 +422,7 @@ class ContentNode:
         pass_number: int,
         phase: str,
         violations: tuple[str, ...] = (),
+        violation_dicts: tuple[ViolationDict, ...] = (),
         source: str = "",
     ) -> NodeState:
         """Record a progression snapshot at the current pipeline phase.
@@ -390,6 +439,7 @@ class ContentNode:
             phase: Pipeline phase (``"original"``, ``"scanned"``,
                 ``"transformed"``, ``"ai_transformed"``).
             violations: Rule IDs of violations active at this state.
+            violation_dicts: Full violation details at this state.
             source: How the transform was produced (e.g.
                 ``"deterministic"``, ``"ai"``).  UI metadata only.
 
@@ -404,6 +454,7 @@ class ContentNode:
             yaml_lines=self.yaml_lines,
             content_hash=_content_hash(self.yaml_lines),
             violations=violations,
+            violation_dicts=violation_dicts,
             timestamp=datetime.now(timezone.utc).isoformat(),
             source=source,
         )
@@ -450,7 +501,6 @@ class ContentGraph:
     def __init__(self) -> None:
         """Initialize an empty content graph."""
         self.g: nx.MultiDiGraph = nx.MultiDiGraph()
-        self._nodes_by_ari_key: dict[str, str] = {}
         self._dirty_nodes: set[str] = set()
 
     # -- Serialization (ADR-044 Phase 2 switchover) -------------------------
@@ -521,8 +571,6 @@ class ContentGraph:
                 nid = str(raw_node["id"])
                 node = _node_from_dict(cast(dict[str, object], raw_node["data"]))
                 graph.g.add_node(nid, node=node)
-                if node.ari_key:
-                    graph._nodes_by_ari_key[node.ari_key] = nid
 
             for raw_edge in cast(list[dict[str, object]], d["edges"]):
                 src = str(raw_edge["source"])
@@ -544,12 +592,10 @@ class ContentGraph:
         """Add a node to the graph.
 
         Args:
-            node: The content node to register (indexed by ``node_id`` and optional ``ari_key``).
+            node: The content node to register (indexed by ``node_id``).
         """
         nid = node.node_id
         self.g.add_node(nid, node=node)
-        if node.ari_key:
-            self._nodes_by_ari_key[node.ari_key] = nid
 
     def get_node(self, node_id: str) -> ContentNode | None:
         """Return the ContentNode for a given node_id, or None.
@@ -564,20 +610,6 @@ class ContentGraph:
         if data is None:
             return None
         return cast(ContentNode, data.get("node"))
-
-    def get_node_by_ari_key(self, ari_key: str) -> ContentNode | None:
-        """Lookup by ARI key (for validation against old pipeline).
-
-        Args:
-            ari_key: ARI object key from the legacy scan pipeline.
-
-        Returns:
-            The matching ``ContentNode``, or ``None`` if not indexed.
-        """
-        nid = self._nodes_by_ari_key.get(ari_key)
-        if nid is None:
-            return None
-        return self.get_node(nid)
 
     def nodes(self, node_type: NodeType | None = None) -> Iterator[ContentNode]:
         """Iterate over all nodes, optionally filtered by type.
@@ -618,6 +650,74 @@ class ContentGraph:
     def clear_dirty(self) -> None:
         """Reset the dirty-node set (called after a convergence pass)."""
         self._dirty_nodes.clear()
+
+    def collect_violations(self) -> list[ViolationDict]:
+        """Collect all remaining violations from the graph.
+
+        Iterates every node and gathers ``violation_dicts`` from each
+        node's latest ``state``.  After convergence, this is the
+        authoritative violation picture — no re-scan needed.
+
+        Returns:
+            Combined list of ``ViolationDict`` from all nodes.
+        """
+        result: list[ViolationDict] = []
+        for node in self.nodes():
+            if node.state and node.state.violation_dicts:
+                result.extend(node.state.violation_dicts)
+        return result
+
+    def collect_step_diffs(self) -> list[dict[str, object]]:
+        """Collect per-step diffs from every node's progression.
+
+        Walks each node's progression and produces a diff record for
+        each consecutive pair where ``content_hash`` changed.  Each
+        record captures what the transform did and which violations
+        appeared/disappeared.
+
+        Violation deltas use the nearest subsequent ``scanned`` snapshot
+        (post-rescan) rather than the ``transformed`` snapshot, which is
+        recorded before the rescan and typically has empty violations.
+
+        Returns:
+            List of step-diff records, each with ``node_id``,
+            ``pass_number``, ``phase``, ``diff``, ``violations_added``,
+            ``violations_removed``, and ``source``.
+        """
+        steps: list[dict[str, object]] = []
+        for node in self.nodes():
+            prog = node.progression
+            for i in range(1, len(prog)):
+                prev, curr = prog[i - 1], prog[i]
+                if prev.content_hash == curr.content_hash:
+                    continue
+                diff = "".join(
+                    difflib.unified_diff(
+                        prev.yaml_lines.splitlines(keepends=True),
+                        curr.yaml_lines.splitlines(keepends=True),
+                        fromfile=f"pass{prev.pass_number}/{node.node_id}",
+                        tofile=f"pass{curr.pass_number}/{node.node_id}",
+                    )
+                )
+                prev_rules = set(prev.violations)
+                post_rules = set(curr.violations)
+                if not post_rules and curr.phase == "transformed":
+                    for j in range(i + 1, len(prog)):
+                        if prog[j].phase == "scanned":
+                            post_rules = set(prog[j].violations)
+                            break
+                steps.append(
+                    {
+                        "node_id": node.node_id,
+                        "pass_number": curr.pass_number,
+                        "phase": curr.phase,
+                        "source": curr.source,
+                        "diff": diff,
+                        "violations_removed": sorted(prev_rules - post_rules),
+                        "violations_added": sorted(post_rules - prev_rules),
+                    }
+                )
+        return steps
 
     # -- Approval tracking (ADR-044 Phase 3) --------------------------------
 
@@ -768,6 +868,9 @@ class ContentGraph:
             return False
 
         new_text = yaml.dumps(wrapper_seq) if wrapper_seq is not None else yaml.dumps(task)
+
+        if node.indent_depth and _detect_indent(new_text) != node.indent_depth:
+            new_text = _reindent(new_text, node.indent_depth)
 
         node.update_from_yaml(new_text)
         self._dirty_nodes.add(node_id)
@@ -955,10 +1058,6 @@ class ContentGraph:
         sub = ContentGraph()
         ids = self.descendants(root_id) | {root_id}
         sub.g = self.g.subgraph(ids).copy()
-        for nid in ids:
-            node = self.get_node(nid)
-            if node and node.ari_key:
-                sub._nodes_by_ari_key[node.ari_key] = nid
         return sub
 
     def topological_order(self) -> list[str]:
@@ -1079,6 +1178,7 @@ _CONTENT_NODE_SIMPLE_FIELDS: tuple[str, ...] = (
     "failed_when",
     "delegate_to",
     "yaml_lines",
+    "indent_depth",
     "role_fqcn",
     "default_variables",
     "role_variables",
@@ -1090,7 +1190,6 @@ _CONTENT_NODE_SIMPLE_FIELDS: tuple[str, ...] = (
     "collection_files",
     "module_line_count",
     "module_functions_without_return_type",
-    "ari_key",
 )
 
 
@@ -1103,7 +1202,7 @@ def _node_state_to_dict(ns: NodeState) -> dict[str, object]:
     Returns:
         Plain dict with all NodeState fields.
     """
-    return {
+    d: dict[str, object] = {
         "id": ns.id,
         "pass_number": ns.pass_number,
         "phase": ns.phase,
@@ -1114,6 +1213,9 @@ def _node_state_to_dict(ns: NodeState) -> dict[str, object]:
         "approved": ns.approved,
         "source": ns.source,
     }
+    if ns.violation_dicts:
+        d["violation_dicts"] = list(ns.violation_dicts)
+    return d
 
 
 def _node_state_from_dict(d: dict[str, object]) -> NodeState:
@@ -1126,7 +1228,9 @@ def _node_state_from_dict(d: dict[str, object]) -> NodeState:
         Reconstructed frozen NodeState.
     """
     violations_raw = d.get("violations", ())
-    violations = tuple(str(v) for v in violations_raw) if isinstance(violations_raw, list | tuple) else ()
+    violations = tuple(str(v) for v in violations_raw) if isinstance(violations_raw, (list, tuple)) else ()
+    vdicts_raw = d.get("violation_dicts", ())
+    vdicts = tuple(vdicts_raw) if isinstance(vdicts_raw, (list, tuple)) else ()
     return NodeState(
         id=str(d.get("id", "")),
         pass_number=int(cast(int, d.get("pass_number", 0))),
@@ -1134,6 +1238,7 @@ def _node_state_from_dict(d: dict[str, object]) -> NodeState:
         yaml_lines=str(d.get("yaml_lines", "")),
         content_hash=str(d.get("content_hash", "")),
         violations=violations,
+        violation_dicts=vdicts,
         timestamp=str(d.get("timestamp", "")),
         approved=bool(d.get("approved", False)),
         source=str(d.get("source", "")),
@@ -1436,7 +1541,6 @@ class GraphBuilder:
             collection_metadata=metadata,
             collection_meta_runtime=meta_runtime,
             collection_files=collection_files,
-            ari_key=coll.key,
             scope=scope,
         )
         self._graph.add_node(node)
@@ -1493,7 +1597,6 @@ class GraphBuilder:
             name=mod_name or None,
             module_line_count=line_count,
             module_functions_without_return_type=funcs_missing_return,
-            ari_key=mod.key,
             scope=scope,
         )
         self._graph.add_node(node)
@@ -1527,7 +1630,6 @@ class GraphBuilder:
             name=getattr(pb, "name", "") or os.path.basename(file_path),
             variables=_safe_dict(getattr(pb, "variables", {})),
             options=_safe_dict(getattr(pb, "options", {})),
-            ari_key=pb.key,
             scope=scope,
         )
         self._graph.add_node(node)
@@ -1642,7 +1744,6 @@ class GraphBuilder:
             environment=environment,
             no_log=no_log,
             ignore_errors=ignore_errors,
-            ari_key=play.key,
             scope=scope,
         )
         self._graph.add_node(node)
@@ -1800,8 +1901,8 @@ class GraphBuilder:
             changed_when=options.get("changed_when"),
             failed_when=options.get("failed_when"),
             yaml_lines=getattr(task, "yaml_lines", "") or "",
+            indent_depth=_detect_indent(getattr(task, "yaml_lines", "") or ""),
             delegate_to=delegate_to,
-            ari_key=task.key,
             scope=scope,
         )
         self._graph.add_node(node)
@@ -1891,7 +1992,7 @@ class GraphBuilder:
             notify=_as_str_list(options.get("notify")),
             listen=_as_str_list(options.get("listen")),
             yaml_lines=getattr(task, "yaml_lines", "") or "",
-            ari_key=task.key,
+            indent_depth=_detect_indent(getattr(task, "yaml_lines", "") or ""),
             scope=scope,
         )
         self._graph.add_node(node)
@@ -1992,7 +2093,6 @@ class GraphBuilder:
             default_variables=_safe_dict(getattr(role, "default_variables", {})),
             role_variables=_safe_dict(getattr(role, "variables", {})),
             role_metadata=role_metadata,
-            ari_key=role.key,
             scope=scope,
         )
         self._graph.add_node(node)
@@ -2090,7 +2190,6 @@ class GraphBuilder:
             file_path=defined_in,
             name=os.path.basename(defined_in) if defined_in else "",
             variables=_safe_dict(getattr(tf, "variables", {})),
-            ari_key=tf.key,
             scope=scope,
         )
         self._graph.add_node(node)

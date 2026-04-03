@@ -7,6 +7,7 @@ review (or --auto-approve), and writes patched files on completion.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import queue
 import sys
@@ -22,6 +23,7 @@ from apme.v1.primary_pb2 import (
     CloseRequest,
     ExtendRequest,
     FixOptions,
+    FixReport,
     Proposal,
     ScanChunk,
     SessionCommand,
@@ -32,6 +34,8 @@ from apme_engine.cli._rules_yml import load_rule_configs_from_project
 from apme_engine.cli.ansi import dim, red, yellow
 from apme_engine.cli.discovery import resolve_primary
 from apme_engine.daemon.chunked_fs import yield_scan_chunks
+from apme_engine.daemon.violation_convert import violation_proto_to_dict
+from apme_engine.engine.models import ViolationDict
 
 
 def run_remediate(args: argparse.Namespace) -> None:
@@ -114,6 +118,11 @@ def run_remediate(args: argparse.Namespace) -> None:
     channel, _ = resolve_primary(args)
     stub = primary_pb2_grpc.PrimaryStub(channel)  # type: ignore[no-untyped-call]
 
+    use_json = getattr(args, "json", False)
+    tier1_report: FixReport | None = None
+    result_violations: list[ViolationDict] = []
+    result_patches: list[object] = []
+
     try:
         responses = stub.FixSession(command_iter(), timeout=600)
 
@@ -136,7 +145,9 @@ def run_remediate(args: argparse.Namespace) -> None:
 
             elif oneof == "tier1_complete":
                 summary = event.tier1_complete
-                _render_tier1(summary)
+                tier1_report = summary.report if summary.HasField("report") else FixReport()
+                if not use_json:
+                    _render_tier1(summary)
 
             elif oneof == "proposals":
                 proposals = list(event.proposals.proposals)
@@ -160,8 +171,13 @@ def run_remediate(args: argparse.Namespace) -> None:
 
             elif oneof == "result":
                 result = event.result
-                _write_patches(target, result.patches)
-                _render_remaining(result)
+                result_violations = [violation_proto_to_dict(v) for v in result.remaining_violations]
+                result_patches = list(result.patches)
+                if not use_json:
+                    _write_patches(target, result.patches)
+                    _render_remaining(result)
+                else:
+                    _write_patches(target, result.patches)
                 cmd_queue.put(SessionCommand(close=CloseRequest()))
 
             elif oneof == "expiring":
@@ -172,17 +188,7 @@ def run_remediate(args: argparse.Namespace) -> None:
 
             elif oneof == "data":
                 payload = event.data
-                if getattr(args, "json", False):
-                    import json
-
-                    from google.protobuf.json_format import MessageToDict
-
-                    json.dump(
-                        {"kind": payload.kind, "data": MessageToDict(payload.data)},
-                        sys.stdout,
-                    )
-                    sys.stdout.write("\n")
-                else:
+                if not use_json:
                     sys.stderr.write(f"  [{payload.kind}]\n")
 
             elif oneof == "closed":
@@ -194,6 +200,48 @@ def run_remediate(args: argparse.Namespace) -> None:
     finally:
         cmd_queue.put(None)
         channel.close()
+
+    if use_json:
+        _emit_json(result_violations, result_patches, tier1_report)
+
+
+def _emit_json(
+    violations: list[ViolationDict],
+    patches: list[object],
+    report: FixReport | None,
+) -> None:
+    """Write structured JSON to stdout.
+
+    Args:
+        violations: Remaining violations as dicts.
+        patches: Applied patches (proto objects).
+        report: Tier 1 remediation report.
+    """
+    from apme_engine.cli.output import deduplicate_violations, sort_violations
+    from apme_engine.remediation.partition import count_by_remediation_class, count_by_resolution
+
+    violations = deduplicate_violations(sort_violations(violations))
+    rem_counts = count_by_remediation_class(violations)
+    res_counts = count_by_resolution(violations)
+    diffs = [
+        {"path": p.path, "diff": p.diff}  # type: ignore[attr-defined]
+        for p in patches
+        if getattr(p, "diff", "")
+    ]
+    fixable = int(report.fixed) if report else 0
+    out: dict[str, object] = {
+        "violations": violations,
+        "count": len(violations),
+        "remediation_summary": {
+            "auto_fixable": fixable,
+            "ai_candidate": rem_counts.get("ai-candidate", 0),
+            "manual_review": rem_counts.get("manual-review", 0),
+        },
+        "resolution_summary": dict(res_counts),
+        "diffs": diffs,
+        "files_updated": sum(1 for _ in patches),
+    }
+    print(json.dumps(out, indent=2))
 
 
 def _render_tier1(summary: object) -> None:

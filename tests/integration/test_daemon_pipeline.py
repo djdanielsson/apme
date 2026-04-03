@@ -186,16 +186,18 @@ def test_milestone_logs_displayed(scan_verbose: subprocess.CompletedProcess[str]
 
 
 @pytest.mark.integration  # type: ignore[untyped-decorator]
-def test_posix_argspec_violation(scan_data: YAMLDict, scan_stderr: str) -> None:
+def test_posix_argspec_violation(scan_data: YAMLDict) -> None:
     """L058/L059 fires for ansible.posix.sysctl with bogus_param (ADR-032 proof).
 
     ``ansible.posix`` is intentionally omitted from ``requirements.yml``.
     This can only fire if the collection was auto-discovered from FQCNs
     and installed by the daemon's collection cache.
 
+    With graph-authoritative violations, tier1 violations are no longer
+    dropped — L058/L059 should always appear in the final output.
+
     Args:
         scan_data: Parsed scan result.
-        scan_stderr: Stderr log output from scan.
     """
     violations = cast(list[ViolationDict], scan_data.get("violations", []))
     posix_violations = [v for v in violations if "ansible.posix.sysctl" in str(v.get("message", ""))]
@@ -205,8 +207,99 @@ def test_posix_argspec_violation(scan_data: YAMLDict, scan_stderr: str) -> None:
         "Expected L058/L059 for ansible.posix.sysctl bogus_param — "
         "auto-discovery may not have installed the collection.\n"
         f"All rule_ids: {sorted({str(v.get('rule_id', '')) for v in violations})}\n"
-        f"scan_data keys: {sorted(scan_data.keys())}\n"
-        f"Full stderr ({len(scan_stderr)} chars):\n{scan_stderr[-6000:]}"
+        f"scan_data keys: {sorted(scan_data.keys())}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Idempotency: remediate twice → same violations, zero fixes on second pass
+# ---------------------------------------------------------------------------
+
+
+def _remediate_json(fixture_dir: Path) -> YAMLDict:
+    """Run ``apme remediate --json`` on the given directory.
+
+    Args:
+        fixture_dir: Path to the Ansible project to remediate.
+
+    Returns:
+        Parsed JSON dict from stdout.
+    """
+    r = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "apme_engine.cli",
+            "remediate",
+            "--json",
+            "-v",
+            "--session",
+            f"idempotent-{time.monotonic_ns()}",
+            str(fixture_dir),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert r.returncode == 0, f"Remediate exited {r.returncode}:\nstdout: {r.stdout[:2000]}\nstderr: {r.stderr[:4000]}"
+    try:
+        return cast(YAMLDict, json.loads(r.stdout))
+    except json.JSONDecodeError:
+        pytest.fail(f"Remediate output not valid JSON:\n{r.stdout[:2000]}\nstderr: {r.stderr[:4000]}")
+        return {}  # unreachable
+
+
+@pytest.mark.integration  # type: ignore[untyped-decorator]
+def test_remediation_idempotent(infrastructure: object, tmp_path: Path) -> None:
+    """Remediate twice — second pass finds same violations with zero fixes.
+
+    Proves the ContentGraph is authoritative: what it said remained after
+    convergence actually remains when the patched files are re-scanned.
+
+    1. Copy terrible-playbook to a temp directory.
+    2. Run ``apme remediate --json`` — capture violations and fix count.
+    3. Run ``apme remediate --json`` again on the (now patched) directory.
+    4. Assert: second pass has zero fixes.
+    5. Assert: second pass reports the same remaining violations.
+
+    Args:
+        infrastructure: Daemon infrastructure fixture (ensures daemon is up).
+        tmp_path: Pytest temporary directory.
+    """
+    import shutil
+
+    work_dir = tmp_path / "terrible-playbook"
+    shutil.copytree(FIXTURE_DIR, work_dir)
+
+    pass1 = _remediate_json(work_dir)
+    pass1_summary = cast(dict[str, int], pass1.get("remediation_summary", {}))
+    pass1_fixed = pass1_summary.get("auto_fixable", 0)
+
+    assert pass1_fixed > 0, (
+        "First remediate pass should fix at least one violation — terrible-playbook has many auto-fixable issues"
+    )
+
+    pass2 = _remediate_json(work_dir)
+    pass2_violations = cast(list[ViolationDict], pass2.get("violations", []))
+    pass2_summary = cast(dict[str, int], pass2.get("remediation_summary", {}))
+    pass2_fixed = pass2_summary.get("auto_fixable", 0)
+    pass2_rule_ids = sorted(str(v.get("rule_id", "")) for v in pass2_violations)
+
+    assert pass2_fixed == 0, f"Second remediate pass should fix zero violations (idempotent), but fixed {pass2_fixed}."
+    assert pass2_violations, "Second pass should still report remaining unfixable violations"
+
+    pass3 = _remediate_json(work_dir)
+    pass3_violations = cast(list[ViolationDict], pass3.get("violations", []))
+    pass3_summary = cast(dict[str, int], pass3.get("remediation_summary", {}))
+    pass3_fixed = pass3_summary.get("auto_fixable", 0)
+    pass3_rule_ids = sorted(str(v.get("rule_id", "")) for v in pass3_violations)
+
+    assert pass3_fixed == 0, f"Third remediate pass should fix zero violations (idempotent), but fixed {pass3_fixed}."
+
+    assert pass3_rule_ids == pass2_rule_ids, (
+        f"Third pass should report identical violations to second pass.\n"
+        f"Pass 2 ({len(pass2_rule_ids)}): {pass2_rule_ids}\n"
+        f"Pass 3 ({len(pass3_rule_ids)}): {pass3_rule_ids}"
     )
 
 

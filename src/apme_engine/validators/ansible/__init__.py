@@ -4,6 +4,7 @@ Rules are colocated under rules/ and follow the same pattern as native and OPA v
 Each rule module exports a run() function that returns a list of violation dicts.
 """
 
+import json
 import sys
 import time
 from dataclasses import dataclass, field
@@ -14,6 +15,8 @@ from apme_engine.engine.models import YAMLDict
 from apme_engine.validators.base import ScanContext
 
 from .rules import L057_syntax, L058_argspec_doc, L059_argspec_mock, M001_M004_introspect
+
+NodeLookup = dict[str, list[tuple[int, int, str]]]
 
 
 @dataclass
@@ -71,6 +74,83 @@ def _extract_task_nodes(hierarchy_payload: YAMLDict | None) -> list[dict[str, ob
     return nodes
 
 
+def build_node_lookup(content_graph_data: bytes) -> NodeLookup:
+    """Parse serialized ContentGraph JSON and build a file/line-to-node_id lookup.
+
+    Args:
+        content_graph_data: JSON-encoded ContentGraph (``to_dict(slim=True)``).
+
+    Returns:
+        Dict mapping ``file_path`` to sorted ``[(line_start, line_end, node_id)]``.
+    """
+    lookup: NodeLookup = {}
+    if not content_graph_data:
+        return lookup
+
+    try:
+        data = cast(dict[str, object], json.loads(content_graph_data))
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return lookup
+
+    raw_nodes = data.get("nodes")
+    if not isinstance(raw_nodes, list):
+        return lookup
+
+    for entry in raw_nodes:
+        if not isinstance(entry, dict):
+            continue
+        node_id = str(entry.get("id", ""))
+        node_data = entry.get("data")
+        if not isinstance(node_data, dict) or not node_id:
+            continue
+        file_path = str(node_data.get("file_path", ""))
+        line_start = node_data.get("line_start", 0)
+        line_end = node_data.get("line_end", 0)
+        if not file_path or not isinstance(line_start, int) or not isinstance(line_end, int):
+            continue
+        if line_start <= 0 or line_end <= 0:
+            continue
+        lookup.setdefault(file_path, []).append((line_start, line_end, node_id))
+
+    for ranges in lookup.values():
+        ranges.sort(key=lambda t: t[0])
+
+    return lookup
+
+
+def resolve_file_line_to_node(
+    lookup: NodeLookup,
+    file_path: str,
+    line: int,
+) -> str:
+    """Find the narrowest node whose line range contains ``line``.
+
+    Args:
+        lookup: File-to-ranges lookup from ``build_node_lookup()``.
+        file_path: File path to match.
+        line: 1-based line number.
+
+    Returns:
+        Matching ``node_id``, or ``""`` if no range contains the line.
+    """
+    ranges = lookup.get(file_path)
+    if not ranges:
+        return ""
+
+    best: str = ""
+    best_span = float("inf")
+    for ls, le, nid in ranges:
+        if ls > line:
+            break
+        if ls <= line <= le:
+            span = le - ls
+            if span < best_span:
+                best = nid
+                best_span = span
+
+    return best
+
+
 class AnsibleValidator:
     """Validator that runs ansible-core checks via pre-built venvs.
 
@@ -98,22 +178,32 @@ class AnsibleValidator:
         self._venv_root = venv_root
         self._env_extra = env_extra
 
-    def run(self, context: ScanContext) -> list[dict[str, object]]:
+    def run(
+        self,
+        context: ScanContext,
+        content_graph_data: bytes = b"",
+    ) -> list[dict[str, object]]:
         """Run all ansible checks and return violation dicts.
 
         Args:
             context: Scan context with hierarchy payload and root dir.
+            content_graph_data: Serialized ContentGraph for L057 node resolution.
 
         Returns:
             List of violation dicts.
         """
-        return self.run_with_timing(context).violations
+        return self.run_with_timing(context, content_graph_data=content_graph_data).violations
 
-    def run_with_timing(self, context: ScanContext) -> AnsibleRunResult:
+    def run_with_timing(
+        self,
+        context: ScanContext,
+        content_graph_data: bytes = b"",
+    ) -> AnsibleRunResult:
         """Run all ansible checks and return violations + per-rule timing.
 
         Args:
             context: Scan context with hierarchy payload and root dir.
+            content_graph_data: Serialized ContentGraph for L057 node resolution.
 
         Returns:
             AnsibleRunResult with violations and rule timings.
@@ -121,6 +211,10 @@ class AnsibleValidator:
         violations: list[dict[str, object]] = []
         rule_timings: list[AnsibleRuleTiming] = []
         root_dir = Path(context.root_dir) if context.root_dir else None
+
+        node_lookup: NodeLookup = {}
+        if content_graph_data:
+            node_lookup = build_node_lookup(content_graph_data)
 
         if root_dir and root_dir.is_dir():
             t0 = time.monotonic()
@@ -130,6 +224,15 @@ class AnsibleValidator:
                 env_extra=self._env_extra,
             )
             elapsed = (time.monotonic() - t0) * 1000
+            if node_lookup:
+                for v in l057:
+                    fpath = str(v.get("file", ""))
+                    line_val = v.get("line")
+                    ln = int(line_val) if isinstance(line_val, int) else 0
+                    if fpath and ln > 0:
+                        nid = resolve_file_line_to_node(node_lookup, fpath, ln)
+                        if nid:
+                            v["path"] = nid
             violations.extend(l057)
             rule_timings.append(AnsibleRuleTiming(rule_id="L057", elapsed_ms=elapsed, violations=len(l057)))
             sys.stderr.write(f"  L057 (syntax): {len(l057)} issue(s) in {elapsed:.1f}ms\n")
