@@ -80,6 +80,9 @@ venv/
 env/
 ENV/
 
+# Host node_modules (container runs npm ci fresh)
+frontend/node_modules/
+
 # Python cache
 __pycache__/
 *.py[cod]

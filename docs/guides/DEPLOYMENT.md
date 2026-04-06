@@ -31,7 +31,7 @@ This builds a shared base image, nine service images, and pulls one official ima
 | `apme-gateway:latest` | `containers/gateway/Dockerfile` | REST API + gRPC Reporting service (SQLite) |
 | `apme-ui:latest` | `containers/ui/Dockerfile` | React SPA served by nginx (proxies API to Gateway) |
 | `apme-cli:latest` | `containers/cli/Dockerfile` | CLI client |
-| `ghcr.io/redhat-developer/abbenay:2026.3.7-alpha` | [Official image](https://github.com/redhat-developer/abbenay/pkgs/container/abbenay) (pulled) | Abbenay AI daemon (LLM gateway for Tier 2 remediation) |
+| `ghcr.io/redhat-developer/abbenay:2026.3.8-alpha` | [Official image](https://github.com/redhat-developer/abbenay/pkgs/container/abbenay) (pulled) | Abbenay AI daemon (LLM gateway for Tier 2 remediation) |
 
 ### Configure Abbenay AI (optional)
 
@@ -42,9 +42,19 @@ cp containers/abbenay/.env.example containers/abbenay/.env
 # Edit .env and set your LLM provider API key (e.g., OPENROUTER_API_KEY)
 ```
 
-The `.env` file is gitignored. The default `config.yaml` configures OpenRouter with the `apme-dev-token` consumer. To use a different provider or model, edit `containers/abbenay/config.yaml`.
+The `.env` file is gitignored. The default `config.yaml` configures the LLM provider and consumer token. To use a different provider or model, edit `containers/abbenay/config.yaml`.
 
 If `.env` is missing or the key is empty, the Abbenay container starts but model queries return empty results. AI remediation gracefully degrades — Tier 1 deterministic fixes still work.
+
+#### Custom CA certificates (self-hosted models)
+
+When using a self-hosted model endpoint with internal or self-signed CA certificates, set `ABBENAY_CA_BUNDLE` in your `.env` to the absolute path of a PEM CA bundle:
+
+```bash
+ABBENAY_CA_BUNDLE=/path/to/ca-bundle.pem
+```
+
+The start script (`up.sh`) automatically mounts the bundle into the Abbenay container and sets `NODE_EXTRA_CA_CERTS`. This is only needed for endpoints that use non-public CAs — public providers like OpenRouter, Anthropic, and OpenAI work without it.
 
 ### Start the pod
 
@@ -146,10 +156,12 @@ The OPA binary runs internally on `localhost:8181`; the gRPC wrapper proxies to 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `OPENROUTER_API_KEY` | — | LLM provider API key (from `containers/abbenay/.env`) |
+| `OPENROUTER_API_KEY` | — | OpenRouter API key (from `containers/abbenay/.env`) |
+| `VERTEX_ANTHROPIC_API_KEY` | — | Vertex AI Anthropic proxy API key (from `containers/abbenay/.env`) |
 | `APME_ABBENAY_TOKEN` | `apme-dev-token` | Consumer token (must match `config.yaml` consumers section) |
+| `NODE_EXTRA_CA_CERTS` | — | CA bundle path inside container (auto-set by `up.sh` when `ABBENAY_CA_BUNDLE` is configured) |
 
-Abbenay uses the official container image (`ghcr.io/redhat-developer/abbenay`) with `containers/abbenay/config.yaml` volume-mounted at runtime. The default config uses OpenRouter as the LLM provider. To add providers or models, edit the `providers` section. API keys are injected from environment variables — never committed to the config file.
+Abbenay uses `containers/abbenay/config.yaml` volume-mounted at runtime. The config defines LLM providers and models. API keys are injected from environment variables — never committed to the config file. To add providers or models, edit the `providers` section of the config.
 
 The Abbenay daemon exposes a gRPC API on port 50057. Primary connects to it for AI model listing (`ListAIModels`) and batch remediation requests.
 

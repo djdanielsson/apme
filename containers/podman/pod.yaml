@@ -118,6 +118,8 @@ spec:
       env:
         - name: OPENROUTER_API_KEY
           value: "${OPENROUTER_API_KEY}"
+        - name: VERTEX_ANTHROPIC_API_KEY
+          value: "${VERTEX_ANTHROPIC_API_KEY}"
         - name: APME_ABBENAY_TOKEN
           value: "apme-dev-token"
         - name: XDG_RUNTIME_DIR

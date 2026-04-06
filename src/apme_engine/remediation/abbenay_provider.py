@@ -160,6 +160,10 @@ def _parse_node_response(
     """
     data = _extract_json_object(response_text)
     if data is None:
+        logger.warning(
+            "_parse_node_response: no JSON object found in response (response_length=%d)",
+            len(response_text),
+        )
         return None
 
     fixed_snippet = data.get("fixed_snippet")

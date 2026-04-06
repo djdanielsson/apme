@@ -230,9 +230,19 @@ class GraphRemediationEngine:
 
         for pass_num in range(1, self._max_passes + 1):
             passes = pass_num
+            tier1_stalled = False
             self._progress("graph-tier1", f"Pass {pass_num}/{self._max_passes}")
 
-            tier1, tier2, _ = partition_violations(violations, registry)
+            tier1, tier2, tier3 = partition_violations(violations, registry)
+            logger.debug(
+                "Graph remediation pass %d: %d violations -> tier1=%d tier2=%d tier3=%d (ai_provider=%s)",
+                pass_num,
+                len(violations),
+                len(tier1),
+                len(tier2),
+                len(tier3),
+                self._ai_provider is not None,
+            )
 
             # Phase A: Tier 1 deterministic transforms
             if tier1:
@@ -243,32 +253,50 @@ class GraphRemediationEngine:
                     all_fixed,
                     pass_num,
                 )
+                logger.debug(
+                    "Graph remediation pass %d: tier1 applied=%d/%d",
+                    pass_num,
+                    applied_this_pass,
+                    len(tier1),
+                )
 
                 if applied_this_pass == 0:
-                    break
-
-                violations = await self._rescan_and_record(graph, pass_num)
-                new_tier1, new_tier2, _ = partition_violations(violations, registry)
-                new_fixable = len(new_tier1)
-
-                if new_fixable >= prev_count:
-                    logger.warning(
-                        "Graph remediation: oscillation at pass %d (%d >= %d)",
+                    # Tier 1 stalled: transforms exist but none succeeded.
+                    # Fall through to Tier 2 AI instead of breaking.
+                    tier1_stalled = True
+                    logger.debug(
+                        "Graph remediation pass %d: tier1 stalled (0 applied); falling through to AI (tier2=%d)",
                         pass_num,
-                        new_fixable,
-                        prev_count,
+                        len(tier2),
                     )
-                    oscillation = True
-                    break
+                else:
+                    violations = await self._rescan_and_record(graph, pass_num)
+                    new_tier1, new_tier2, _ = partition_violations(violations, registry)
+                    new_fixable = len(new_tier1)
 
-                prev_count = new_fixable
-                if new_fixable > 0:
-                    continue
+                    if new_fixable >= prev_count:
+                        logger.warning(
+                            "Graph remediation: oscillation at pass %d (%d >= %d)",
+                            pass_num,
+                            new_fixable,
+                            prev_count,
+                        )
+                        oscillation = True
+                        break
 
-                tier1, tier2 = new_tier1, new_tier2
+                    prev_count = new_fixable
+                    if new_fixable > 0:
+                        continue
 
-            # Phase B: Tier 2 AI transforms
-            if not tier1 and tier2 and self._ai_provider is not None and ai_attempts < self._max_ai_attempts:
+                    tier1, tier2 = new_tier1, new_tier2
+
+            # Phase B: Tier 2 AI transforms (also when tier1 stalled)
+            if (
+                (not tier1 or tier1_stalled)
+                and tier2
+                and self._ai_provider is not None
+                and ai_attempts < self._max_ai_attempts
+            ):
                 ai_attempts += 1
                 self._progress(
                     "graph-ai",
@@ -308,7 +336,7 @@ class GraphRemediationEngine:
                         ai_feedback_by_node = _build_ai_feedback(new_tier2)
                         continue
 
-            if not tier1 and not tier2:
+            if not tier1 and not tier1_stalled and not tier2:
                 self._progress(
                     "graph-tier1",
                     f"Fully converged at pass {pass_num}",
@@ -316,7 +344,7 @@ class GraphRemediationEngine:
                 logger.info("Graph remediation: fully converged at pass %d", pass_num)
                 break
 
-            if not tier1 and (self._ai_provider is None or ai_attempts >= self._max_ai_attempts):
+            if (not tier1 or tier1_stalled) and (self._ai_provider is None or ai_attempts >= self._max_ai_attempts):
                 logger.info(
                     "Graph remediation: Tier 1 exhausted, %d remaining AI candidates (ai_attempts=%d/%d)",
                     len(tier2),
@@ -367,18 +395,31 @@ class GraphRemediationEngine:
         )
 
         applied_this_pass = 0
+        skipped_no_transform = 0
+        skipped_no_apply = 0
         for v in tier1:
             rule_id = normalize_rule_id(str(v.get("rule_id", "")))
             node_id = str(v.get("path", ""))
 
             transform_fn = registry.get_node_transform(rule_id)
             if transform_fn is None:
+                skipped_no_transform += 1
                 continue
 
             applied = await graph.apply_transform(node_id, transform_fn, v)
             if applied:
                 applied_this_pass += 1
                 all_fixed.append(dict(v))
+            else:
+                skipped_no_apply += 1
+                logger.debug("Tier1 transform %s on %r: not applied", rule_id, node_id)
+        logger.debug(
+            "Tier1 pass %d summary: applied=%d skipped_no_transform=%d skipped_no_apply=%d",
+            pass_num,
+            applied_this_pass,
+            skipped_no_transform,
+            skipped_no_apply,
+        )
 
         for nid in graph.dirty_nodes:
             node = graph.get_node(nid)
@@ -418,12 +459,19 @@ class GraphRemediationEngine:
             if node_id:
                 by_node[node_id].append(v)
 
+        logger.debug(
+            "AI transforms: %d tier2 violations grouped into %d nodes",
+            len(tier2),
+            len(by_node),
+        )
+
         proposals: list[AINodeProposal] = []
         assert self._ai_provider is not None  # noqa: S101
 
         for node_id, node_violations in by_node.items():
             node = graph.get_node(node_id)
             if node is None:
+                logger.warning("AI: node %r not found in graph — skipping", node_id)
                 continue
             before_yaml = node.yaml_lines
 
@@ -435,18 +483,26 @@ class GraphRemediationEngine:
                 feedback=feedback,
             )
             if context is None:
+                logger.warning("AI: context is None for node %s — skipping", node_id)
                 continue
 
             try:
+                logger.debug("AI: calling propose_node_fix for %s (%d violations)", node_id, len(node_violations))
                 fix = await self._ai_provider.propose_node_fix(context)
+                logger.debug("AI: propose_node_fix returned for %s: fix=%s", node_id, fix is not None)
             except Exception:
                 logger.exception("AI provider failed for node %s", node_id)
                 continue
 
             if fix is None or not fix.fixed_snippet:
+                logger.debug("AI returned no usable fix for node %s", node_id)
                 continue
 
             if fix.fixed_snippet.strip() == before_yaml.strip():
+                logger.debug(
+                    "AI returned identical content for node %s (no change)",
+                    node_id,
+                )
                 continue
 
             node.update_from_yaml(fix.fixed_snippet)
