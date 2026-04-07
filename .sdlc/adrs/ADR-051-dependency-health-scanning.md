@@ -90,7 +90,8 @@ content.
    - **Role quality:** L012, L013 (argument specs, defaults)
    - **FQCN usage within collection:** M001-M004
    - **Deprecated patterns:** M005-M010
-   - **Risk indicators:** R101, R102 (command-instead-of-module patterns)
+   - **Risk indicators:** R101 (command/shell usage guidance and related
+     risk patterns)
 5. Emits `Violation` messages scoped to `RuleScope.COLLECTION` with the
    collection FQCN in `metadata["collection_fqcn"]` and
    `metadata["collection_version"]`. The `file` field is relative to the
@@ -134,10 +135,12 @@ vulnerability databases.
 4. `Health` RPC checks that `pip-audit` is on `PATH`, similar to Gitleaks
    checking the `gitleaks` binary.
 
-**Offline mode:** `pip-audit` supports `--vulnerability-source osv` (default,
-queries osv.dev) and caching. For air-gapped environments, a future option
-could bundle a local vulnerability database or use `pip-audit --cache-dir` with
-a pre-populated cache.
+**Offline mode:** By default, `pip-audit` uses `--vulnerability-source osv`
+and queries osv.dev. For offline or air-gapped environments, `pip-audit`
+supports `--local` mode (bundled OSV database copy) and `--cache-dir` with a
+pre-populated cache. A future APME enhancement could standardize how that
+local vulnerability data or cache is packaged and distributed for fully
+air-gapped deployments.
 
 **Rule IDs:** `R200` for known CVE in Python dependency. `R201` reserved for
 "package has no maintained release" (future). These are risk findings, not lint
@@ -146,10 +149,15 @@ or modernization — the `R` prefix is correct per ADR-008.
 ### Service registration
 
 Both validators register in `launcher.py` as optional services (alongside
-Gitleaks):
+Gitleaks). `_OPTIONAL_SERVICES` is a `dict[str, int]` mapping service names
+to default ports:
 
 ```python
-_OPTIONAL_SERVICES = {"gitleaks", "collection_health", "dep_audit"}
+_OPTIONAL_SERVICES = {
+    "gitleaks": 50056,
+    "collection_health": 50058,
+    "dep_audit": 50059,
+}
 ```
 
 Environment variables:
@@ -332,16 +340,17 @@ src/apme_engine/
   High ≥ 7.0, Medium ≥ 4.0, Low < 4.0).
 - If `pip-audit` is not installed, `Health` returns `NOT_SERVING` and Primary
   skips the validator (identical to Gitleaks without binary).
-- The `--local` flag can be used for air-gapped operation (uses a bundled
-  copy of the OSV database instead of querying osv.dev).
+- Air-gapped operation is supported via `pip-audit --local` (bundled OSV
+  database) or `--cache-dir` with a pre-populated cache.
 
 ### Launcher changes
 
-```python
-_OPTIONAL_SERVICES = {"gitleaks", "collection_health", "dep_audit"}
+New entries in the existing `_OPTIONAL_SERVICES` dict (ports live here, not
+in `_DEFAULT_PORTS`):
 
-_DEFAULT_PORTS = {
-    ...
+```python
+_OPTIONAL_SERVICES = {
+    "gitleaks": 50056,
     "collection_health": 50058,
     "dep_audit": 50059,
 }
