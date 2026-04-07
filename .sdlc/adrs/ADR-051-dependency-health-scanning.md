@@ -35,8 +35,8 @@ invisible:
 | Capability | Location | Gap |
 |------------|----------|-----|
 | Collection installation in session venvs | `VenvSessionManager` | Collections installed but not scanned |
-| `list_installed_collections(venv)` | `venv_manager/session.py` | Returns FQCN + version + license; no quality data |
-| `list_installed_packages(venv)` | `venv_manager/session.py` | Returns name + version + license; no CVE data |
+| `list_installed_collections(venv)` | `venv_manager/session.py` | Returns FQCN + version + supplier + license; no quality data |
+| `list_installed_packages(venv)` | `venv_manager/session.py` | Returns name + version + supplier + license; no CVE data |
 | `get_dependency_tree(venv)` | `venv_manager/session.py` | `uv pip tree` text; informational only |
 | `ProjectManifest` in `FixCompletedEvent` | ADR-040, `primary_server.py` | Inventory without health assessment |
 | Gateway persistence of manifest | ADR-040, `grpc_reporting` | Stores packages but no vulnerability metadata |
@@ -87,7 +87,8 @@ content.
    - **Galaxy metadata quality:** L095, L103, L104, L105 (schema, changelog,
      runtime, repository)
    - **Module quality:** L089, L090 (type hints, return types)
-   - **Role quality:** L012, L013 (argument specs, defaults)
+   - **Role quality:** L027 (role without metadata), L053 (meta structure),
+     L077 (argument specs), L079 (role var prefix)
    - **FQCN usage within collection:** M001-M004
    - **Deprecated patterns:** M005-M010
    - **Risk indicators:** R101 (command/shell usage guidance and related
