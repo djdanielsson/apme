@@ -173,6 +173,7 @@ export function ProjectDetailPage() {
   const [editUrl, setEditUrl] = useState('');
   const [editBranch, setEditBranch] = useState('');
   const [editScmToken, setEditScmToken] = useState('');
+  const [scmTokenDirty, setScmTokenDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [prCreating, setPrCreating] = useState(false);
   const [prUrl, setPrUrl] = useState<string | null>(null);
@@ -184,6 +185,7 @@ export function ProjectDetailPage() {
       setEditUrl(project.repo_url);
       setEditBranch(project.branch);
       setEditScmToken('');
+      setScmTokenDirty(false);
     }
   }, [project]);
 
@@ -195,7 +197,7 @@ export function ProjectDetailPage() {
       if (editName !== project.name) updates.name = editName;
       if (editUrl !== project.repo_url) updates.repo_url = editUrl;
       if (editBranch !== project.branch) updates.branch = editBranch;
-      if (editScmToken) updates.scm_token = editScmToken;
+      if (scmTokenDirty) updates.scm_token = editScmToken.trim();
       if (Object.keys(updates).length > 0) {
         await updateProject(projectId, updates);
         fetchData();
@@ -203,7 +205,7 @@ export function ProjectDetailPage() {
     } finally {
       setSaving(false);
     }
-  }, [projectId, project, editName, editUrl, editBranch, editScmToken, fetchData]);
+  }, [projectId, project, editName, editUrl, editBranch, editScmToken, scmTokenDirty, fetchData]);
 
   const handleCreatePR = useCallback(async () => {
     if (!opScanId) return;
@@ -519,7 +521,7 @@ export function ProjectDetailPage() {
                         id="edit-scm-token"
                         type="password"
                         value={editScmToken}
-                        onChange={(_e, v) => setEditScmToken(v)}
+                        onChange={(_e, v) => { setEditScmToken(v); setScmTokenDirty(true); }}
                         placeholder={project?.has_scm_token ? '••••••••' : 'GitHub PAT or App token'}
                       />
                       <div style={{ fontSize: 12, marginTop: 4, opacity: 0.6 }}>

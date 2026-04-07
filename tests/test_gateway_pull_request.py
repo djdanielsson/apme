@@ -539,3 +539,51 @@ class TestProjectScmApi:
         )
         assert patch_resp.status_code == 200
         assert patch_resp.json()["has_scm_token"] is True
+
+    async def test_scm_provider_normalized(self, client: AsyncClient) -> None:
+        """SCM provider is stripped and lowercased on create and update.
+
+        Args:
+            client: Async test client.
+        """
+        resp = await client.post(
+            "/api/v1/projects",
+            json={
+                "name": "norm-test",
+                "repo_url": "https://github.com/org/repo",
+                "scm_provider": "  GitHub  ",
+            },
+        )
+        assert resp.status_code == 201
+        assert resp.json()["scm_provider"] == "github"
+
+        project_id = resp.json()["id"]
+        patch_resp = await client.patch(
+            f"/api/v1/projects/{project_id}",
+            json={"scm_provider": " GITHUB "},
+        )
+        assert patch_resp.status_code == 200
+        assert patch_resp.json()["scm_provider"] == "github"
+
+    async def test_scm_provider_empty_clears(self, client: AsyncClient) -> None:
+        """Empty string for scm_provider clears the value.
+
+        Args:
+            client: Async test client.
+        """
+        resp = await client.post(
+            "/api/v1/projects",
+            json={
+                "name": "clear-provider",
+                "repo_url": "https://github.com/org/repo",
+                "scm_provider": "github",
+            },
+        )
+        project_id = resp.json()["id"]
+
+        patch_resp = await client.patch(
+            f"/api/v1/projects/{project_id}",
+            json={"scm_provider": ""},
+        )
+        assert patch_resp.status_code == 200
+        assert patch_resp.json()["scm_provider"] is None

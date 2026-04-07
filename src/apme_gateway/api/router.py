@@ -77,6 +77,21 @@ except Exception:  # noqa: BLE001
     _TOOLS_VERSION = "0.1.0"
 
 
+def _normalize_scm_provider(value: str | None) -> str | None:
+    """Strip whitespace and lowercase an SCM provider identifier.
+
+    Args:
+        value: Raw provider string from user input, or None.
+
+    Returns:
+        Lowercased, trimmed provider name, or None if blank/absent.
+    """
+    if value is None:
+        return None
+    cleaned = value.strip().lower()
+    return cleaned or None
+
+
 _UPSTREAM_SERVICES: list[tuple[str, str, str]] = [
     ("Primary Orchestrator", "APME_PRIMARY_ADDRESS", "127.0.0.1:50051"),
     ("Native Validator", "NATIVE_GRPC_ADDRESS", "127.0.0.1:50055"),
@@ -408,7 +423,7 @@ async def create_project(body: CreateProjectRequest) -> ProjectSummary:
                 repo_url=body.repo_url,
                 branch=body.branch,
                 scm_token=body.scm_token,
-                scm_provider=body.scm_provider,
+                scm_provider=_normalize_scm_provider(body.scm_provider),
             )
     except IntegrityError:
         raise HTTPException(status_code=409, detail=f"Project named '{body.name}' already exists") from None
@@ -567,7 +582,7 @@ async def update_project(
     if body.scm_token is not None:
         updates["scm_token"] = body.scm_token or None
     if body.scm_provider is not None:
-        updates["scm_provider"] = body.scm_provider or None
+        updates["scm_provider"] = _normalize_scm_provider(body.scm_provider)
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
     async with get_session() as db:
