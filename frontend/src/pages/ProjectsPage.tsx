@@ -64,6 +64,7 @@ export function ProjectsPage() {
   const [createName, setCreateName] = useState('');
   const [createUrl, setCreateUrl] = useState('');
   const [createBranch, setCreateBranch] = useState('main');
+  const [createScmToken, setCreateScmToken] = useState('');
   const [creating, setCreating] = useState(false);
   const [nameManuallyEdited, setNameManuallyEdited] = useState(false);
   const [openKebab, setOpenKebab] = useState<string | null>(null);
@@ -107,11 +108,18 @@ export function ProjectsPage() {
     if (!createName.trim() || !createUrl.trim()) return;
     setCreating(true);
     try {
-      await createProject({ name: createName.trim(), repo_url: createUrl.trim(), branch: createBranch.trim() || 'main' });
+      const body: { name: string; repo_url: string; branch: string; scm_token?: string } = {
+        name: createName.trim(),
+        repo_url: createUrl.trim(),
+        branch: createBranch.trim() || 'main',
+      };
+      if (createScmToken.trim()) body.scm_token = createScmToken.trim();
+      await createProject(body);
       setShowCreate(false);
       setCreateName('');
       setCreateUrl('');
       setCreateBranch('main');
+      setCreateScmToken('');
       setNameManuallyEdited(false);
       fetchProjects();
     } catch {
@@ -119,7 +127,7 @@ export function ProjectsPage() {
     } finally {
       setCreating(false);
     }
-  }, [createName, createUrl, createBranch, fetchProjects]);
+  }, [createName, createUrl, createBranch, createScmToken, fetchProjects]);
 
   const handleDelete = useCallback(async (proj: ProjectSummary) => {
     if (!confirm(`Delete project "${proj.name}"? This cannot be undone.`)) return;
@@ -334,6 +342,13 @@ export function ProjectsPage() {
             <FlexItem>
               <label htmlFor="proj-branch" style={{ display: 'block', fontWeight: 600, marginBottom: 4 }}>Branch</label>
               <TextInput id="proj-branch" value={createBranch} onChange={(_e, v) => setCreateBranch(v)} placeholder="main" />
+            </FlexItem>
+            <FlexItem>
+              <label htmlFor="proj-scm-token" style={{ display: 'block', fontWeight: 600, marginBottom: 4 }}>SCM Token <span style={{ fontWeight: 400, opacity: 0.6 }}>(optional)</span></label>
+              <TextInput id="proj-scm-token" type="password" value={createScmToken} onChange={(_e, v) => setCreateScmToken(v)} placeholder="GitHub PAT or App token" />
+              <div style={{ fontSize: 12, marginTop: 4, opacity: 0.6 }}>
+                Used for creating pull requests from remediation results.
+              </div>
             </FlexItem>
           </Flex>
         </ModalBody>

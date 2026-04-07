@@ -8,6 +8,8 @@ import type {
   CollectionSummary,
   CreateGalaxyServerRequest,
   CreateProjectRequest,
+  CreatePullRequestRequest,
+  CreatePullRequestResponse,
   DashboardSummary,
   GalaxyServer,
   HealthStatus,
@@ -73,6 +75,17 @@ export function getActivity(scanId: string): Promise<ActivityDetail> {
 export async function deleteActivity(scanId: string): Promise<void> {
   const res = await fetch(`${BASE}/activity/${scanId}`, { method: "DELETE" });
   if (!res.ok) throw new Error(`${res.status}`);
+}
+
+export function createPullRequest(
+  activityId: string,
+  body?: CreatePullRequestRequest,
+): Promise<CreatePullRequestResponse> {
+  return request(`/activity/${activityId}/pull-request`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body ?? {}),
+  });
 }
 
 export function getSession(sessionId: string): Promise<SessionDetail> {

@@ -13,6 +13,7 @@ from sqlalchemy.orm import selectinload
 
 from apme_gateway.db.models import (
     GalaxyServer,
+    PatchedFile,
     Project,
     Proposal,
     Rule,
@@ -71,6 +72,8 @@ async def create_project(
     name: str,
     repo_url: str,
     branch: str = "main",
+    scm_token: str | None = None,
+    scm_provider: str | None = None,
 ) -> Project:
     """Insert a new project.
 
@@ -80,12 +83,22 @@ async def create_project(
         name: Display label.
         repo_url: SCM clone URL.
         branch: Target branch.
+        scm_token: Per-project SCM token (ADR-050).
+        scm_provider: Explicit SCM provider type (ADR-050).
 
     Returns:
         The newly created Project.
     """
     now = datetime.now(tz=timezone.utc).isoformat()
-    project = Project(id=project_id, name=name, repo_url=repo_url, branch=branch, created_at=now)
+    project = Project(
+        id=project_id,
+        name=name,
+        repo_url=repo_url,
+        branch=branch,
+        created_at=now,
+        scm_token=scm_token or None,
+        scm_provider=scm_provider or None,
+    )
     db.add(project)
     await db.commit()
     await db.refresh(project)
@@ -1591,6 +1604,77 @@ async def get_rule_stats(db: AsyncSession) -> dict[str, object]:
         "by_source": by_source,
         "override_count": override_count,
     }
+
+
+# ---------------------------------------------------------------------------
+# Patched file queries (ADR-050)
+# ---------------------------------------------------------------------------
+
+
+async def store_patched_files(
+    db: AsyncSession,
+    scan_id: str,
+    files: dict[str, bytes],
+) -> int:
+    """Persist full patched file content for async PR creation (ADR-050).
+
+    Args:
+        db: Active async database session.
+        scan_id: UUID of the owning scan (activity).
+        files: Mapping of relative path → file content bytes.
+
+    Returns:
+        Number of files stored.
+    """
+    count = 0
+    for path, content in files.items():
+        db.add(PatchedFile(scan_id=scan_id, path=path, content=content))
+        count += 1
+    await db.commit()
+    return count
+
+
+async def get_patched_files(
+    db: AsyncSession,
+    scan_id: str,
+) -> list[PatchedFile]:
+    """Return all patched files for a scan.
+
+    Args:
+        db: Active async database session.
+        scan_id: UUID of the scan.
+
+    Returns:
+        List of PatchedFile rows.
+    """
+    stmt = select(PatchedFile).where(PatchedFile.scan_id == scan_id).order_by(PatchedFile.path)
+    result = await db.execute(stmt)
+    return list(result.scalars().all())
+
+
+async def set_scan_pr_url(
+    db: AsyncSession,
+    scan_id: str,
+    pr_url: str,
+) -> bool:
+    """Record the PR URL on an activity after PR creation (ADR-050).
+
+    Args:
+        db: Active async database session.
+        scan_id: UUID of the scan (activity).
+        pr_url: Web URL of the created pull request.
+
+    Returns:
+        True if the scan row was found and updated.
+    """
+    stmt = select(Scan).where(Scan.scan_id == scan_id)
+    result = await db.execute(stmt)
+    scan = result.scalar_one_or_none()
+    if scan is None:
+        return False
+    scan.pr_url = pr_url
+    await db.commit()
+    return True
 
 
 # ---------------------------------------------------------------------------

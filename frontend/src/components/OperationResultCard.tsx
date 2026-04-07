@@ -7,8 +7,8 @@ import {
   FlexItem,
   Split,
   SplitItem,
-  Tooltip,
 } from '@patternfly/react-core';
+import { ExternalLinkAltIcon } from '@patternfly/react-icons';
 import type { OperationResult } from '../types/operation';
 
 export interface OperationResultCardProps {
@@ -16,6 +16,10 @@ export interface OperationResultCardProps {
   isRemediate?: boolean;
   onDismiss?: () => void;
   actions?: ReactNode;
+  onCreatePR?: () => void;
+  prCreating?: boolean;
+  prUrl?: string | null;
+  prError?: string | null;
 }
 
 function Metric({ value, label, color }: { value: number; label: string; color?: string }) {
@@ -42,9 +46,14 @@ export function OperationResultCard({
   isRemediate,
   onDismiss,
   actions,
+  onCreatePR,
+  prCreating,
+  prUrl,
+  prError,
 }: OperationResultCardProps) {
   const wasRemediate = isRemediate ?? result.remediated_count != null;
   const hasAi = (result.ai_proposed ?? 0) > 0 || (result.ai_declined ?? 0) > 0 || (result.ai_accepted ?? 0) > 0;
+  const showCreatePR = (result.remediated_count ?? 0) > 0 && onCreatePR && !prUrl;
 
   return (
     <Card style={{ marginBottom: 16, borderLeft: '4px solid var(--pf-t--global--color--status--success--default)' }}>
@@ -83,15 +92,39 @@ export function OperationResultCard({
           </Split>
         )}
 
+        {prError && (
+          <div style={{ margin: '0 0 12px', padding: '8px 16px', borderRadius: 6, background: 'var(--pf-t--global--color--status--danger--default)', color: '#fff', fontSize: 13 }}>
+            PR creation failed: {prError}
+          </div>
+        )}
+
         <Flex justifyContent={{ default: 'justifyContentCenter' }} gap={{ default: 'gapSm' }}>
           {actions}
-          {(result.remediated_count ?? 0) > 0 && (
+          {prUrl && (
             <FlexItem>
-              <Tooltip content="Pull request support is coming soon">
-                <Button variant="secondary" isDisabled>
-                  Create PR (coming soon)
-                </Button>
-              </Tooltip>
+              <Button
+                variant="secondary"
+                component="a"
+                href={prUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                icon={<ExternalLinkAltIcon />}
+                iconPosition="end"
+              >
+                View Pull Request
+              </Button>
+            </FlexItem>
+          )}
+          {showCreatePR && (
+            <FlexItem>
+              <Button
+                variant="secondary"
+                onClick={onCreatePR}
+                isLoading={prCreating}
+                isDisabled={prCreating}
+              >
+                {prCreating ? 'Creating PR...' : 'Create PR'}
+              </Button>
             </FlexItem>
           )}
           {onDismiss && (

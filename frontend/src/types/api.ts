@@ -45,6 +45,7 @@ export interface ActivitySummary {
   ai_accepted: number;
   manual_review: number;
   remediated_count: number;
+  pr_url: string | null;
 }
 
 export interface PatchDetail {
@@ -137,6 +138,8 @@ export interface ProjectSummary {
   violation_trend: 'improving' | 'declining' | 'stable';
   scan_count: number;
   last_scanned_at: string | null;
+  scm_provider: string | null;
+  has_scm_token: boolean;
 }
 
 export interface ProjectDetail extends ProjectSummary {
@@ -148,12 +151,30 @@ export interface CreateProjectRequest {
   name: string;
   repo_url: string;
   branch?: string;
+  scm_token?: string;
+  scm_provider?: string;
 }
 
 export interface UpdateProjectRequest {
   name?: string;
   repo_url?: string;
   branch?: string;
+  scm_token?: string;
+  scm_provider?: string;
+}
+
+// ── PR creation types (ADR-050) ──────────────────────────────────────
+
+export interface CreatePullRequestRequest {
+  branch_name?: string;
+  title?: string;
+  body?: string;
+}
+
+export interface CreatePullRequestResponse {
+  pr_url: string;
+  branch_name: string;
+  provider: string;
 }
 
 export interface DashboardSummary {

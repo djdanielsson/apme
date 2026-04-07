@@ -20,6 +20,7 @@ from apme.v1 import reporting_pb2, reporting_pb2_grpc
 from apme_engine.severity_defaults import severity_from_proto, severity_to_label
 from apme_gateway.db import get_session
 from apme_gateway.db.models import (
+    PatchedFile,
     Proposal,
     Rule,
     Scan,
@@ -317,6 +318,9 @@ def _add_logs(db: AsyncSession, scan_id: str, logs: Sequence[object]) -> None:
 def _add_patches(db: AsyncSession, scan_id: str, patches: Sequence[object]) -> None:
     """Convert proto FilePatch messages to ORM rows.
 
+    Also stores full patched file content in ``patched_files`` for async
+    PR creation (ADR-050).
+
     Args:
         db: Active async database session.
         scan_id: Owning scan UUID.
@@ -330,6 +334,15 @@ def _add_patches(db: AsyncSession, scan_id: str, patches: Sequence[object]) -> N
                     scan_id=scan_id,
                     file=p.path,  # type: ignore[attr-defined]
                     diff=diff,
+                )
+            )
+        patched_bytes: bytes = p.patched  # type: ignore[attr-defined]
+        if patched_bytes:
+            db.add(
+                PatchedFile(
+                    scan_id=scan_id,
+                    path=p.path,  # type: ignore[attr-defined]
+                    content=patched_bytes,
                 )
             )
 

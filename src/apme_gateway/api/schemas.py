@@ -39,6 +39,7 @@ class ActivitySummary(BaseModel):  # type: ignore[misc]
         ai_accepted: AI proposals the user approved and applied.
         manual_review: Count of tier-3 manual violations.
         remediated_count: Total applied (Tier 1 + AI accepted).
+        pr_url: URL of the PR created from this activity (ADR-050), if any.
     """
 
     scan_id: str
@@ -55,6 +56,7 @@ class ActivitySummary(BaseModel):  # type: ignore[misc]
     ai_accepted: int = 0
     manual_review: int
     remediated_count: int = 0
+    pr_url: str | None = None
 
 
 class ViolationDetail(BaseModel):  # type: ignore[misc]
@@ -159,6 +161,7 @@ class ActivityDetail(BaseModel):  # type: ignore[misc]
         ai_accepted: AI proposals the user approved and applied.
         manual_review: Count of tier-3 manual violations.
         remediated_count: Total applied (Tier 1 + AI accepted).
+        pr_url: URL of the PR created from this activity (ADR-050), if any.
         diagnostics_json: Raw diagnostics JSON string.
         violations: List of violation rows.
         proposals: List of proposal rows.
@@ -180,6 +183,7 @@ class ActivityDetail(BaseModel):  # type: ignore[misc]
     ai_accepted: int = 0
     manual_review: int
     remediated_count: int = 0
+    pr_url: str | None = None
     diagnostics_json: str | None
     violations: list[ViolationDetail]
     proposals: list[ProposalDetail]
@@ -340,6 +344,8 @@ class ProjectSummary(BaseModel):  # type: ignore[misc]
         violation_trend: Direction indicator.
         scan_count: Number of completed runs (``scan_count`` / scans table).
         last_scanned_at: ISO timestamp of most recent run (``last_scanned_at`` column).
+        scm_provider: Explicit SCM provider type (ADR-050), or None for auto-detect.
+        has_scm_token: Whether a project-level SCM token is configured (ADR-050).
     """
 
     id: str
@@ -352,6 +358,8 @@ class ProjectSummary(BaseModel):  # type: ignore[misc]
     violation_trend: str = "stable"
     scan_count: int = 0
     last_scanned_at: str | None = None
+    scm_provider: str | None = None
+    has_scm_token: bool = False
 
 
 class ProjectDetail(ProjectSummary):
@@ -373,11 +381,15 @@ class CreateProjectRequest(BaseModel):  # type: ignore[misc]
         name: Display label.
         repo_url: HTTPS clone URL.
         branch: Branch to clone (default main).
+        scm_token: Per-project SCM token for PR creation (ADR-050).
+        scm_provider: Explicit SCM provider type (ADR-050). Auto-detected if omitted.
     """
 
     name: str
     repo_url: str
     branch: str = "main"
+    scm_token: str | None = None
+    scm_provider: str | None = None
 
 
 class UpdateProjectRequest(BaseModel):  # type: ignore[misc]
@@ -387,11 +399,15 @@ class UpdateProjectRequest(BaseModel):  # type: ignore[misc]
         name: New display label.
         repo_url: New clone URL.
         branch: New branch.
+        scm_token: New SCM token (ADR-050). Set to empty string to clear.
+        scm_provider: Explicit provider type (ADR-050). Set to empty string to clear.
     """
 
     name: str | None = None
     repo_url: str | None = None
     branch: str | None = None
+    scm_token: str | None = None
+    scm_provider: str | None = None
 
 
 # ── Dependency manifest schemas (ADR-040) ────────────────────────────
@@ -543,6 +559,39 @@ class PythonPackageDetail(BaseModel):  # type: ignore[misc]
     versions: list[str] = Field(default_factory=list)
     project_count: int = 0
     projects: list[PythonPackageProjectRef] = Field(default_factory=list)
+
+
+# ── PR creation schemas (ADR-050) ────────────────────────────────────
+
+
+class CreatePullRequestRequest(BaseModel):  # type: ignore[misc]
+    """Request body for creating a PR from a remediation activity (ADR-050).
+
+    All fields are optional — the Gateway generates sensible defaults.
+
+    Attributes:
+        branch_name: Name for the new branch (default auto-generated).
+        title: PR title (default auto-generated from remediation stats).
+        body: PR body in Markdown (default auto-generated).
+    """
+
+    branch_name: str | None = None
+    title: str | None = None
+    body: str | None = None
+
+
+class CreatePullRequestResponse(BaseModel):  # type: ignore[misc]
+    """Response after successfully creating a PR (ADR-050).
+
+    Attributes:
+        pr_url: Web URL of the created pull request.
+        branch_name: Name of the head branch.
+        provider: SCM provider that was used (e.g. ``github``).
+    """
+
+    pr_url: str
+    branch_name: str
+    provider: str
 
 
 class OperationRequestOptions(BaseModel):  # type: ignore[misc]

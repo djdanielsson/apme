@@ -9,7 +9,7 @@ Python package metadata.
 
 from __future__ import annotations
 
-from sqlalchemy import Boolean, Float, ForeignKey, Integer, Text, UniqueConstraint
+from sqlalchemy import Boolean, Float, ForeignKey, Integer, LargeBinary, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -27,6 +27,8 @@ class Project(Base):
         branch: Branch to clone (default ``main``).
         created_at: ISO 8601 creation timestamp.
         health_score: Computed 0-100 health score from latest scan.
+        scm_token: Encrypted per-project SCM token (ADR-050). Overrides global.
+        scm_provider: Explicit SCM provider type (ADR-050). Auto-detected if unset.
         scans: Related scan rows.
     """
 
@@ -38,6 +40,8 @@ class Project(Base):
     branch: Mapped[str] = mapped_column(Text, nullable=False, default="main")
     created_at: Mapped[str] = mapped_column(Text, nullable=False)
     health_score: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    scm_token: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
+    scm_provider: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
 
     scans: Mapped[list[Scan]] = relationship(back_populates="project", cascade="all, delete-orphan")
 
@@ -84,12 +88,14 @@ class Scan(Base):
         ai_declined: Count of AI proposals declined.
         ai_accepted: Count of AI proposals accepted by the user.
         diagnostics_json: JSON-serialised ScanDiagnostics.
+        pr_url: URL of the pull request created from this activity (ADR-050).
         session: Back-reference to owning Session.
         project: Back-reference to owning Project (ADR-037).
         violations: Related violation rows.
         proposals: Related proposal rows.
         logs: Related log rows.
         patches: Related patch rows (per-file diffs).
+        patched_files: Full patched file content for PR creation (ADR-050).
         manifest: Related manifest row (ADR-040).
         collections: Related collection rows (ADR-040).
         python_packages: Related Python package rows (ADR-040).
@@ -115,6 +121,7 @@ class Scan(Base):
     ai_declined: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     ai_accepted: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     diagnostics_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    pr_url: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
 
     session: Mapped[Session] = relationship(back_populates="scans")
     project: Mapped[Project | None] = relationship(back_populates="scans")
@@ -122,6 +129,7 @@ class Scan(Base):
     proposals: Mapped[list[Proposal]] = relationship(back_populates="scan", cascade="all, delete-orphan")
     logs: Mapped[list[ScanLog]] = relationship(back_populates="scan", cascade="all, delete-orphan")
     patches: Mapped[list[ScanPatch]] = relationship(back_populates="scan", cascade="all, delete-orphan")
+    patched_files: Mapped[list[PatchedFile]] = relationship(back_populates="scan", cascade="all, delete-orphan")
     manifest: Mapped[ScanManifest | None] = relationship(
         back_populates="scan", cascade="all, delete-orphan", uselist=False
     )
@@ -240,6 +248,34 @@ class ScanPatch(Base):
     diff: Mapped[str] = mapped_column(Text, nullable=False, default="")
 
     scan: Mapped[Scan] = relationship(back_populates="patches")
+
+
+# ── Patched file content (ADR-050) ────────────────────────────────────
+
+
+class PatchedFile(Base):
+    """Full patched file content retained for async PR creation (ADR-050).
+
+    Stored as BLOBs to avoid encoding assumptions.  Rows are cascade-deleted
+    with the parent scan (activity) record.
+
+    Attributes:
+        id: Auto-increment primary key.
+        scan_id: Owning scan UUID (FK to scans).
+        path: Relative file path within the project.
+        content: Full patched file content as bytes.
+        scan: Back-reference to owning Scan.
+    """
+
+    __tablename__ = "patched_files"
+    __table_args__ = (UniqueConstraint("scan_id", "path", name="uq_patched_file"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    scan_id: Mapped[str] = mapped_column(Text, ForeignKey("scans.scan_id"), nullable=False)
+    path: Mapped[str] = mapped_column(Text, nullable=False)
+    content: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+
+    scan: Mapped[Scan] = relationship(back_populates="patched_files")
 
 
 # ── Dependency manifest tables (ADR-040) ─────────────────────────────

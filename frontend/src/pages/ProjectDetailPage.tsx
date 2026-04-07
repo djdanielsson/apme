@@ -15,7 +15,7 @@ import {
   TabTitleText,
   TextInput,
 } from '@patternfly/react-core';
-import { deleteProject, getProject, getProjectDependencies, getProjectGraph, getProjectSbom, getProjectTrend, listProjectActivity, listProjectViolations, updateProject } from '../services/api';
+import { createPullRequest, deleteProject, getProject, getProjectDependencies, getProjectGraph, getProjectSbom, getProjectTrend, listProjectActivity, listProjectViolations, updateProject } from '../services/api';
 import type { GraphData } from '../services/api';
 import type { ActivitySummary, ProjectDependencies, ProjectDetail, TrendPoint, ViolationDetail } from '../types/api';
 import { GraphVisualization } from '../components/GraphVisualization';
@@ -172,13 +172,18 @@ export function ProjectDetailPage() {
   const [editName, setEditName] = useState('');
   const [editUrl, setEditUrl] = useState('');
   const [editBranch, setEditBranch] = useState('');
+  const [editScmToken, setEditScmToken] = useState('');
   const [saving, setSaving] = useState(false);
+  const [prCreating, setPrCreating] = useState(false);
+  const [prUrl, setPrUrl] = useState<string | null>(null);
+  const [prError, setPrError] = useState<string | null>(null);
 
   useEffect(() => {
     if (project) {
       setEditName(project.name);
       setEditUrl(project.repo_url);
       setEditBranch(project.branch);
+      setEditScmToken('');
     }
   }, [project]);
 
@@ -190,6 +195,7 @@ export function ProjectDetailPage() {
       if (editName !== project.name) updates.name = editName;
       if (editUrl !== project.repo_url) updates.repo_url = editUrl;
       if (editBranch !== project.branch) updates.branch = editBranch;
+      if (editScmToken) updates.scm_token = editScmToken;
       if (Object.keys(updates).length > 0) {
         await updateProject(projectId, updates);
         fetchData();
@@ -197,7 +203,21 @@ export function ProjectDetailPage() {
     } finally {
       setSaving(false);
     }
-  }, [projectId, project, editName, editUrl, editBranch, fetchData]);
+  }, [projectId, project, editName, editUrl, editBranch, editScmToken, fetchData]);
+
+  const handleCreatePR = useCallback(async () => {
+    if (!opScanId) return;
+    setPrCreating(true);
+    setPrError(null);
+    try {
+      const result = await createPullRequest(opScanId);
+      setPrUrl(result.pr_url);
+    } catch (err) {
+      setPrError(err instanceof Error ? err.message : 'Failed to create pull request');
+    } finally {
+      setPrCreating(false);
+    }
+  }, [opScanId]);
 
   if (loading && !project) {
     return (
@@ -254,7 +274,15 @@ export function ProjectDetailPage() {
                   )}
 
                   {opStatus === 'complete' && opResult && (
-                    <OperationResultCard result={opResult} isRemediate={opIsRemediate} onDismiss={opReset} />
+                    <OperationResultCard
+                      result={opResult}
+                      isRemediate={opIsRemediate}
+                      onDismiss={() => { opReset(); setPrUrl(null); setPrError(null); }}
+                      onCreatePR={opIsRemediate && opScanId ? handleCreatePR : undefined}
+                      prCreating={prCreating}
+                      prUrl={prUrl}
+                      prError={prError}
+                    />
                   )}
 
                   {opStatus === 'error' && (
@@ -479,6 +507,24 @@ export function ProjectDetailPage() {
                     <FlexItem>
                       <label htmlFor="edit-branch" style={{ display: 'block', fontWeight: 600, marginBottom: 4 }}>Branch</label>
                       <TextInput id="edit-branch" value={editBranch} onChange={(_e, v) => setEditBranch(v)} />
+                    </FlexItem>
+                    <FlexItem>
+                      <label htmlFor="edit-scm-token" style={{ display: 'block', fontWeight: 600, marginBottom: 4 }}>
+                        SCM Token
+                        {project?.has_scm_token && (
+                          <span style={{ fontWeight: 400, marginLeft: 8, fontSize: 12, opacity: 0.7 }}>(configured)</span>
+                        )}
+                      </label>
+                      <TextInput
+                        id="edit-scm-token"
+                        type="password"
+                        value={editScmToken}
+                        onChange={(_e, v) => setEditScmToken(v)}
+                        placeholder={project?.has_scm_token ? '••••••••' : 'GitHub PAT or App token'}
+                      />
+                      <div style={{ fontSize: 12, marginTop: 4, opacity: 0.6 }}>
+                        Used for creating pull requests from remediation results. Leave blank to keep current value.
+                      </div>
                     </FlexItem>
                     <FlexItem>
                       <Flex gap={{ default: 'gapSm' }}>

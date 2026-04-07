@@ -8,11 +8,16 @@ import { ViolationOutputToolbar } from '../components/ViolationOutputToolbar';
 import { ViolationOutput } from '../components/ViolationOutput';
 import { PipelineLogOutput } from '../components/PipelineLogOutput';
 import {
+  Alert,
+  AlertActionCloseButton,
   Button,
   ExpandableSection,
+  Flex,
+  FlexItem,
   Label,
 } from '@patternfly/react-core';
-import { deleteActivity, getActivity } from '../services/api';
+import { ExternalLinkAltIcon } from '@patternfly/react-icons';
+import { createPullRequest, deleteActivity, getActivity } from '../services/api';
 import { useFeedbackEnabled } from '../hooks/useFeedbackEnabled';
 import type { ActivityDetail } from '../types/api';
 import { getRuleDescription } from '../data/ruleDescriptions';
@@ -35,6 +40,8 @@ export function ActivityDetailPage() {
   const [ruleFilters, setRuleFilters] = useState<Set<string>>(new Set());
   const [searchText, setSearchText] = useState('');
   const [resultsOpen, setResultsOpen] = useState(true);
+  const [prCreating, setPrCreating] = useState(false);
+  const [prError, setPrError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!activityId) return;
@@ -107,6 +114,23 @@ export function ActivityDetailPage() {
     }
   };
 
+  const handleCreatePR = async () => {
+    if (!activityId) return;
+    setPrCreating(true);
+    setPrError(null);
+    try {
+      const result = await createPullRequest(activityId);
+      setDetail((prev) => prev ? { ...prev, pr_url: result.pr_url } : prev);
+    } catch (err) {
+      setPrError(err instanceof Error ? err.message : 'Failed to create pull request');
+    } finally {
+      setPrCreating(false);
+    }
+  };
+
+  const isRemediate = detail.scan_type === 'fix' || detail.scan_type === 'remediate';
+  const canCreatePR = isRemediate && detail.patches.length > 0 && !detail.pr_url;
+
   return (
     <PageLayout>
       <PageHeader
@@ -117,11 +141,57 @@ export function ActivityDetailPage() {
         ]}
         description={`${displayType(detail.scan_type)} via ${detail.source} — ${new Date(detail.created_at).toLocaleString()}`}
         headerActions={
-          <Button variant="danger" onClick={handleDelete} size="sm">
-            Delete
-          </Button>
+          <Flex gap={{ default: 'gapSm' }} alignItems={{ default: 'alignItemsCenter' }}>
+            {detail.pr_url && (
+              <FlexItem>
+                <Button
+                  variant="link"
+                  component="a"
+                  href={detail.pr_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  icon={<ExternalLinkAltIcon />}
+                  iconPosition="end"
+                  size="sm"
+                >
+                  View PR
+                </Button>
+              </FlexItem>
+            )}
+            {canCreatePR && (
+              <FlexItem>
+                <Button
+                  variant="secondary"
+                  onClick={handleCreatePR}
+                  isLoading={prCreating}
+                  isDisabled={prCreating}
+                  size="sm"
+                >
+                  {prCreating ? 'Creating PR...' : 'Create PR'}
+                </Button>
+              </FlexItem>
+            )}
+            <FlexItem>
+              <Button variant="danger" onClick={handleDelete} size="sm">
+                Delete
+              </Button>
+            </FlexItem>
+          </Flex>
         }
       />
+
+      {prError && (
+        <div style={{ padding: '16px 24px 0' }}>
+          <Alert
+            variant="danger"
+            isInline
+            title="Pull request creation failed"
+            actionClose={<AlertActionCloseButton onClose={() => setPrError(null)} />}
+          >
+            {prError}
+          </Alert>
+        </div>
+      )}
 
       {/*
         Layout mirrors AAP job output:
