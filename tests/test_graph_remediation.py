@@ -639,7 +639,7 @@ class TestGraphRemediationEngine:
         graph.add_node(node)
         rules: list[GraphRule] = [_FQCNRule()]
 
-        def _always_fail_transform(task: "CommentedMap", violation: ViolationDict) -> bool:
+        def _always_fail_transform(task: CommentedMap, violation: ViolationDict) -> bool:
             return False
 
         registry = TransformRegistry()
@@ -698,7 +698,7 @@ class TestGraphRemediationEngine:
         graph.add_node(node)
         rules: list[GraphRule] = [_FQCNRule()]
 
-        def _always_fail_transform(task: "CommentedMap", violation: ViolationDict) -> bool:
+        def _always_fail_transform(task: CommentedMap, violation: ViolationDict) -> bool:
             return False
 
         registry = TransformRegistry()

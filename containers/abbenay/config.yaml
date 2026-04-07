@@ -20,7 +20,7 @@ providers:
   # vertex-anthropic:
   #   engine: vertex-anthropic
   #   base_url: "https://your-proxy.example.com:443/models"
-  #   api_key_env_var_name: "VERTEX_ANTHROPIC_API_KEY"
+  #   api_key_env: "VERTEX_ANTHROPIC_API_KEY"
   #   models:
   #     claude-sonnet-4@20250514: {}
 
