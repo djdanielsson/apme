@@ -42,6 +42,14 @@ APME_FEEDBACK_GITHUB_TOKEN="${APME_FEEDBACK_GITHUB_TOKEN:-}"
 # Set ABBENAY_CA_BUNDLE to the absolute path of a PEM CA bundle file.
 ABBENAY_CA_BUNDLE="${ABBENAY_CA_BUNDLE:-}"
 if [[ -n "$ABBENAY_CA_BUNDLE" ]]; then
+  if [[ "$ABBENAY_CA_BUNDLE" != /* ]]; then
+    echo "ERROR: ABBENAY_CA_BUNDLE must be an absolute path (got: $ABBENAY_CA_BUNDLE)" >&2
+    exit 1
+  fi
+  if [[ "$ABBENAY_CA_BUNDLE" == *$'\n'* ]]; then
+    echo "ERROR: ABBENAY_CA_BUNDLE must not contain newlines" >&2
+    exit 1
+  fi
   if [[ ! -f "$ABBENAY_CA_BUNDLE" ]]; then
     echo "ERROR: ABBENAY_CA_BUNDLE points to a file that does not exist: $ABBENAY_CA_BUNDLE" >&2
     exit 1

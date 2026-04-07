@@ -622,6 +622,113 @@ class TestGraphRemediationEngine:
         assert len(report.remaining_violations) == len(graph_violations)
         assert report.remaining_violations[0]["rule_id"] == graph_violations[0]["rule_id"]
 
+    async def test_tier1_stall_falls_through_to_ai(self) -> None:
+        """When Tier 1 transforms exist but all return False, the engine falls through to Tier 2 AI.
+
+        Sets up two violations on the same node:
+        - M001 (FQCN) with a registered transform that always returns False (stall)
+        - L043 (jinja2) with no transform, classified Tier 2 AI candidate
+        When Tier 1 stalls, the engine should invoke the AI provider for L043.
+        """
+        from unittest.mock import AsyncMock
+
+        from apme_engine.remediation.ai_provider import AINodeFix
+
+        graph = ContentGraph()
+        node = _make_node(module="apt")
+        graph.add_node(node)
+        rules: list[GraphRule] = [_FQCNRule()]
+
+        def _always_fail_transform(task: "CommentedMap", violation: ViolationDict) -> bool:
+            return False
+
+        registry = TransformRegistry()
+        registry.register("M001", node=_always_fail_transform)
+
+        ai_provider = AsyncMock()
+        ai_provider.propose_node_fix = AsyncMock(
+            return_value=AINodeFix(
+                fixed_snippet=_TASK_YAML_FQCN,
+                rule_ids=["L043"],
+                explanation="Fixed jinja2 spacing",
+                confidence=0.95,
+            ),
+        )
+
+        violations: list[ViolationDict] = [
+            {
+                "rule_id": "M001",
+                "path": node.node_id,
+                "file": node.file_path,
+                "line": 3,
+                "message": "Use FQCN for apt",
+                "severity": "medium",
+                "source": "native",
+                "scope": "task",
+            },
+            {
+                "rule_id": "L043",
+                "path": node.node_id,
+                "file": node.file_path,
+                "line": 3,
+                "message": "Jinja2 spacing",
+                "severity": "medium",
+                "source": "native",
+                "scope": "task",
+            },
+        ]
+        engine = GraphRemediationEngine(
+            registry,
+            graph,
+            rules,
+            max_passes=5,
+            ai_provider=ai_provider,
+        )
+        report = await engine.remediate(initial_violations=violations)
+
+        ai_provider.propose_node_fix.assert_called()
+        assert report.passes >= 1
+        assert len(report.ai_proposals) >= 1
+        assert not report.oscillation_detected
+
+    async def test_tier1_stall_no_false_convergence(self) -> None:
+        """When Tier 1 stalls and no AI provider is set, the engine does not report full convergence."""
+        graph = ContentGraph()
+        node = _make_node(module="apt")
+        graph.add_node(node)
+        rules: list[GraphRule] = [_FQCNRule()]
+
+        def _always_fail_transform(task: "CommentedMap", violation: ViolationDict) -> bool:
+            return False
+
+        registry = TransformRegistry()
+        registry.register("M001", node=_always_fail_transform)
+
+        violations: list[ViolationDict] = [
+            {
+                "rule_id": "M001",
+                "path": node.node_id,
+                "file": node.file_path,
+                "line": 3,
+                "message": "Use FQCN for apt",
+                "severity": "medium",
+                "source": "native",
+                "scope": "task",
+            }
+        ]
+        engine = GraphRemediationEngine(
+            registry,
+            graph,
+            rules,
+            max_passes=5,
+            ai_provider=None,
+        )
+        report = await engine.remediate(initial_violations=violations)
+
+        assert report.fixed == 0
+        assert len(report.remaining_violations) >= 1
+        assert not report.oscillation_detected
+
     async def test_step_diffs_populated(self) -> None:
         """step_diffs captures per-progression diffs after convergence."""
         graph = ContentGraph()
