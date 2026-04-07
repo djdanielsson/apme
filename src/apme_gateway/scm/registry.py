@@ -9,7 +9,7 @@ from __future__ import annotations
 from apme_gateway.scm.base import ScmProvider
 from apme_gateway.scm.github import GitHubProvider
 
-_PROVIDERS: dict[str, type] = {
+_PROVIDERS: dict[str, type[ScmProvider]] = {
     "github": GitHubProvider,
 }
 
@@ -34,5 +34,4 @@ def get_provider(provider_type: str, *, api_base_url: str | None = None) -> ScmP
         raise ValueError(msg)
     if api_base_url and provider_type == "github":
         return GitHubProvider(api_base_url=api_base_url)
-    instance: ScmProvider = cls()
-    return instance
+    return cls()
