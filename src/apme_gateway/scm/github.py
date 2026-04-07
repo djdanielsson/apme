@@ -131,37 +131,30 @@ class GitHubProvider:
 
             tree_items = []
             for path, content in files.items():
-                tree_items.append(
-                    {
-                        "path": path,
-                        "mode": "100644",
-                        "type": "blob",
-                        "content": base64.b64decode(base64.b64encode(content)).decode("utf-8", errors="replace")
-                        if _is_text(content)
-                        else None,
-                        "sha": None,
-                    }
-                )
-                if tree_items[-1]["content"] is None:
+                if _is_text(content):
+                    tree_items.append(
+                        {
+                            "path": path,
+                            "mode": "100644",
+                            "type": "blob",
+                            "content": content.decode("utf-8"),
+                        }
+                    )
+                else:
                     blob_resp = await client.post(
                         f"{self._api}/repos/{owner}/{repo}/git/blobs",
                         headers=headers,
                         json={"content": base64.b64encode(content).decode(), "encoding": "base64"},
                     )
                     blob_resp.raise_for_status()
-                    tree_items[-1] = {
-                        "path": path,
-                        "mode": "100644",
-                        "type": "blob",
-                        "sha": blob_resp.json()["sha"],
-                    }
-                else:
-                    tree_items[-1] = {
-                        "path": path,
-                        "mode": "100644",
-                        "type": "blob",
-                        "content": content.decode("utf-8"),
-                    }
+                    tree_items.append(
+                        {
+                            "path": path,
+                            "mode": "100644",
+                            "type": "blob",
+                            "sha": blob_resp.json()["sha"],
+                        }
+                    )
 
             tree_resp = await client.post(
                 f"{self._api}/repos/{owner}/{repo}/git/trees",

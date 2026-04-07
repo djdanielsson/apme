@@ -1318,7 +1318,10 @@ async def create_pull_request(
         )
     except Exception as exc:
         logger.exception("SCM provider error creating PR for activity %s", activity_id)
-        raise HTTPException(status_code=502, detail=f"SCM provider error: {exc}") from exc
+        raise HTTPException(
+            status_code=502,
+            detail="SCM provider error while creating pull request",
+        ) from exc
 
     async with get_session() as db:
         await q.set_scan_pr_url(db, activity_id, result.pr_url)
