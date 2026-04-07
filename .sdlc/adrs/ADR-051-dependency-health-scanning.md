@@ -102,12 +102,17 @@ content.
 etc.) — the rule logic is the same. The `RuleScope.COLLECTION` and metadata
 distinguish "this M001 is in your project" from "this M001 is in a dependency."
 
-**Caching:** Collection content is immutable at a given FQCN+version. The
-validator maintains an in-process LRU cache keyed on `(fqcn, version)` →
-`list[Violation]`. Across sessions, a persistent JSON cache under
-`~/.apme-data/collection-health/` avoids re-scanning unchanged collections.
-Cache entries have no TTL (immutable content = deterministic results); a
-`--rescan-deps` flag forces a cache bust.
+**Caching:** Collection content is immutable at a given FQCN+version, but
+findings also depend on the scan schema: the engine version, the curated rule
+subset, and rule implementation changes. The validator maintains an in-process
+LRU cache keyed on `(fqcn, version, cache_schema)` → `list[Violation]`, where
+`cache_schema` identifies the current scan semantics (engine version + curated
+rule-set hash). Across sessions, a persistent JSON cache under
+`~/.apme-data/collection-health/` stores `cache_schema` alongside findings
+and reuses an entry only when it matches the current scanner. Cache entries
+have no TTL because results are deterministic for a given
+`(fqcn, version, cache_schema)` tuple; a `--rescan-deps` flag still forces a
+cache bust.
 
 **Scope of scan:** Only collections actually installed in the session venv for
 this project. Transitive collection dependencies are included (they are
@@ -137,11 +142,13 @@ vulnerability databases.
    checking the `gitleaks` binary.
 
 **Offline mode:** By default, `pip-audit` uses `--vulnerability-source osv`
-and queries osv.dev. For offline or air-gapped environments, `pip-audit`
-supports `--local` mode (bundled OSV database copy) and `--cache-dir` with a
-pre-populated cache. A future APME enhancement could standardize how that
-local vulnerability data or cache is packaged and distributed for fully
-air-gapped deployments.
+and queries osv.dev. In the command above, `-l` / `--local` means "audit the
+locally installed environment" (not an offline database mode). For offline or
+air-gapped environments, vulnerability data distribution is a separate
+concern: a pre-populated `pip-audit` cache (`--cache-dir`) and/or a mirrored
+vulnerability data source. A future APME enhancement could standardize how
+that cache or mirrored vulnerability data is packaged and distributed for
+fully air-gapped deployments.
 
 **Rule IDs:** `R200` for known CVE in Python dependency. `R201` reserved for
 "package has no maintained release" (future). These are risk findings, not lint
@@ -341,8 +348,10 @@ src/apme_engine/
   High ≥ 7.0, Medium ≥ 4.0, Low < 4.0).
 - If `pip-audit` is not installed, `Health` returns `NOT_SERVING` and Primary
   skips the validator (identical to Gitleaks without binary).
-- Air-gapped operation is supported via `pip-audit --local` (bundled OSV
-  database) or `--cache-dir` with a pre-populated cache.
+- Air-gapped operation requires a pre-populated `pip-audit` cache
+  (`--cache-dir`) or a mirrored vulnerability data source; `-l` / `--local`
+  in the audit command refers to auditing the local environment, not an
+  offline database mode.
 
 ### Launcher changes
 
