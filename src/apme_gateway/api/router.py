@@ -557,7 +557,7 @@ async def update_project(
     Raises:
         HTTPException: 400 if no fields provided, 404 if not found.
     """
-    updates: dict[str, str] = {}
+    updates: dict[str, str | None] = {}
     if body.name is not None:
         updates["name"] = body.name
     if body.repo_url is not None:
@@ -565,9 +565,9 @@ async def update_project(
     if body.branch is not None:
         updates["branch"] = body.branch
     if body.scm_token is not None:
-        updates["scm_token"] = body.scm_token or None  # type: ignore[assignment]
+        updates["scm_token"] = body.scm_token or None
     if body.scm_provider is not None:
-        updates["scm_provider"] = body.scm_provider or None  # type: ignore[assignment]
+        updates["scm_provider"] = body.scm_provider or None
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
     async with get_session() as db:

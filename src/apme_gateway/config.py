@@ -21,7 +21,6 @@ class GatewayConfig:
         feedback_github_token: GitHub token with ``issues:write`` for feedback.
         scm_token: Global SCM token fallback for PR creation (ADR-050).
         github_api_url: GitHub API base URL (ADR-050). Default ``https://api.github.com``.
-        secret_key: Symmetric key for encrypting stored SCM tokens at rest (ADR-050).
     """
 
     db_path: str = field(default_factory=lambda: os.environ.get("APME_DB_PATH", "/data/apme.db"))
@@ -43,9 +42,6 @@ class GatewayConfig:
     )
     github_api_url: str = field(
         default_factory=lambda: os.environ.get("APME_GITHUB_API_URL", "https://api.github.com"),
-    )
-    secret_key: str = field(
-        default_factory=lambda: os.environ.get("APME_SECRET_KEY", ""),
     )
 
 

@@ -27,7 +27,7 @@ class Project(Base):
         branch: Branch to clone (default ``main``).
         created_at: ISO 8601 creation timestamp.
         health_score: Computed 0-100 health score from latest scan.
-        scm_token: Encrypted per-project SCM token (ADR-050). Overrides global.
+        scm_token: Per-project SCM token (ADR-050). Overrides global fallback.
         scm_provider: Explicit SCM provider type (ADR-050). Auto-detected if unset.
         scans: Related scan rows.
     """

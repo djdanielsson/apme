@@ -120,7 +120,14 @@ class GitHubProvider:
                 headers=headers,
             )
             ref_resp.raise_for_status()
-            base_sha = ref_resp.json()["object"]["sha"]
+            commit_sha_head = ref_resp.json()["object"]["sha"]
+
+            commit_detail = await client.get(
+                f"{self._api}/repos/{owner}/{repo}/git/commits/{commit_sha_head}",
+                headers=headers,
+            )
+            commit_detail.raise_for_status()
+            base_tree_sha = commit_detail.json()["tree"]["sha"]
 
             tree_items = []
             for path, content in files.items():
@@ -159,7 +166,7 @@ class GitHubProvider:
             tree_resp = await client.post(
                 f"{self._api}/repos/{owner}/{repo}/git/trees",
                 headers=headers,
-                json={"base_tree": base_sha, "tree": tree_items},
+                json={"base_tree": base_tree_sha, "tree": tree_items},
             )
             tree_resp.raise_for_status()
             tree_sha = tree_resp.json()["sha"]
@@ -170,7 +177,7 @@ class GitHubProvider:
                 json={
                     "message": commit_message,
                     "tree": tree_sha,
-                    "parents": [base_sha],
+                    "parents": [commit_sha_head],
                 },
             )
             commit_resp.raise_for_status()

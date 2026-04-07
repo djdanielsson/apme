@@ -169,13 +169,13 @@ async def resolve_project(db: AsyncSession, id_or_name: str) -> Project | None:
     return cast("Project | None", result.scalar_one_or_none())
 
 
-async def update_project(db: AsyncSession, project_id: str, **fields: str) -> Project | None:
+async def update_project(db: AsyncSession, project_id: str, **fields: str | None) -> Project | None:
     """Partial-update a project.
 
     Args:
         db: Active async database session.
         project_id: UUID or name of the project.
-        **fields: Column-value pairs to update.
+        **fields: Column-value pairs to update.  ``None`` clears nullable fields.
 
     Returns:
         Updated Project or None if not found.
@@ -184,7 +184,7 @@ async def update_project(db: AsyncSession, project_id: str, **fields: str) -> Pr
     if project is None:
         return None
     for key, value in fields.items():
-        if value is not None and hasattr(project, key):
+        if hasattr(project, key):
             setattr(project, key, value)
     await db.commit()
     await db.refresh(project)
