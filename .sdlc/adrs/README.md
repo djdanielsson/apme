@@ -71,6 +71,7 @@ Decisions under consideration — not yet accepted or implemented.
 | [ADR-042](ADR-042-third-party-plugin-services.md) | Third-Party Plugin Services | 2026-03-20 |
 | [ADR-045](ADR-045-galaxy-auth-delegation.md) | Delegate Galaxy Authentication to ansible-galaxy, Galaxy Config as Scan Metadata | 2026-03-28 |
 | [ADR-046](ADR-046-ai-assisted-report-generation.md) | AI-Assisted Report Generation | 2026-03-30 |
+| [ADR-050](ADR-050-post-remediation-pr-creation.md) | Post-Remediation PR Creation via Gateway SCM Integration | 2026-04-07 |
 
 ## Superseded
 
@@ -84,7 +85,7 @@ Decisions replaced by newer ADRs.
 ## Creating New ADRs
 
 1. Copy the template from `../templates/adr.md`
-2. Use the next available number (currently ADR-050)
+2. Use the next available number (currently ADR-051)
 3. Include:
    - Status (Proposed → Accepted → Implemented)
    - Date
