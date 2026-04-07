@@ -1657,7 +1657,11 @@ async def set_scan_pr_url(
     scan_id: str,
     pr_url: str,
 ) -> bool:
-    """Record the PR URL on an activity after PR creation (ADR-050).
+    """Atomically record the PR URL on an activity (ADR-050).
+
+    Uses a compare-and-set update (``WHERE pr_url IS NULL``) so that
+    concurrent requests cannot both succeed — the second caller gets
+    ``False`` and should return 409.
 
     Args:
         db: Active async database session.
@@ -1665,16 +1669,15 @@ async def set_scan_pr_url(
         pr_url: Web URL of the created pull request.
 
     Returns:
-        True if the scan row was found and updated.
+        True if the scan row was found and updated, False if it was
+        already set or the scan does not exist.
     """
-    stmt = select(Scan).where(Scan.scan_id == scan_id)
+    from sqlalchemy import update
+
+    stmt = update(Scan).where(Scan.scan_id == scan_id, Scan.pr_url.is_(None)).values(pr_url=pr_url)
     result = await db.execute(stmt)
-    scan = result.scalar_one_or_none()
-    if scan is None:
-        return False
-    scan.pr_url = pr_url
     await db.commit()
-    return True
+    return bool(result.rowcount)
 
 
 # ---------------------------------------------------------------------------

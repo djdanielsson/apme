@@ -1324,7 +1324,12 @@ async def create_pull_request(
         ) from exc
 
     async with get_session() as db:
-        await q.set_scan_pr_url(db, activity_id, result.pr_url)
+        updated = await q.set_scan_pr_url(db, activity_id, result.pr_url)
+        if not updated:
+            raise HTTPException(
+                status_code=409,
+                detail="PR was already created for this activity (concurrent request)",
+            )
 
     return CreatePullRequestResponse(
         pr_url=result.pr_url,
