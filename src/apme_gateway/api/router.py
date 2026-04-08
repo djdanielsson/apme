@@ -959,6 +959,7 @@ async def get_collection_detail(fqcn: str) -> CollectionDetail:
                 name=str(p["name"]),
                 health_score=cast(int, p.get("health_score", 0)),
                 collection_version=str(p.get("version", "")),
+                last_scan_id=str(p.get("last_scan_id", "")),
             )
             for p in projects_list
         ],
@@ -983,6 +984,7 @@ async def list_collection_projects(fqcn: str) -> list[CollectionProjectRef]:
             name=str(r["name"]),
             health_score=cast(int, r.get("health_score", 0)),
             collection_version=str(r.get("collection_version", "")),
+            last_scan_id=str(r.get("last_scan_id", "")),
         )
         for r in rows
     ]
@@ -1042,6 +1044,7 @@ async def get_python_package_detail(name: str) -> PythonPackageDetail:
                 name=str(p["name"]),
                 health_score=cast(int, p.get("health_score", 0)),
                 package_version=str(p.get("package_version", "")),
+                last_scan_id=str(p.get("last_scan_id", "")),
             )
             for p in pkg_projects
         ],

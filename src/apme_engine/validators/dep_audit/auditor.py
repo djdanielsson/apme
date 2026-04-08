@@ -20,10 +20,6 @@ PIP_AUDIT_BIN = "pip-audit"
 
 RULE_ID_CVE = "R200"
 
-_CVSS_CRITICAL = 9.0
-_CVSS_HIGH = 7.0
-_CVSS_MEDIUM = 4.0
-
 
 def pip_audit_available() -> tuple[bool, str]:
     """Check whether pip-audit is on PATH.
@@ -45,26 +41,6 @@ def pip_audit_available() -> tuple[bool, str]:
         return False, "pip-audit binary not found"
     except subprocess.TimeoutExpired:
         return False, "pip-audit --version timed out"
-
-
-def _severity_from_cvss(score: float | None) -> str:
-    """Map a CVSS score to an APME severity label.
-
-    Args:
-        score: CVSS score (0.0–10.0), or None if unavailable.
-
-    Returns:
-        Severity string: ``"critical"``, ``"high"``, ``"medium"``, or ``"low"``.
-    """
-    if score is None:
-        return "medium"
-    if score >= _CVSS_CRITICAL:
-        return "critical"
-    if score >= _CVSS_HIGH:
-        return "high"
-    if score >= _CVSS_MEDIUM:
-        return "medium"
-    return "low"
 
 
 def _find_site_packages(venv_dir: Path) -> Path | None:
@@ -178,14 +154,13 @@ def _convert_findings(data: object) -> list[ViolationDict]:
             fix_versions = ", ".join(str(v) for v in fix_versions_raw) if isinstance(fix_versions_raw, list) else ""
 
             aliases = vuln.get("aliases", [])
-            cvss_score: float | None = None
             if isinstance(aliases, list):
                 for alias in aliases:
                     if isinstance(alias, str) and alias.startswith("CVE-"):
                         cve_id = alias
                         break
 
-            severity = _severity_from_cvss(cvss_score)
+            severity = "medium"
             message = f"{pkg_name}=={pkg_version} has known vulnerability {cve_id}: {description}"
 
             violations.append(

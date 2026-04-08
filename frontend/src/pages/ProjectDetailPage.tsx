@@ -652,6 +652,22 @@ function DependenciesTab({ dependencies, depHealth, loading, projectId }: { depe
     return map;
   }, [depHealth]);
 
+  const pkgCveMap = useMemo(() => {
+    const map = new Map<string, { count: number; hasCritical: boolean }>();
+    if (!depHealth) return map;
+    for (const cve of depHealth.python_cves) {
+      const match = cve.message.match(/^([a-zA-Z0-9_.-]+)==/);
+      if (!match?.[1]) continue;
+      const pkg = match[1].toLowerCase();
+      const existing = map.get(pkg) ?? { count: 0, hasCritical: false };
+      existing.count += cve.occurrence_count;
+      const cls = severityClass(cve.level);
+      if (cls === 'critical' || cls === 'error' || cls === 'high') existing.hasCritical = true;
+      map.set(pkg, existing);
+    }
+    return map;
+  }, [depHealth]);
+
   const handleSbomDownload = useCallback(async () => {
     if (!projectId) return;
     setDownloading(true);
@@ -820,10 +836,13 @@ function DependenciesTab({ dependencies, depHealth, loading, projectId }: { depe
                 <tr role="row">
                   <th role="columnheader">Package</th>
                   <th role="columnheader">Version</th>
+                  <th role="columnheader">CVEs</th>
                 </tr>
               </thead>
               <tbody>
-                {dependencies.python_packages.map((p) => (
+                {dependencies.python_packages.map((p) => {
+                  const cveInfo = pkgCveMap.get(p.name.toLowerCase());
+                  return (
                   <tr
                     key={`${p.name}-${p.version}`}
                     role="row"
@@ -836,8 +855,19 @@ function DependenciesTab({ dependencies, depHealth, loading, projectId }: { depe
                       {p.name}
                     </td>
                     <td role="cell">{p.version}</td>
+                    <td role="cell">
+                      {cveInfo ? (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                          {cveInfo.hasCritical && <ExclamationCircleIcon style={{ color: 'var(--pf-t--global--color--status--danger--default)' }} />}
+                          <Badge isRead={!cveInfo.hasCritical}>{cveInfo.count}</Badge>
+                        </span>
+                      ) : (
+                        <span style={{ opacity: 0.4 }}>&mdash;</span>
+                      )}
+                    </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </CardBody>

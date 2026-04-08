@@ -1100,6 +1100,7 @@ async def collection_detail(
         select(
             ScanCollection.version,
             ScanCollection.source,
+            ScanCollection.scan_id,
             Scan.project_id,
             Project.name.label("project_name"),
             Project.health_score,
@@ -1124,6 +1125,7 @@ async def collection_detail(
             "name": r.project_name,
             "health_score": r.health_score,
             "version": r.version,
+            "last_scan_id": r.scan_id,
         }
         for r in rows
     ]
@@ -1166,6 +1168,7 @@ async def collection_projects(
             Project.name.label("project_name"),
             Project.health_score,
             ScanCollection.version,
+            ScanCollection.scan_id,
         )
         .join(Scan, ScanCollection.scan_id == Scan.scan_id)
         .join(Project, Scan.project_id == Project.id)
@@ -1181,6 +1184,7 @@ async def collection_projects(
             "name": r.project_name,
             "health_score": r.health_score,
             "collection_version": r.version,
+            "last_scan_id": r.scan_id,
         }
         for r in result.all()
     ]
@@ -1285,6 +1289,7 @@ async def python_package_detail(
     stmt = (
         select(
             ScanPythonPackage.version,
+            ScanPythonPackage.scan_id,
             Scan.project_id,
             Project.name.label("project_name"),
             Project.health_score,
@@ -1308,6 +1313,7 @@ async def python_package_detail(
             "name": r.project_name,
             "health_score": r.health_score,
             "package_version": r.version,
+            "last_scan_id": r.scan_id,
         }
         for r in rows
     ]
@@ -1323,16 +1329,15 @@ async def python_package_detail(
 # Dependency health findings (ADR-051)
 # ---------------------------------------------------------------------------
 
-SCOPE_COLLECTION = 7
-
 
 async def collection_health_counts(
     db: AsyncSession,
 ) -> list[dict[str, object]]:
     """Return violation counts per collection FQCN from latest scans.
 
-    Counts violations with ``scope=7`` (COLLECTION) grouped by the ``path``
-    field which stores the collection FQCN for collection-scoped findings.
+    Counts violations where ``validator_source == "collection_health"``,
+    grouped by the ``path`` field (collection FQCN). That validator only
+    emits collection-scoped findings, so no separate scope filter is needed.
 
     Args:
         db: Active async database session.
@@ -1387,9 +1392,10 @@ async def collection_health_counts(
 async def python_cve_counts(
     db: AsyncSession,
 ) -> list[dict[str, object]]:
-    """Return CVE violation counts per Python package from latest scans.
+    """Return CVE violation counts per unique CVE finding from latest scans.
 
-    Counts violations with ``validator_source='dep_audit'``.
+    Counts violations with ``validator_source='dep_audit'``, grouped by
+    ``(rule_id, level, message)`` so each distinct finding aggregates separately.
 
     Args:
         db: Active async database session.

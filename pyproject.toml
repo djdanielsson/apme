@@ -21,6 +21,7 @@ dependencies = [
     "protobuf>=6.31.1,<7",
     "networkx>=3.1",
     "httpx",
+    "packaging>=23",
     "fastapi>=0.100",
     "uvicorn[standard]>=0.20",
     "pip-audit>=2.7",

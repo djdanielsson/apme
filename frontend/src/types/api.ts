@@ -231,6 +231,7 @@ export interface CollectionProjectRef {
   name: string;
   health_score: number;
   collection_version: string;
+  last_scan_id: string;
 }
 
 export interface CollectionDetail {
@@ -252,6 +253,7 @@ export interface PythonPackageProjectRef {
   name: string;
   health_score: number;
   package_version: string;
+  last_scan_id: string;
 }
 
 export interface PythonPackageDetail {

@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, Response
+from packaging.version import InvalidVersion, Version
 from pydantic import BaseModel
 
 from galaxy_proxy.collection_downloader import (
@@ -458,6 +459,22 @@ def create_app(
     return app
 
 
+def _galaxy_version_sort_key(version: str) -> tuple[int, Version | str]:
+    """Build a sort key for PEP 440 version ordering.
+
+    Args:
+        version: Galaxy collection version string.
+
+    Returns:
+        ``(0, Version(...))`` for valid PEP 440 versions, or ``(1, version)``
+        so non-PEP-440 strings sort after all valid ones.
+    """
+    try:
+        return (0, Version(version))
+    except InvalidVersion:
+        return (1, version)
+
+
 async def _fetch_galaxy_versions(namespace: str, name: str) -> list[str]:
     """Fetch all published version strings for a collection from Galaxy.
 
@@ -484,7 +501,7 @@ async def _fetch_galaxy_versions(namespace: str, name: str) -> list[str]:
                 params["offset"] = int(params["offset"]) + int(params["limit"])
     except (httpx.HTTPError, KeyError, ValueError) as exc:
         logger.warning("Failed to fetch Galaxy versions for %s.%s: %s", namespace, name, exc)
-    return versions
+    return sorted(set(versions), key=_galaxy_version_sort_key)
 
 
 def _list_cached_wheels(cache: ProxyCache, namespace: str, name: str) -> list[str]:

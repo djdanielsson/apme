@@ -54,7 +54,7 @@ def build_parser() -> argparse.ArgumentParser:
     check_p.add_argument(
         "--timeout",
         type=int,
-        default=120,
+        default=300,
         help="gRPC timeout in seconds (default: 300)",
     )
     check_p.add_argument(
@@ -79,12 +79,6 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help="Disable Python CVE audit only",
-    )
-    check_p.add_argument(
-        "--rescan-deps",
-        action="store_true",
-        default=False,
-        help="Bust the collection health cache (force rescan)",
     )
 
     # ── format ──
@@ -168,12 +162,6 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help="Disable Python CVE audit only",
-    )
-    remediate_p.add_argument(
-        "--rescan-deps",
-        action="store_true",
-        default=False,
-        help="Bust the collection health cache (force rescan)",
     )
 
     # ── daemon ──

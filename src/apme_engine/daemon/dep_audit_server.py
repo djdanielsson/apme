@@ -133,7 +133,7 @@ class DepAuditValidatorServicer(validate_pb2_grpc.ValidatorServicer):
         """
         available, info = pip_audit_available()
         if available:
-            return HealthResponse(status=f"ok (pip-audit {info})")
+            return HealthResponse(status=f"ok ({info})")
         return HealthResponse(status=f"pip-audit not available: {info}")
 
 

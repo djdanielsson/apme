@@ -493,12 +493,14 @@ class CollectionProjectRef(BaseModel):  # type: ignore[misc]
         name: Project display label.
         health_score: Project health score.
         collection_version: Version of the collection in this project.
+        last_scan_id: Scan ID where this collection was last seen.
     """
 
     id: str
     name: str
     health_score: int
     collection_version: str
+    last_scan_id: str = ""
 
 
 class CollectionDetail(BaseModel):  # type: ignore[misc]
@@ -541,12 +543,14 @@ class PythonPackageProjectRef(BaseModel):  # type: ignore[misc]
         name: Project display label.
         health_score: Project health score.
         package_version: Version of the package in this project.
+        last_scan_id: Scan ID where this package was last seen.
     """
 
     id: str
     name: str
     health_score: int = 0
     package_version: str = ""
+    last_scan_id: str = ""
 
 
 class PythonPackageDetail(BaseModel):  # type: ignore[misc]

@@ -10,46 +10,9 @@ from apme_engine.validators.dep_audit.auditor import (
     RULE_ID_CVE,
     _convert_findings,
     _find_site_packages,
-    _severity_from_cvss,
     pip_audit_available,
     run_pip_audit,
 )
-
-
-class TestSeverityMapping:
-    """Tests for CVSS score to severity label mapping."""
-
-    def test_critical(self) -> None:
-        """CVSS >= 9.0 maps to critical."""
-        assert _severity_from_cvss(9.5) == "critical"
-
-    def test_high(self) -> None:
-        """CVSS >= 7.0 maps to high."""
-        assert _severity_from_cvss(7.5) == "high"
-
-    def test_medium(self) -> None:
-        """CVSS >= 4.0 maps to medium."""
-        assert _severity_from_cvss(5.0) == "medium"
-
-    def test_low(self) -> None:
-        """CVSS < 4.0 maps to low."""
-        assert _severity_from_cvss(2.0) == "low"
-
-    def test_none_defaults_medium(self) -> None:
-        """None CVSS score defaults to medium."""
-        assert _severity_from_cvss(None) == "medium"
-
-    def test_boundary_critical(self) -> None:
-        """Exactly 9.0 is critical."""
-        assert _severity_from_cvss(9.0) == "critical"
-
-    def test_boundary_high(self) -> None:
-        """Exactly 7.0 is high."""
-        assert _severity_from_cvss(7.0) == "high"
-
-    def test_boundary_medium(self) -> None:
-        """Exactly 4.0 is medium."""
-        assert _severity_from_cvss(4.0) == "medium"
 
 
 class TestFindSitePackages:
@@ -113,6 +76,7 @@ class TestConvertFindings:
         assert v["dep_package"] == "jmespath"
         assert v["dep_installed_version"] == "1.0.0"
         assert v["dep_fix_versions"] == "1.0.1"
+        assert v["severity"] == "medium"
 
     def test_no_vulns_empty(self) -> None:
         """Package with no vulns produces no violations."""
