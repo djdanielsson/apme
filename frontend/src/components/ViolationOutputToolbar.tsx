@@ -9,17 +9,24 @@ import {
   ToolbarGroup,
 } from '@patternfly/react-core';
 import { FilterIcon, SearchIcon, TimesIcon } from '@patternfly/react-icons';
-import { SEV_CSS_VAR, SEVERITY_ORDER, SEVERITY_LABELS, bareRuleId } from './severity';
+import { SEV_CSS_VAR, SEVERITY_ORDER, SEVERITY_LABELS, SCOPE_ORDER, SCOPE_LABELS, FIX_ORDER, FIX_LABELS, bareRuleId } from './severity';
 
 interface ViolationOutputToolbarProps {
   searchText: string;
   onSearchChange: (text: string) => void;
   sevFilters: Set<string>;
   ruleFilters: Set<string>;
+  scopeFilters: Set<number>;
+  fixFilters: Set<number>;
   sevCounts: Map<string, number>;
+  scopeCounts: Map<number, number>;
+  fixCounts: Map<number, number>;
   uniqueRules: string[];
   onSevChange: (next: Set<string>) => void;
   onRuleChange: (next: Set<string>) => void;
+  onScopeChange: (next: Set<number>) => void;
+  onFixChange: (next: Set<number>) => void;
+  isRemediate?: boolean;
   filteredCount: number;
   totalCount: number;
 }
@@ -29,22 +36,32 @@ export function ViolationOutputToolbar({
   onSearchChange,
   sevFilters,
   ruleFilters,
+  scopeFilters,
+  fixFilters,
   sevCounts,
+  scopeCounts,
+  fixCounts,
   uniqueRules,
   onSevChange,
   onRuleChange,
+  onScopeChange,
+  onFixChange,
+  isRemediate = false,
   filteredCount,
   totalCount,
 }: ViolationOutputToolbarProps) {
-  const [filterMenuOpen, setFilterMenuOpen] = useState<'severity' | 'rule' | null>(null);
+  const [filterMenuOpen, setFilterMenuOpen] = useState<'severity' | 'scope' | 'fix' | 'rule' | null>(null);
   const sevRef = useRef<HTMLDivElement>(null);
+  const scopeRef = useRef<HTMLDivElement>(null);
+  const fixRef = useRef<HTMLDivElement>(null);
   const ruleRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!filterMenuOpen) return;
     const handler = (e: MouseEvent) => {
-      const ref = filterMenuOpen === 'severity' ? sevRef : ruleRef;
-      if (ref.current && !ref.current.contains(e.target as Node)) {
+      const refs: Record<string, React.RefObject<HTMLDivElement | null>> = { severity: sevRef, scope: scopeRef, fix: fixRef, rule: ruleRef };
+      const ref = refs[filterMenuOpen];
+      if (ref?.current && !ref.current.contains(e.target as Node)) {
         setFilterMenuOpen(null);
       }
     };
@@ -52,10 +69,14 @@ export function ViolationOutputToolbar({
     return () => document.removeEventListener('mousedown', handler);
   }, [filterMenuOpen]);
 
-  const hasFilters = sevFilters.size > 0 || ruleFilters.size > 0 || searchText.length > 0;
+  const fixLabelFor = (rc: number) => (rc === 1 && isRemediate) ? 'Fixed' : (FIX_LABELS[rc] || `Fix ${rc}`);
+
+  const hasFilters = sevFilters.size > 0 || ruleFilters.size > 0 || scopeFilters.size > 0 || fixFilters.size > 0 || searchText.length > 0;
   const clearAll = () => {
     onSevChange(new Set());
     onRuleChange(new Set());
+    onScopeChange(new Set());
+    onFixChange(new Set());
     onSearchChange('');
   };
 
@@ -69,6 +90,18 @@ export function ViolationOutputToolbar({
     const next = new Set(ruleFilters);
     if (next.has(rule)) next.delete(rule); else next.add(rule);
     onRuleChange(next);
+  };
+
+  const toggleScope = (scope: number) => {
+    const next = new Set(scopeFilters);
+    if (next.has(scope)) next.delete(scope); else next.add(scope);
+    onScopeChange(next);
+  };
+
+  const toggleFix = (rc: number) => {
+    const next = new Set(fixFilters);
+    if (next.has(rc)) next.delete(rc); else next.add(rc);
+    onFixChange(next);
   };
 
   return (
@@ -93,6 +126,7 @@ export function ViolationOutputToolbar({
         </ToolbarItem>
 
         <ToolbarGroup>
+          {/* Severity filter */}
           <ToolbarItem>
             <div className="apme-filter-anchor" ref={sevRef}>
               <Button
@@ -124,6 +158,69 @@ export function ViolationOutputToolbar({
             </div>
           </ToolbarItem>
 
+          {/* Scope filter */}
+          <ToolbarItem>
+            <div className="apme-filter-anchor" ref={scopeRef}>
+              <Button
+                variant="secondary"
+                onClick={() => setFilterMenuOpen(filterMenuOpen === 'scope' ? null : 'scope')}
+                size="sm"
+                icon={<FilterIcon />}
+              >
+                Scope{scopeFilters.size > 0 ? ` (${scopeFilters.size})` : ''}
+              </Button>
+              {filterMenuOpen === 'scope' && (
+                <div className="apme-filter-popover" onClick={(e) => e.stopPropagation()}>
+                  <div className="apme-filter-scroll">
+                    {SCOPE_ORDER.map((s) => {
+                      const count = scopeCounts.get(s) ?? 0;
+                      if (count === 0) return null;
+                      return (
+                        <label key={s} className="apme-filter-option">
+                          <input type="checkbox" checked={scopeFilters.has(s)} onChange={() => toggleScope(s)} />
+                          <span style={{ flex: 1 }}>{SCOPE_LABELS[s]}</span>
+                          <span style={{ opacity: 0.6, fontSize: 12 }}>{count}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          </ToolbarItem>
+
+          {/* Fix type filter */}
+          <ToolbarItem>
+            <div className="apme-filter-anchor" ref={fixRef}>
+              <Button
+                variant="secondary"
+                onClick={() => setFilterMenuOpen(filterMenuOpen === 'fix' ? null : 'fix')}
+                size="sm"
+                icon={<FilterIcon />}
+              >
+                Fix{fixFilters.size > 0 ? ` (${fixFilters.size})` : ''}
+              </Button>
+              {filterMenuOpen === 'fix' && (
+                <div className="apme-filter-popover" onClick={(e) => e.stopPropagation()}>
+                  <div className="apme-filter-scroll">
+                    {FIX_ORDER.map((rc) => {
+                      const count = fixCounts.get(rc) ?? 0;
+                      if (count === 0) return null;
+                      return (
+                        <label key={rc} className="apme-filter-option">
+                          <input type="checkbox" checked={fixFilters.has(rc)} onChange={() => toggleFix(rc)} />
+                          <span style={{ flex: 1 }}>{fixLabelFor(rc)}</span>
+                          <span style={{ opacity: 0.6, fontSize: 12 }}>{count}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          </ToolbarItem>
+
+          {/* Rule filter */}
           <ToolbarItem>
             <div className="apme-filter-anchor" ref={ruleRef}>
               <Button
@@ -157,6 +254,16 @@ export function ViolationOutputToolbar({
                 {Array.from(sevFilters).map(cls => (
                   <Label key={cls} onClose={() => toggleSev(cls)} isCompact>
                     {SEVERITY_LABELS[cls] || cls}
+                  </Label>
+                ))}
+                {Array.from(scopeFilters).map(s => (
+                  <Label key={s} onClose={() => toggleScope(s)} isCompact variant="outline">
+                    {SCOPE_LABELS[s] || `Scope ${s}`}
+                  </Label>
+                ))}
+                {Array.from(fixFilters).map(rc => (
+                  <Label key={rc} onClose={() => toggleFix(rc)} isCompact variant="outline">
+                    {fixLabelFor(rc)}
                   </Label>
                 ))}
                 {Array.from(ruleFilters).map(r => (

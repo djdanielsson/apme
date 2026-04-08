@@ -14,22 +14,40 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { DiffView } from './DiffView';
 import { FeedbackModal, type FeedbackPayload } from './FeedbackModal';
-import { severityClass, severityLabel, bareRuleId, ruleSource } from './severity';
+import { severityClass, severityLabel, bareRuleId, ruleSource, scopeLabel } from './severity';
 
-function parseSnippet(raw: string): { code: string; startLine: number } {
-  const lines = raw.split('\n');
-  let startLine = 1;
-  const cleaned: string[] = [];
-  for (const line of lines) {
-    const m = /^\s*(\d+): (.*)$/.exec(line);
-    if (m) {
-      if (cleaned.length === 0) startLine = parseInt(m[1]!, 10);
-      cleaned.push(m[2]!);
+function makeUnifiedDiff(original: string, fixed: string, filename: string): string {
+  const a = original.split('\n');
+  const b = fixed.split('\n');
+  const lines: string[] = [`--- a/${filename}`, `+++ b/${filename}`, `@@ -1,${a.length} +1,${b.length} @@`];
+  const max = Math.max(a.length, b.length);
+  let i = 0;
+  let j = 0;
+  while (i < a.length || j < b.length) {
+    if (i < a.length && j < b.length && a[i] === b[j]) {
+      lines.push(` ${a[i]}`);
+      i++;
+      j++;
     } else {
-      cleaned.push(line);
+      const scan = Math.min(max - Math.max(i, j), 20);
+      let syncA = -1;
+      let syncB = -1;
+      for (let d = 0; d < scan; d++) {
+        if (syncA < 0 && i + d < a.length && j < b.length && a[i + d] === b[j]) syncA = d;
+        if (syncB < 0 && j + d < b.length && i < a.length && a[i] === b[j + d]) syncB = d;
+        if (syncA >= 0 || syncB >= 0) break;
+      }
+      if (syncA >= 0 && (syncB < 0 || syncA <= syncB)) {
+        for (let d = 0; d < syncA; d++) { lines.push(`-${a[i++]}`); }
+      } else if (syncB >= 0) {
+        for (let d = 0; d < syncB; d++) { lines.push(`+${b[j++]}`); }
+      } else {
+        if (i < a.length) lines.push(`-${a[i++]}`);
+        if (j < b.length) lines.push(`+${b[j++]}`);
+      }
     }
   }
-  return { code: cleaned.join('\n'), startLine };
+  return lines.join('\n');
 }
 
 function tierLabel(rc: number): string {
@@ -48,8 +66,12 @@ export interface ViolationRecord {
   line: number | null;
   path: string;
   remediation_class: number;
+  scope?: number;
   validator_source?: string;
-  snippet?: string;
+  original_yaml?: string;
+  fixed_yaml?: string;
+  co_fixes?: string[];
+  node_line_start?: number;
 }
 
 interface ViolationDetailModalProps {
@@ -70,10 +92,16 @@ export function ViolationDetailModal({ isOpen, onClose, violation, diff, getRule
   const cls = severityClass(violation.level, violation.rule_id);
   const source = ruleSource(violation.rule_id);
   const isCombinedFixed = !!mergedViolations;
-  const parsed = useMemo(
-    () => (violation.snippet ? parseSnippet(violation.snippet) : null),
-    [violation.snippet],
-  );
+
+  const hasSource = !!violation.original_yaml;
+  const startLine = violation.node_line_start || 1;
+
+  const violationDiff = useMemo(() => {
+    if (violation.original_yaml && violation.fixed_yaml) {
+      return makeUnifiedDiff(violation.original_yaml, violation.fixed_yaml, violation.file || 'task.yml');
+    }
+    return diff ?? null;
+  }, [violation.original_yaml, violation.fixed_yaml, violation.file, diff]);
 
   return (
     <Modal
@@ -135,6 +163,11 @@ export function ViolationDetailModal({ isOpen, onClose, violation, diff, getRule
                     {severityLabel(violation.level, violation.rule_id)}
                   </span>
                 </PageDetail>
+                {violation.scope != null && scopeLabel(violation.scope) && (
+                  <PageDetail label="Scope">
+                    {scopeLabel(violation.scope)}
+                  </PageDetail>
+                )}
                 <PageDetail label="File">
                   {violation.file || '(unknown)'}
                 </PageDetail>
@@ -160,14 +193,14 @@ export function ViolationDetailModal({ isOpen, onClose, violation, diff, getRule
               </PageDetails>
             )}
           </Tab>
-          {parsed ? (
+          {hasSource ? (
             <Tab eventKey={1} title={<TabTitleText>Source</TabTitleText>} aria-label="Source tab">
               <div className="apme-modal-diff">
                 <SyntaxHighlighter
                   language="yaml"
                   style={oneDark}
                   showLineNumbers
-                  startingLineNumber={parsed.startLine}
+                  startingLineNumber={startLine}
                   wrapLines
                   lineProps={(lineNo: number) => {
                     const style: React.CSSProperties = { display: 'block' };
@@ -178,19 +211,24 @@ export function ViolationDetailModal({ isOpen, onClose, violation, diff, getRule
                   }}
                   customStyle={{ margin: 0, fontSize: '0.85em', borderRadius: 4 }}
                 >
-                  {parsed.code}
+                  {violation.original_yaml!}
                 </SyntaxHighlighter>
               </div>
             </Tab>
           ) : null}
-          {diff ? (
-            <Tab eventKey={parsed ? 2 : 1} title={<TabTitleText>Diff</TabTitleText>} aria-label="Diff tab">
+          {violationDiff ? (
+            <Tab eventKey={hasSource ? 2 : 1} title={<TabTitleText>Diff</TabTitleText>} aria-label="Diff tab">
               <div className="apme-modal-diff">
-                <DiffView diff={diff} />
+                {violation.co_fixes && violation.co_fixes.length > 0 && (
+                  <p style={{ fontSize: 12, opacity: 0.7, margin: '8px 0' }}>
+                    This diff also includes fixes for: {violation.co_fixes.join(', ')}
+                  </p>
+                )}
+                <DiffView diff={violationDiff} />
               </div>
             </Tab>
           ) : null}
-          <Tab eventKey={(parsed ? 1 : 0) + (diff ? 1 : 0) + 1} title={<TabTitleText>Data</TabTitleText>} aria-label="Data tab">
+          <Tab eventKey={(hasSource ? 1 : 0) + (violationDiff ? 1 : 0) + 1} title={<TabTitleText>Data</TabTitleText>} aria-label="Data tab">
             <div className="apme-modal-diff">
               <pre>{JSON.stringify(isCombinedFixed ? mergedViolations : violation, null, 2)}</pre>
             </div>
@@ -213,9 +251,9 @@ export function ViolationDetailModal({ isOpen, onClose, violation, diff, getRule
           scan_id: scanId ?? '',
           context: {
             violation_message: violation.message,
-            ai_proposal_diff: diff ?? '',
+            ai_proposal_diff: violationDiff ?? diff ?? '',
             ai_explanation: '',
-            source_snippet: violation.snippet ?? '',
+            source_snippet: violation.original_yaml ?? '',
           },
         } satisfies Partial<FeedbackPayload>}
       />

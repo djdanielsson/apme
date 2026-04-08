@@ -18,6 +18,10 @@ class Violation:
     snippet: str
     node_id: str
     affected_children: int
+    original_yaml: str
+    fixed_yaml: str
+    co_fixes: list[str]
+    node_line_start: int
     def __init__(self, **kwargs: object) -> None: ...
     def HasField(self, name: str) -> bool: ...
     def CopyFrom(self, other: Violation) -> None: ...

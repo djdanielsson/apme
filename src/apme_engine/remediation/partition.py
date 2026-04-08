@@ -124,24 +124,25 @@ def partition_violations(
     return tier1, tier2, tier3
 
 
-def classify_violation(violation: ViolationDict, registry: TransformRegistry) -> RemediationClass:
-    """Return remediation class: auto-fixable, ai-candidate, or manual-review.
+def classify_violation(violation: ViolationDict) -> RemediationClass:
+    """Classify a *remaining* violation as ai-candidate or manual-review.
 
-    Uses scope metadata to determine if AI can propose fixes.
+    This is called **after** the convergence loop.  Violations that were
+    fixed during convergence are classified separately as AUTO_FIXABLE by
+    the caller — remaining violations are never AUTO_FIXABLE because the
+    convergence loop already tried all deterministic transforms.  What
+    remains is either AI-proposable or requires manual review.
 
     Args:
         violation: Violation dict with rule_id and scope.
-        registry: Transform registry to check for deterministic transforms.
 
     Returns:
-        One of RemediationClass.AUTO_FIXABLE, AI_CANDIDATE, or MANUAL_REVIEW.
+        One of RemediationClass.AI_CANDIDATE or MANUAL_REVIEW.
     """
     sev = str(violation.get("severity") or "").lower()
     if sev == "info":
         return RemediationClass.MANUAL_REVIEW
     bare_id = normalize_rule_id(str(violation.get("rule_id", "")))
-    if is_finding_resolvable(violation, registry):
-        return RemediationClass.AUTO_FIXABLE
     if bare_id in CROSS_FILE_RULES:
         return RemediationClass.MANUAL_REVIEW
     if _get_scope(violation) not in AI_PROPOSABLE_SCOPES:
@@ -153,16 +154,18 @@ def classify_violation(violation: ViolationDict, registry: TransformRegistry) ->
 
 def add_classification_to_violations(
     violations: list[ViolationDict],
-    registry: TransformRegistry,
 ) -> None:
-    """Add remediation_class and remediation_resolution fields to each violation (in place).
+    """Add remediation_class and remediation_resolution to each *remaining* violation.
+
+    Called after the convergence loop on violations that were **not** fixed.
+    These are classified as AI_CANDIDATE or MANUAL_REVIEW — never
+    AUTO_FIXABLE (the loop already tried all deterministic transforms).
 
     Args:
-        violations: List of violation dicts.
-        registry: Transform registry for Tier 1 lookup.
+        violations: List of remaining violation dicts.
     """
     for v in violations:
-        v["remediation_class"] = classify_violation(v, registry)
+        v["remediation_class"] = classify_violation(v)
         v["remediation_resolution"] = RemediationResolution.UNRESOLVED
 
 

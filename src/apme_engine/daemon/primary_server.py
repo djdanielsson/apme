@@ -5,6 +5,8 @@ Clients send file bytes via gRPC streams and receive processed bytes back.
 The Primary delegates internally to validators and remediation.
 """
 
+from __future__ import annotations
+
 import asyncio
 import contextlib
 import contextvars
@@ -18,6 +20,10 @@ import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from apme_engine.engine.content_graph import ContentGraph
 
 import grpc
 import grpc.aio
@@ -67,7 +73,7 @@ from apme.v1.validate_pb2 import ValidateRequest
 from apme_engine.daemon.event_emitter import emit_fix_completed, emit_register_rules, start_sinks
 from apme_engine.daemon.session import ResourceExhaustedError, SessionState, SessionStore
 from apme_engine.daemon.violation_convert import violation_dict_to_proto, violation_proto_to_dict
-from apme_engine.engine.models import ViolationDict
+from apme_engine.engine.models import RemediationClass, ViolationDict
 from apme_engine.log_bridge import attach_collector
 from apme_engine.runner import run_scan
 from apme_engine.venv_manager.session import (
@@ -199,6 +205,54 @@ def _deduplicate_violations(violations: list[ViolationDict]) -> list[ViolationDi
 
 
 _SNIPPET_CONTEXT_LINES = 10
+
+
+def _enrich_violations_from_graph(
+    violations: list[ViolationDict],
+    graph: ContentGraph,
+    *,
+    fixed: bool,
+) -> None:
+    """Attach node YAML from the graph progression to each violation.
+
+    All violations get ``original_yaml`` (the user's original node content)
+    and ``node_line_start`` (file line where the node starts).
+
+    Fixed violations additionally get ``fixed_yaml`` (final approved state)
+    and ``co_fixes`` (other rule IDs that also modified this node).
+
+    Args:
+        violations: Violation dicts to enrich (mutated in place).
+        graph: ContentGraph after convergence.
+        fixed: When ``True``, also populate ``fixed_yaml`` and ``co_fixes``.
+    """
+    for v in violations:
+        node_id = str(v.get("path", ""))
+        if not node_id:
+            continue
+        node = graph.get_node(node_id)
+        if node is None or not node.progression:
+            continue
+
+        v["original_yaml"] = node.progression[0].yaml_lines
+        v["node_line_start"] = node.line_start
+
+        if not fixed:
+            continue
+
+        approved = next(
+            (s for s in reversed(node.progression) if s.approved),
+            node.progression[-1],
+        )
+        v["fixed_yaml"] = approved.yaml_lines
+
+        this_rule = str(v.get("rule_id", ""))
+        initial = set(node.progression[0].violations)
+        final = set(approved.violations)
+        fixed_on_node = initial - final
+        fixed_on_node.discard(this_rule)
+        if fixed_on_node:
+            v["co_fixes"] = sorted(fixed_on_node)  # type: ignore[arg-type]
 
 
 def _attach_snippets(violations: list[ViolationDict], files: list[File]) -> None:
@@ -1651,7 +1705,7 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
         # the graph-owned NodeState snapshot objects.
         remaining = [dict(v) for v in graph_report.remaining_violations]
         remaining.extend(dep_health_violations)
-        add_classification_to_violations(remaining, registry)  # type: ignore[arg-type]
+        add_classification_to_violations(remaining)
 
         from apme_engine.remediation.partition import count_by_remediation_class
 
@@ -1680,7 +1734,12 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
         session.remaining_ai = list(remaining)
         session.remaining_manual = []
 
+        # 6. Enrich violations with node YAML from the graph progression.
+        _enrich_violations_from_graph(remaining, graph, fixed=False)
         remaining_protos = [violation_dict_to_proto(v) for v in remaining]
+        for fv in graph_report.fixed_violations:
+            fv["remediation_class"] = RemediationClass.AUTO_FIXABLE
+        _enrich_violations_from_graph(graph_report.fixed_violations, graph, fixed=True)
         fixed_protos = [violation_dict_to_proto(v) for v in graph_report.fixed_violations]
         session.report = FixReport(
             passes=graph_report.passes,

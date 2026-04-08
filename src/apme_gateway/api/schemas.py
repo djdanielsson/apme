@@ -73,7 +73,10 @@ class ViolationDetail(BaseModel):  # type: ignore[misc]
         remediation_class: Numeric remediation tier.
         scope: Numeric rule scope.
         validator_source: Validator that produced this (native, opa, ansible, gitleaks).
-        snippet: Source lines around the violation with line numbers.
+        original_yaml: Full node YAML as originally written.
+        fixed_yaml: Node YAML after transforms (fixed violations only).
+        co_fixes: Other rule IDs whose fixes are included in this node's diff.
+        node_line_start: File line where the node starts.
     """
 
     id: int
@@ -86,7 +89,10 @@ class ViolationDetail(BaseModel):  # type: ignore[misc]
     remediation_class: int
     scope: int
     validator_source: str = ""
-    snippet: str = ""
+    original_yaml: str = ""
+    fixed_yaml: str = ""
+    co_fixes: list[str] = []
+    node_line_start: int = 0
 
 
 class ProposalDetail(BaseModel):  # type: ignore[misc]

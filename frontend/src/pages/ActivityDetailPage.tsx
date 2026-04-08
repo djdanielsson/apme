@@ -38,6 +38,8 @@ export function ActivityDetailPage() {
 
   const [sevFilters, setSevFilters] = useState<Set<string>>(new Set());
   const [ruleFilters, setRuleFilters] = useState<Set<string>>(new Set());
+  const [scopeFilters, setScopeFilters] = useState<Set<number>>(new Set());
+  const [fixFilters, setFixFilters] = useState<Set<number>>(new Set());
   const [searchText, setSearchText] = useState('');
   const [resultsOpen, setResultsOpen] = useState(true);
   const [proposalsOpen, setProposalsOpen] = useState(true);
@@ -78,6 +80,26 @@ export function ActivityDetailPage() {
     return Array.from(set).sort();
   }, [projectViolations]);
 
+  const scopeCounts = useMemo(() => {
+    const counts = new Map<number, number>();
+    for (const v of projectViolations) {
+      if (v.scope != null) {
+        counts.set(v.scope, (counts.get(v.scope) ?? 0) + 1);
+      }
+    }
+    return counts;
+  }, [projectViolations]);
+
+  const fixCounts = useMemo(() => {
+    const counts = new Map<number, number>();
+    for (const v of projectViolations) {
+      if (v.remediation_class > 0) {
+        counts.set(v.remediation_class, (counts.get(v.remediation_class) ?? 0) + 1);
+      }
+    }
+    return counts;
+  }, [projectViolations]);
+
   const filtered = useMemo(() => {
     let violations = projectViolations;
     if (sevFilters.size > 0) {
@@ -85,6 +107,12 @@ export function ActivityDetailPage() {
     }
     if (ruleFilters.size > 0) {
       violations = violations.filter((v) => ruleFilters.has(v.rule_id));
+    }
+    if (scopeFilters.size > 0) {
+      violations = violations.filter((v) => v.scope != null && scopeFilters.has(v.scope));
+    }
+    if (fixFilters.size > 0) {
+      violations = violations.filter((v) => fixFilters.has(v.remediation_class));
     }
     if (searchText.trim()) {
       const q = searchText.toLowerCase();
@@ -96,7 +124,7 @@ export function ActivityDetailPage() {
       );
     }
     return violations;
-  }, [projectViolations, sevFilters, ruleFilters, searchText]);
+  }, [projectViolations, sevFilters, ruleFilters, scopeFilters, fixFilters, searchText]);
 
   const patchByFile = useMemo(() => {
     if (!detail) return new Map<string, string>();
@@ -110,7 +138,7 @@ export function ActivityDetailPage() {
   if (loading) return <PageLayout><div style={{ padding: 48, textAlign: 'center', opacity: 0.6 }}>Loading...</div></PageLayout>;
   if (!detail) return <PageLayout><div style={{ padding: 48, textAlign: 'center', opacity: 0.6 }}>Activity not found.</div></PageLayout>;
 
-  const hasFilters = sevFilters.size > 0 || ruleFilters.size > 0 || searchText.length > 0;
+  const hasFilters = sevFilters.size > 0 || ruleFilters.size > 0 || scopeFilters.size > 0 || fixFilters.size > 0 || searchText.length > 0;
 
   const handleDelete = async () => {
     if (!activityId || !confirm('Delete this activity record? This cannot be undone.')) return;
@@ -214,10 +242,17 @@ export function ActivityDetailPage() {
           onSearchChange={setSearchText}
           sevFilters={sevFilters}
           ruleFilters={ruleFilters}
+          scopeFilters={scopeFilters}
+          fixFilters={fixFilters}
           sevCounts={sevCounts}
+          scopeCounts={scopeCounts}
+          fixCounts={fixCounts}
           uniqueRules={uniqueRules}
           onSevChange={setSevFilters}
           onRuleChange={setRuleFilters}
+          onScopeChange={setScopeFilters}
+          onFixChange={setFixFilters}
+          isRemediate={isRemediate}
           filteredCount={filtered.length}
           totalCount={projectViolations.length}
         />

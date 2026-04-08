@@ -7,7 +7,7 @@ import {
   AngleDoubleDownIcon,
 } from '@patternfly/react-icons';
 import { ViolationDetailModal, type ViolationRecord } from './ViolationDetailModal';
-import { severityClass, severityLabel, severityOrder, bareRuleId } from './severity';
+import { severityClass, severityLabel, severityOrder, bareRuleId, scopeLabel } from './severity';
 
 function tierLabel(rc: number, isRemediate: boolean): string {
   if (rc === 1) return isRemediate ? 'Fixed' : 'Fixable';
@@ -16,11 +16,11 @@ function tierLabel(rc: number, isRemediate: boolean): string {
   return '';
 }
 
-function tierBadgeClass(rc: number, isRemediate: boolean): string {
-  if (rc === 1) return isRemediate ? 'apme-badge passed' : 'apme-badge fixable';
-  if (rc === 2) return 'apme-badge ai';
-  if (rc === 3) return 'apme-badge manual';
-  return 'apme-badge';
+function tierPillClass(rc: number, isRemediate: boolean): string {
+  if (rc === 1) return isRemediate ? 'apme-pill apme-fix-passed' : 'apme-pill apme-fix-fixable';
+  if (rc === 2) return 'apme-pill apme-fix-ai';
+  if (rc === 3) return 'apme-pill apme-fix-manual';
+  return 'apme-pill';
 }
 
 function groupByFile(violations: ViolationRecord[]): Map<string, ViolationRecord[]> {
@@ -268,17 +268,20 @@ export function ViolationOutput({ violations, patchByFile, hasFilters, scanType,
                           {v.line != null ? v.line : ''}
                         </span>
                         <span className="apme-output-content apme-output-violation-line">
-                          <span className={`apme-severity ${severityClass(v.level, v.rule_id)}`}>
+                          <span className={`apme-pill apme-severity ${severityClass(v.level, v.rule_id)}`}>
                             {severityLabel(v.level, v.rule_id)}
                           </span>
-                          <span className="apme-rule-id" title={ruleTitle(v.rule_id)}>
-                            {bareRuleId(v.rule_id)}
+                          <span className="apme-pill apme-output-violation-scope" title={v.path || ''}>
+                            {scopeLabel(v.scope) || '\u00A0'}
                           </span>
                           <span
-                            className={tierBadgeClass(v.remediation_class, isRemediate)}
-                            style={{ fontSize: 10, visibility: v.remediation_class > 0 ? 'visible' : 'hidden' }}
+                            className={tierPillClass(v.remediation_class, isRemediate)}
+                            style={{ visibility: v.remediation_class > 0 ? 'visible' : 'hidden', minWidth: 50 }}
                           >
                             {tierLabel(v.remediation_class, isRemediate) || '\u00A0'}
+                          </span>
+                          <span className="apme-pill apme-rule-pill" title={ruleTitle(v.rule_id)}>
+                            {bareRuleId(v.rule_id)}
                           </span>
                           <span className="apme-output-violation-msg">
                             {v.message}

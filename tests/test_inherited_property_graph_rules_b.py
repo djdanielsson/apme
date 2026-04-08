@@ -592,8 +592,8 @@ class TestM010GraphRule:
         g.add_node(t)
         assert rule.match(g, t.node_id) is True
 
-    def test_no_match_play(self, rule: Python2InterpreterGraphRule) -> None:
-        """Play nodes do not match.
+    def test_match_play(self, rule: Python2InterpreterGraphRule) -> None:
+        """Play nodes match so play-level vars are reported at the play.
 
         Args:
             rule: Rule instance under test.
@@ -606,7 +606,7 @@ class TestM010GraphRule:
             scope=NodeScope.OWNED,
         )
         g.add_node(play)
-        assert rule.match(g, play.node_id) is False
+        assert rule.match(g, play.node_id) is True
 
     def test_violation_local_python2(self, rule: Python2InterpreterGraphRule) -> None:
         """Task-level ``ansible_python_interpreter`` pointing at Python 2 violates.
@@ -648,8 +648,8 @@ class TestM010GraphRule:
         assert r is not None
         assert r.verdict is False
 
-    def test_violation_inherited_python2(self, rule: Python2InterpreterGraphRule) -> None:
-        """Play-level Python 2 interpreter inherited by the task is reported with provenance.
+    def test_violation_play_level_python2(self, rule: Python2InterpreterGraphRule) -> None:
+        """Play-level Python 2 interpreter is reported on the play, not child tasks.
 
         Args:
             rule: Rule instance under test.
@@ -671,12 +671,16 @@ class TestM010GraphRule:
         g.add_node(play)
         g.add_node(t)
         g.add_edge(play.node_id, t.node_id, EdgeType.CONTAINS)
-        r = rule.process(g, t.node_id)
-        assert r is not None
-        assert r.verdict is True
-        assert r.detail is not None
-        assert r.detail.get("defined_at") == play.node_id
-        assert r.detail.get("source") == "play"
+
+        play_result = rule.process(g, play.node_id)
+        assert play_result is not None
+        assert play_result.verdict is True
+        assert play_result.detail is not None
+        assert "python2" in str(play_result.detail.get("interpreter", "")).lower()
+
+        task_result = rule.process(g, t.node_id)
+        assert task_result is not None
+        assert task_result.verdict is False, "Inherited vars should not fire on child tasks"
 
     def test_no_violation_no_interpreter(self, rule: Python2InterpreterGraphRule) -> None:
         """No interpreter configured means no violation.

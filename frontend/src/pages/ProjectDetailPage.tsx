@@ -295,6 +295,7 @@ export function ProjectDetailPage() {
                       prCreating={prCreating}
                       prUrl={prUrl}
                       prError={prError}
+                      scanId={opScanId ?? undefined}
                     />
                   )}
 

@@ -197,36 +197,29 @@ class TestPartition:
         assert len(t3) == 1
         assert t3[0]["rule_id"] == "POLICY"
 
-    def test_classify_violation_auto_fixable(self) -> None:
-        """Verifies classify_violation returns auto-fixable for registered rules."""
-        reg = TransformRegistry()
-        reg.register("L021", node=lambda t, v: False)
-        assert classify_violation({"rule_id": "L021"}, reg) == RemediationClass.AUTO_FIXABLE
-        assert classify_violation({"rule_id": "native:L021"}, reg) == RemediationClass.AUTO_FIXABLE
+    def test_classify_remaining_never_auto_fixable(self) -> None:
+        """Remaining violations are never AUTO_FIXABLE — even if a transform exists."""
+        assert classify_violation({"rule_id": "L021"}) == RemediationClass.AI_CANDIDATE
+        assert classify_violation({"rule_id": "native:L021"}) == RemediationClass.AI_CANDIDATE
 
     def test_classify_violation_ai_candidate(self) -> None:
-        """Verifies classify_violation returns ai-candidate for unregistered rules."""
-        reg = TransformRegistry()
-        assert classify_violation({"rule_id": "R118"}, reg) == RemediationClass.AI_CANDIDATE
-        assert classify_violation({"rule_id": "L999", "ai_proposable": True}, reg) == RemediationClass.AI_CANDIDATE
+        """Verifies classify_violation returns ai-candidate for task-scoped rules."""
+        assert classify_violation({"rule_id": "R118"}) == RemediationClass.AI_CANDIDATE
+        assert classify_violation({"rule_id": "L999", "ai_proposable": True}) == RemediationClass.AI_CANDIDATE
 
     def test_classify_violation_manual_review(self) -> None:
         """Verifies classify_violation returns manual-review when ai_proposable is False."""
-        reg = TransformRegistry()
-        assert classify_violation({"rule_id": "POLICY", "ai_proposable": False}, reg) == RemediationClass.MANUAL_REVIEW
+        assert classify_violation({"rule_id": "POLICY", "ai_proposable": False}) == RemediationClass.MANUAL_REVIEW
 
     def test_add_classification_to_violations(self) -> None:
-        """Verifies add_classification_to_violations mutates violations in place."""
-        reg = TransformRegistry()
-        reg.register("L021", node=lambda t, v: False)
-
+        """Verifies add_classification_to_violations classifies remaining violations."""
         violations: list[ViolationDict] = [
             {"rule_id": "L021"},
             {"rule_id": "R118"},
             {"rule_id": "POLICY", "ai_proposable": False},
         ]
-        add_classification_to_violations(violations, reg)
-        assert violations[0]["remediation_class"] == RemediationClass.AUTO_FIXABLE
+        add_classification_to_violations(violations)
+        assert violations[0]["remediation_class"] == RemediationClass.AI_CANDIDATE
         assert violations[1]["remediation_class"] == RemediationClass.AI_CANDIDATE
         assert violations[2]["remediation_class"] == RemediationClass.MANUAL_REVIEW
         for v in violations:
@@ -273,13 +266,16 @@ class TestPartition:
         assert RemediationResolution.TRANSFORM_FAILED.value == "transform-failed"
         assert len(list(RemediationResolution)) == 10
 
-    def test_all_registered_rules_classify(self) -> None:
-        """Verifies every registered rule ID classifies as AUTO_FIXABLE."""
+    def test_all_registered_rules_classify_as_remaining(self) -> None:
+        """Remaining violations for registered rules classify as AI_CANDIDATE, not AUTO_FIXABLE.
+
+        AUTO_FIXABLE is only for violations proven fixed during convergence.
+        """
         reg = build_default_registry()
         for rule_id in reg:
             v: ViolationDict = {"rule_id": rule_id}
-            assert classify_violation(v, reg) == RemediationClass.AUTO_FIXABLE, (
-                f"Rule {rule_id} should classify as AUTO_FIXABLE"
+            assert classify_violation(v) == RemediationClass.AI_CANDIDATE, (
+                f"Remaining {rule_id} should classify as AI_CANDIDATE"
             )
 
     def test_partition_play_scope_to_tier3(self) -> None:
@@ -349,21 +345,15 @@ class TestPartition:
 
     def test_classify_play_scope_manual_review(self) -> None:
         """Verifies play-scoped violations classify as manual-review."""
-        reg = TransformRegistry()
-        assert classify_violation({"rule_id": "L042", "scope": RuleScope.PLAY}, reg) == RemediationClass.MANUAL_REVIEW
+        assert classify_violation({"rule_id": "L042", "scope": RuleScope.PLAY}) == RemediationClass.MANUAL_REVIEW
 
     def test_classify_collection_scope_manual_review(self) -> None:
         """Verifies collection-scoped violations classify as manual-review."""
-        reg = TransformRegistry()
-        assert (
-            classify_violation({"rule_id": "L037", "scope": RuleScope.COLLECTION}, reg)
-            == RemediationClass.MANUAL_REVIEW
-        )
+        assert classify_violation({"rule_id": "L037", "scope": RuleScope.COLLECTION}) == RemediationClass.MANUAL_REVIEW
 
     def test_classify_task_scope_ai_candidate(self) -> None:
         """Verifies task-scoped violations classify as AI candidate."""
-        reg = TransformRegistry()
-        assert classify_violation({"rule_id": "L026", "scope": RuleScope.TASK}, reg) == RemediationClass.AI_CANDIDATE
+        assert classify_violation({"rule_id": "L026", "scope": RuleScope.TASK}) == RemediationClass.AI_CANDIDATE
 
 
 # ---------------------------------------------------------------------------

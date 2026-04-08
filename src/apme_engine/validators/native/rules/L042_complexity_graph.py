@@ -1,9 +1,12 @@
-"""GraphRule L042: play or block with high task count (complexity).
+"""GraphRule L042: play with high task count (complexity).
 
 Graph-aware port of ``L042_complexity.py``.  Uses ``graph.descendants``
-to count tasks within the containing play's subtree rather than relying
-on the flattened ``ctx.sequence``.  This correctly counts tasks within
-nested blocks and includes/imports while staying scoped to the play.
+to count tasks within the play's subtree rather than relying on the
+flattened ``ctx.sequence``.  This correctly counts tasks within nested
+blocks and includes/imports while staying scoped to the play.
+
+The rule matches **PLAY** nodes and reports a single violation per play
+when the task count exceeds the threshold.
 """
 
 from __future__ import annotations
@@ -18,22 +21,6 @@ from apme_engine.validators.native.rules.graph_rule_base import GraphRule, Graph
 _TASK_TYPES = frozenset({NodeType.TASK, NodeType.HANDLER})
 
 DEFAULT_TASK_COUNT_THRESHOLD = 20
-
-
-def _find_containing_play(graph: ContentGraph, node_id: str) -> str | None:
-    """Walk ancestors to find the enclosing play node.
-
-    Args:
-        graph: ContentGraph to query.
-        node_id: Starting node whose ancestry is walked.
-
-    Returns:
-        Node ID of the nearest PLAY ancestor, or None.
-    """
-    for anc in graph.ancestors(node_id):
-        if anc.node_type == NodeType.PLAY:
-            return anc.node_id
-    return None
 
 
 def _count_tasks_in_subtree(graph: ContentGraph, root_id: str) -> int:
@@ -56,10 +43,11 @@ def _count_tasks_in_subtree(graph: ContentGraph, root_id: str) -> int:
 
 @dataclass
 class ComplexityGraphRule(GraphRule):
-    """Detect plays or blocks with high task count (complexity).
+    """Detect plays with high task count (complexity).
 
-    Uses the graph subtree rooted at the enclosing play to count task
-    nodes, giving an accurate measure regardless of block nesting depth.
+    Matches PLAY nodes and counts task/handler descendants in their
+    subtree.  Reports a single violation per play when the count
+    exceeds the threshold.
 
     Attributes:
         rule_id: Rule identifier.
@@ -74,39 +62,39 @@ class ComplexityGraphRule(GraphRule):
     """
 
     rule_id: str = "L042"
-    description: str = "Play or block has high task count (complexity)"
+    description: str = "Play has high task count (complexity)"
     enabled: bool = True
     name: str = "Complexity"
-    version: str = "v0.0.2"
+    version: str = "v0.0.3"
     severity: Severity = Severity.INFO
     tags: tuple[str, ...] = (Tag.DEPENDENCY,)
     scope: str = RuleScope.PLAY
     task_count_threshold: int = DEFAULT_TASK_COUNT_THRESHOLD
 
     def match(self, graph: ContentGraph, node_id: str) -> bool:
-        """Match tasks and handlers.
+        """Match play nodes only.
 
         Args:
             graph: The full ContentGraph.
             node_id: ID of the node to check.
 
         Returns:
-            True if the node is a task or handler.
+            True if the node is a play.
         """
         node = graph.get_node(node_id)
         if node is None:
             return False
-        return node.node_type in _TASK_TYPES
+        return node.node_type == NodeType.PLAY
 
     def process(self, graph: ContentGraph, node_id: str) -> GraphRuleResult | None:
-        """Count tasks in the containing play subtree.
+        """Count tasks in the play subtree.
 
-        Walks up to the nearest play ancestor and counts all TASK/HANDLER
-        descendants.  Returns a violation if the count exceeds the threshold.
+        Counts all TASK/HANDLER descendants of this play node and
+        returns a violation if the count exceeds the threshold.
 
         Args:
             graph: The full ContentGraph.
-            node_id: ID of the node to evaluate.
+            node_id: ID of the play node to evaluate.
 
         Returns:
             GraphRuleResult with task_count and threshold detail.
@@ -115,22 +103,14 @@ class ComplexityGraphRule(GraphRule):
         if node is None:
             return None
 
-        play_id = _find_containing_play(graph, node_id)
-        if play_id is None:
-            return GraphRuleResult(
-                verdict=False,
-                node_id=node_id,
-                file=(node.file_path, node.line_start),
-            )
-
-        task_count = _count_tasks_in_subtree(graph, play_id)
+        task_count = _count_tasks_in_subtree(graph, node_id)
         verdict = task_count > self.task_count_threshold
 
         detail: YAMLDict = {}
         if verdict:
             detail["task_count"] = task_count
             detail["threshold"] = self.task_count_threshold
-            detail["play"] = play_id
+            detail["affected_children"] = task_count
 
         return GraphRuleResult(
             verdict=verdict,

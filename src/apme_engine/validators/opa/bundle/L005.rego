@@ -1,9 +1,12 @@
-# L005: Use only ansible.builtin or ansible.legacy
+# L005: Community collection module detected
 #
-# The engine resolves short module names to FQCNs, so node.module may
-# already be "ansible.builtin.apt" even though the YAML says "apt".
-# Check original_module (the literal YAML key) to catch short names that
-# need to be written as FQCN in the source file.
+# Flags tasks using modules from community.* collections.  Community
+# collections are not covered by Red Hat support — use certified or
+# validated collections instead where available.
+#
+# The rule checks both the resolved module name and the original YAML
+# module name so it catches short aliases that the engine resolved to
+# a community.* FQCN as well as explicit community.* FQCNs.
 
 package apme.rules
 
@@ -13,7 +16,7 @@ import future.keywords.in
 violations contains v if {
 	some tree in input.hierarchy
 	some node in tree.nodes
-	v := only_builtins(tree, node)
+	v := community_module(tree, node)
 }
 
 _is_fqcn(s) if {
@@ -24,20 +27,19 @@ _is_fqcn(s) if {
 	not startswith(s, "taskfile")
 }
 
-# Variant with a usable resolved FQCN (transform can auto-fix)
-only_builtins(tree, node) := v if {
+# Resolved FQCN starts with community.* — flag it.
+community_module(tree, node) := v if {
 	node.type == "taskcall"
 	om := object.get(node, "original_module", node.module)
 	om != ""
-	not startswith(om, "ansible.builtin.")
-	not startswith(om, "ansible.legacy.")
 	count(node.line) > 0
 	resolved := node.module
 	_is_fqcn(resolved)
+	startswith(resolved, "community.")
 	v := {
 		"rule_id": "L005",
 		"severity": "low",
-		"message": sprintf("Use FQCN: %s -> %s", [om, resolved]),
+		"message": sprintf("Community collection module: %s; consider a certified or validated collection", [resolved]),
 		"file": node.file,
 		"line": node.line[0],
 		"path": node.key,
@@ -47,20 +49,19 @@ only_builtins(tree, node) := v if {
 	}
 }
 
-# Variant without a resolvable FQCN (detection only, escalate to AI/manual)
-only_builtins(tree, node) := v if {
+# Original YAML explicitly uses a community.* FQCN (even when the
+# engine's resolved name differs or is absent).
+community_module(tree, node) := v if {
 	node.type == "taskcall"
 	om := object.get(node, "original_module", node.module)
 	om != ""
-	not startswith(om, "ansible.builtin.")
-	not startswith(om, "ansible.legacy.")
 	count(node.line) > 0
+	startswith(om, "community.")
 	not _is_fqcn(node.module)
-	not _is_fqcn(om)
 	v := {
 		"rule_id": "L005",
 		"severity": "low",
-		"message": sprintf("Use FQCN for: %s", [om]),
+		"message": sprintf("Community collection module: %s; consider a certified or validated collection", [om]),
 		"file": node.file,
 		"line": node.line[0],
 		"path": node.key,

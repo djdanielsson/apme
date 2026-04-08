@@ -155,7 +155,10 @@ class Violation(Base):
         remediation_class: Numeric remediation tier.
         scope: Numeric rule scope.
         validator_source: Validator that produced this violation (native, opa, ansible, gitleaks).
-        snippet: Source lines around the violation with line numbers.
+        original_yaml: Full node YAML as originally written.
+        fixed_yaml: Node YAML after transforms (fixed violations only).
+        co_fixes: Comma-separated other rule IDs whose fixes are included.
+        node_line_start: File line where the node starts.
         scan: Back-reference to owning Scan.
     """
 
@@ -172,7 +175,10 @@ class Violation(Base):
     remediation_class: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     scope: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     validator_source: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    snippet: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    original_yaml: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    fixed_yaml: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    co_fixes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    node_line_start: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     scan: Mapped[Scan] = relationship(back_populates="violations")
 

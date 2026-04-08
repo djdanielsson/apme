@@ -719,7 +719,10 @@ async def list_project_violations(
             remediation_class=v.remediation_class,
             scope=v.scope,
             validator_source=v.validator_source,
-            snippet=v.snippet,
+            original_yaml=v.original_yaml,
+            fixed_yaml=v.fixed_yaml,
+            co_fixes=[r for r in v.co_fixes.split(",") if r],
+            node_line_start=v.node_line_start,
         )
         for v in violations
     ]
@@ -1296,7 +1299,10 @@ async def get_activity_detail(activity_id: str) -> ActivityDetail:
                 remediation_class=v.remediation_class,
                 scope=v.scope,
                 validator_source=v.validator_source,
-                snippet=v.snippet,
+                original_yaml=v.original_yaml,
+                fixed_yaml=v.fixed_yaml,
+                co_fixes=[r for r in v.co_fixes.split(",") if r],
+                node_line_start=v.node_line_start,
             )
             for v in scan.violations
         ],

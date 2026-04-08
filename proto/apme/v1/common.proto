@@ -66,9 +66,13 @@ message Violation {
   map<string, string> metadata = 10;
   RuleScope scope = 11;
   string source = 12;  // Validator that produced this violation (e.g. "native", "opa", "ansible", "gitleaks")
-  string snippet = 13; // Source lines around the violation (numbered, ~10 lines context)
+  string snippet = 13 [deprecated = true]; // Deprecated — use original_yaml + node_line_start
   string node_id = 14; // Stable ContentGraph node identity (YAML-path-based, ADR-044)
   int32 affected_children = 15; // Number of child nodes affected by a scope-level violation
+  string original_yaml = 16;   // Full node YAML as originally written (progression[0])
+  string fixed_yaml = 17;      // Node YAML after transforms (fixed violations only)
+  repeated string co_fixes = 18; // Other rule IDs whose fixes are included in this node's diff
+  int32 node_line_start = 19;  // File line where the node starts (for Source tab line numbering)
 }
 
 message LineRange {

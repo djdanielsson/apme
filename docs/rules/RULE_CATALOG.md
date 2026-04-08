@@ -17,7 +17,7 @@
 |---------|-----------|----------|-------------|------|--------|-----|-------|
 | L003 | OPA | low | Each play should have a name. | Yes | Yes | Yes | — |
 | L004 | OPA | high | Do not use deprecated modules. | Yes | Yes | Yes | — |
-| L005 | OPA | low | Use ansible.builtin or ansible.legacy. | Yes | Yes | Yes | Yes |
+| L005 | OPA | low | Community collection module detected; use certified or validated collections. | Yes | Yes | Yes | Yes |
 | L006 | OPA | low | Use dedicated module instead of command. | Yes | Yes | Yes | — |
 | L007 | OPA | low | Prefer command when no shell features needed. | Yes | Yes | Yes | Yes |
 | L008 | OPA | low | Use delegate_to: localhost instead of local_action. | Yes | Yes | Yes | Yes |
@@ -177,7 +177,7 @@
 |---------|----------|-------------|------|--------|-----|-------|
 | L003 | low | Each play should have a name. | Yes | Yes | Yes | — |
 | L004 | high | Do not use deprecated modules. | Yes | Yes | Yes | — |
-| L005 | low | Use ansible.builtin or ansible.legacy. | Yes | Yes | Yes | Yes |
+| L005 | low | Community collection module detected; use certified or validated collections. | Yes | Yes | Yes | Yes |
 | L006 | low | Use dedicated module instead of command. | Yes | Yes | Yes | — |
 | L007 | low | Prefer command when no shell features needed. | Yes | Yes | Yes | Yes |
 | L008 | low | Use delegate_to: localhost instead of local_action. | Yes | Yes | Yes | Yes |
@@ -413,7 +413,7 @@ Rules without fixers fall to Tier 2 (AI-proposable) or Tier 3 (manual review).
 
 | Rule ID | Severity | Description |
 |---------|----------|-------------|
-| L005 | low | Use ansible.builtin or ansible.legacy. |
+| L005 | low | Community collection module detected; use certified or validated collections. |
 | L007 | low | Prefer command when no shell features needed. |
 | L008 | low | Use delegate_to: localhost instead of local_action. |
 | L009 | medium | Avoid comparison to empty string in when. |

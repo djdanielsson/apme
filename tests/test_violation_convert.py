@@ -153,6 +153,37 @@ class TestViolationDictToProto:
         proto = violation_dict_to_proto(v)
         assert proto.scope == common_pb2.RULE_SCOPE_TASK
 
+    def test_original_yaml_and_fixed_yaml(self) -> None:
+        """original_yaml and fixed_yaml map to proto fields."""
+        v: ViolationDict = {
+            "rule_id": "M001",
+            "original_yaml": "- name: Install\n  apt:\n    name: foo\n",
+            "fixed_yaml": "- name: Install\n  ansible.builtin.apt:\n    name: foo\n",
+            "node_line_start": 5,
+        }
+        proto = violation_dict_to_proto(v)
+        assert proto.original_yaml == v["original_yaml"]
+        assert proto.fixed_yaml == v["fixed_yaml"]
+        assert proto.node_line_start == 5
+
+    def test_co_fixes(self) -> None:
+        """co_fixes list maps to repeated proto field."""
+        v: ViolationDict = {
+            "rule_id": "M001",
+            "co_fixes": ["L021", "L013"],  # type: ignore[list-item]
+        }
+        proto = violation_dict_to_proto(v)
+        assert list(proto.co_fixes) == ["L021", "L013"]
+
+    def test_missing_original_yaml_defaults_empty(self) -> None:
+        """Missing original_yaml defaults to empty string."""
+        v: ViolationDict = {"rule_id": "L021"}
+        proto = violation_dict_to_proto(v)
+        assert proto.original_yaml == ""
+        assert proto.fixed_yaml == ""
+        assert proto.node_line_start == 0
+        assert list(proto.co_fixes) == []
+
 
 class TestViolationProtoToDict:
     """Tests for converting proto violations to dict."""
@@ -299,6 +330,26 @@ class TestViolationProtoToDict:
             d = violation_proto_to_dict(proto)
             assert d["remediation_resolution"] == expected
 
+    def test_original_yaml_and_fixed_yaml(self) -> None:
+        """Proto original_yaml and fixed_yaml convert to dict."""
+        proto = Violation(
+            rule_id="M001",
+            original_yaml="- name: Install\n  apt:\n",
+            fixed_yaml="- name: Install\n  ansible.builtin.apt:\n",
+            node_line_start=5,
+        )
+        d = violation_proto_to_dict(proto)
+        assert d["original_yaml"] == "- name: Install\n  apt:\n"
+        assert d["fixed_yaml"] == "- name: Install\n  ansible.builtin.apt:\n"
+        assert d["node_line_start"] == 5
+
+    def test_co_fixes_conversion(self) -> None:
+        """Proto co_fixes repeated field converts to list."""
+        proto = Violation(rule_id="M001")
+        proto.co_fixes.extend(["L021", "L013"])
+        d = violation_proto_to_dict(proto)
+        assert d["co_fixes"] == ["L021", "L013"]  # type: ignore[comparison-overlap]
+
 
 class TestRoundTrip:
     """Tests for round-trip conversion dict → proto → dict."""
@@ -367,6 +418,22 @@ class TestRoundTrip:
             proto = violation_dict_to_proto(original)
             result = violation_proto_to_dict(proto)
             assert result["severity"] == label, f"Failed for {label}"
+
+    def test_round_trip_original_and_fixed_yaml(self) -> None:
+        """original_yaml, fixed_yaml, co_fixes, node_line_start round-trip."""
+        original: ViolationDict = {
+            "rule_id": "M001",
+            "original_yaml": "- name: Install\n  apt:\n",
+            "fixed_yaml": "- name: Install\n  ansible.builtin.apt:\n",
+            "co_fixes": ["L021"],  # type: ignore[list-item]
+            "node_line_start": 12,
+        }
+        proto = violation_dict_to_proto(original)
+        result = violation_proto_to_dict(proto)
+        assert result["original_yaml"] == original["original_yaml"]
+        assert result["fixed_yaml"] == original["fixed_yaml"]
+        assert result["co_fixes"] == ["L021"]  # type: ignore[comparison-overlap]
+        assert result["node_line_start"] == original["node_line_start"]
 
 
 class TestStringLineParsing:

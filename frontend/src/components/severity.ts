@@ -87,6 +87,41 @@ export function healthLabelColor(score: number): 'red' | 'orange' | 'yellow' | '
   return 'green';
 }
 
+// ---------------------------------------------------------------------------
+// Scope (RuleScope proto enum)
+// ---------------------------------------------------------------------------
+
+export const SCOPE_LABELS: Record<number, string> = {
+  1: 'Task', 2: 'Block', 3: 'Play',
+  4: 'Playbook', 5: 'Role', 6: 'Inventory', 7: 'Collection',
+};
+
+export const SCOPE_ORDER = [1, 2, 3, 4, 5, 6, 7] as const;
+
+/** Human-readable label for a numeric RuleScope value. */
+export function scopeLabel(scope: number | undefined): string {
+  return scope != null ? (SCOPE_LABELS[scope] || '') : '';
+}
+
+// ---------------------------------------------------------------------------
+// Fix tier (remediation_class)
+// ---------------------------------------------------------------------------
+
+export const FIX_LABELS: Record<number, string> = {
+  1: 'Fixable', 2: 'AI', 3: 'Manual',
+};
+
+export const FIX_ORDER = [1, 2, 3] as const;
+
+/** Human-readable label for a remediation_class value. */
+export function fixLabel(rc: number | undefined): string {
+  return rc != null ? (FIX_LABELS[rc] || '') : '';
+}
+
+// ---------------------------------------------------------------------------
+// Rule ID helpers
+// ---------------------------------------------------------------------------
+
 /** Strip validator prefix from a rule ID (e.g. "native:L042" → "L042"). */
 export function bareRuleId(ruleId: string): string {
   const idx = ruleId.indexOf(':');

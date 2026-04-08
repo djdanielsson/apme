@@ -92,23 +92,23 @@ class TestL042GraphRule:
         """
         return ComplexityGraphRule()
 
-    def test_match_task(self, rule: ComplexityGraphRule) -> None:
-        """Tasks match.
-
-        Args:
-            rule: Rule instance under test.
-        """
-        g, _, task_id = _build_play_with_tasks(1)
-        assert rule.match(g, task_id)
-
-    def test_no_match_play(self, rule: ComplexityGraphRule) -> None:
-        """Play nodes do not match.
+    def test_match_play(self, rule: ComplexityGraphRule) -> None:
+        """Play nodes match.
 
         Args:
             rule: Rule instance under test.
         """
         g, play_id, _ = _build_play_with_tasks(1)
-        assert not rule.match(g, play_id)
+        assert rule.match(g, play_id)
+
+    def test_no_match_task(self, rule: ComplexityGraphRule) -> None:
+        """Task nodes do not match.
+
+        Args:
+            rule: Rule instance under test.
+        """
+        g, _, task_id = _build_play_with_tasks(1)
+        assert not rule.match(g, task_id)
 
     def test_below_threshold_no_violation(self, rule: ComplexityGraphRule) -> None:
         """Play with 5 tasks is under the default threshold.
@@ -116,51 +116,36 @@ class TestL042GraphRule:
         Args:
             rule: Rule instance under test.
         """
-        g, _, task_id = _build_play_with_tasks(5)
-        result = rule.process(g, task_id)
+        g, play_id, _ = _build_play_with_tasks(5)
+        result = rule.process(g, play_id)
         assert result is not None
         assert result.verdict is False
 
     def test_above_threshold_violation(self, rule: ComplexityGraphRule) -> None:
-        """Play with 25 tasks triggers a violation.
+        """Play with 25 tasks triggers a single violation on the play node.
 
         Args:
             rule: Rule instance under test.
         """
-        g, _, task_id = _build_play_with_tasks(25)
-        result = rule.process(g, task_id)
+        g, play_id, _ = _build_play_with_tasks(25)
+        result = rule.process(g, play_id)
         assert result is not None
         assert result.verdict is True
         assert result.detail is not None
         assert result.detail["task_count"] == 25
         assert result.detail["threshold"] == 20
+        assert result.detail["affected_children"] == 25
+        assert result.node_id == play_id
 
     def test_custom_threshold(self) -> None:
         """Custom threshold is respected."""
         rule = ComplexityGraphRule(task_count_threshold=3)
-        g, _, task_id = _build_play_with_tasks(5)
-        result = rule.process(g, task_id)
+        g, play_id, _ = _build_play_with_tasks(5)
+        result = rule.process(g, play_id)
         assert result is not None
         assert result.verdict is True
         assert result.detail is not None
         assert result.detail["task_count"] == 5
-
-    def test_no_play_ancestor(self, rule: ComplexityGraphRule) -> None:
-        """Task without a play ancestor returns no violation.
-
-        Args:
-            rule: Rule instance under test.
-        """
-        g = ContentGraph()
-        task = ContentNode(
-            identity=NodeIdentity(path="orphan/tasks[0]", node_type=NodeType.TASK),
-            file_path="orphan.yml",
-            scope=NodeScope.OWNED,
-        )
-        g.add_node(task)
-        result = rule.process(g, task.node_id)
-        assert result is not None
-        assert result.verdict is False
 
 
 # ---------------------------------------------------------------------------

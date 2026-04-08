@@ -1052,3 +1052,90 @@ class TestPlayPropertyExtraction:
         assert node.ignore_errors is None
         assert node.tags in (None, [])
         assert node.when_expr is None
+
+
+class TestPlayYamlLines:
+    """Verify _build_play populates yaml_lines with the play header."""
+
+    def test_play_header_extracted_without_line_num(self) -> None:
+        """Play header is derived from file content when Play has no line_num_in_file."""
+        from apme_engine.engine.models import ObjectList, Play, Playbook, Task
+
+        file_content = (
+            "---\n"
+            "- name: Deploy app\n"
+            "  hosts: webservers\n"
+            "  become: true\n"
+            "  vars:\n"
+            "    app_ver: '2.0'\n"
+            "  tasks:\n"
+            "    - name: Install\n"
+            "      ansible.builtin.debug:\n"
+            "        msg: hello\n"
+        )
+        task = Task(
+            key="task pb.yml#play[0]#task[0]",
+            module="ansible.builtin.debug",
+            module_options={"msg": "hello"},
+            name="Install",
+            yaml_lines="    - name: Install\n      ansible.builtin.debug:\n        msg: hello\n",
+            line_num_in_file=[8, 10],
+        )
+        play = Play(
+            key="play pb.yml#play[0]",
+            defined_in="pb.yml",
+            name="Deploy app",
+            tasks=[task],
+        )
+        pb = Playbook(
+            key="playbook pb.yml",
+            defined_in="pb.yml",
+            plays=[play],
+            yaml_lines=file_content,
+        )
+        root_defs: dict[str, object] = {
+            "definitions": {"playbooks": ObjectList(items=[pb])},
+            "mappings": None,
+        }
+        builder = GraphBuilder(root_defs, {})
+        graph = builder.build()
+        play_nodes = list(graph.nodes(NodeType.PLAY))
+        assert len(play_nodes) == 1
+        pn = play_nodes[0]
+        assert pn.line_start > 0, "Play line_start should be derived from file content"
+        assert pn.yaml_lines != ""
+        assert "name: Deploy app" in pn.yaml_lines
+        assert "hosts: webservers" in pn.yaml_lines
+        assert "become: true" in pn.yaml_lines
+        assert "tasks:" in pn.yaml_lines
+        assert "Install" not in pn.yaml_lines
+
+    def test_play_no_file_content(self) -> None:
+        """Play node yaml_lines is empty when no file content is provided."""
+        node = _build_play_node({})
+        assert node.yaml_lines == ""
+
+    def test_find_play_lines_multi_play(self) -> None:
+        """_find_play_lines locates correct range for each play in a multi-play file."""
+        from apme_engine.engine.content_graph import _find_play_lines
+
+        content = (
+            "---\n"
+            "- name: Play One\n"
+            "  hosts: all\n"
+            "  tasks:\n"
+            "    - debug:\n"
+            "- name: Play Two\n"
+            "  hosts: web\n"
+            "  tasks:\n"
+            "    - debug:\n"
+        )
+        start0, end0 = _find_play_lines(content, 0)
+        assert start0 == 2
+        assert end0 == 5
+
+        start1, end1 = _find_play_lines(content, 1)
+        assert start1 == 6
+        assert end1 == 9
+
+        assert _find_play_lines(content, 2) == (0, 0)

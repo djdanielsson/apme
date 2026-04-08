@@ -52,6 +52,37 @@
   color: var(--apme-sev-high);
 }
 
+/* Fix tier pills (violation row) */
+
+.apme-fix-passed {
+  background-color: rgba(91, 163, 82, 0.2);
+  color: var(--apme-green);
+}
+
+.apme-fix-fixable {
+  background-color: rgba(91, 163, 82, 0.2);
+  color: var(--apme-green);
+}
+
+.apme-fix-ai {
+  background-color: rgba(25, 118, 210, 0.2);
+  color: var(--apme-sev-low);
+}
+
+.apme-fix-manual {
+  background-color: rgba(245, 124, 0, 0.2);
+  color: var(--apme-sev-high);
+}
+
+/* Rule pill (violation row) */
+
+.apme-rule-pill {
+  font-family: var(--pf-t--global--font--family--mono);
+  color: var(--pf-t--global--color--brand--default);
+  background: rgba(25, 118, 210, 0.08);
+}
+
+/* Rule ID (non-pill contexts) */
 .apme-rule-id {
   font-family: var(--pf-t--global--font--family--mono);
   font-size: 12px;
@@ -80,18 +111,26 @@
   opacity: 0.6;
 }
 
+/* ── Violation row pills (shared base) ─────────────── */
+
+.apme-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 1px 7px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+  line-height: 16px;
+}
+
 /* ── Severity badges ────────────────────────────────── */
 
 .apme-severity {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 600;
   text-transform: uppercase;
-  min-width: 50px;
-  justify-content: center;
+  min-width: 54px;
 }
 
 .apme-severity.critical {
@@ -397,6 +436,9 @@
   cursor: pointer;
   background: var(--pf-t--global--background--color--primary--default);
   font-weight: 600;
+  position: sticky;
+  top: 0;
+  z-index: 2;
 }
 
 .apme-output-row-header:hover {
@@ -456,6 +498,12 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 13px;
+}
+
+.apme-output-violation-scope {
+  min-width: 56px;
+  background: var(--pf-t--global--background--color--secondary--default);
+  opacity: 0.7;
 }
 
 /* Modal diff display */

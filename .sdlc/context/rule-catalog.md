@@ -15,7 +15,7 @@ This comprehensive rule catalogue outlines ninety-three individual guidelines de
 | L002 | OPA | Use fully qualified collection name for modules. | Yes |
 | L003 | OPA | Each play should have a name. | |
 | L004 | OPA | Do not use deprecated modules. | |
-| L005 | OPA | Use ansible.builtin or ansible.legacy. | |
+| L005 | OPA | Community collection module; use certified or validated. | |
 | L006 | OPA | Use dedicated module instead of command. | |
 | L007 | OPA | Prefer command when no shell features needed. | Yes |
 | L008 | OPA | Use delegate_to: localhost instead of local_action. | Yes |
@@ -115,7 +115,7 @@ This comprehensive rule catalogue outlines ninety-three individual guidelines de
 | L002 | Use fully qualified collection name for modules. | Yes |
 | L003 | Each play should have a name. | |
 | L004 | Do not use deprecated modules. | |
-| L005 | Use ansible.builtin or ansible.legacy. | |
+| L005 | Community collection module; use certified or validated. | |
 | L006 | Use dedicated module instead of command. | |
 | L007 | Prefer command when no shell features needed. | Yes |
 | L008 | Use delegate_to: localhost instead of local_action. | Yes |

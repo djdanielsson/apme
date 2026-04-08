@@ -9,6 +9,7 @@ import {
   SplitItem,
 } from '@patternfly/react-core';
 import { ExternalLinkAltIcon } from '@patternfly/react-icons';
+import { useNavigate } from 'react-router-dom';
 import type { OperationResult } from '../types/operation';
 
 export interface OperationResultCardProps {
@@ -20,6 +21,7 @@ export interface OperationResultCardProps {
   prCreating?: boolean;
   prUrl?: string | null;
   prError?: string | null;
+  scanId?: string;
 }
 
 function Metric({ value, label, color }: { value: number; label: string; color?: string }) {
@@ -50,7 +52,9 @@ export function OperationResultCard({
   prCreating,
   prUrl,
   prError,
+  scanId,
 }: OperationResultCardProps) {
+  const navigate = useNavigate();
   const wasRemediate = isRemediate ?? result.remediated_count != null;
   const hasAi = (result.ai_proposed ?? 0) > 0 || (result.ai_declined ?? 0) > 0 || (result.ai_accepted ?? 0) > 0;
   const showCreatePR = (result.remediated_count ?? 0) > 0 && onCreatePR && !prUrl;
@@ -124,6 +128,13 @@ export function OperationResultCard({
                 isDisabled={prCreating}
               >
                 {prCreating ? 'Creating PR...' : 'Create PR'}
+              </Button>
+            </FlexItem>
+          )}
+          {scanId && (
+            <FlexItem>
+              <Button variant="secondary" onClick={() => navigate(`/activity/${scanId}`)}>
+                View details
               </Button>
             </FlexItem>
           )}

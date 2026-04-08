@@ -1663,7 +1663,7 @@ class GraphBuilder:
                 if imported_nid:
                     continue
 
-            play_nid = self._build_play(play, nid, file_path, i, scope)
+            play_nid = self._build_play(play, nid, file_path, i, scope, file_content=pb.yaml_lines)
             self._graph.add_edge(nid, play_nid, EdgeType.CONTAINS, position=i)
 
         return nid
@@ -1703,7 +1703,16 @@ class GraphBuilder:
 
     # -- Play ---------------------------------------------------------------
 
-    def _build_play(self, play: Play, playbook_nid: str, file_path: str, play_index: int, scope: NodeScope) -> str:
+    def _build_play(
+        self,
+        play: Play,
+        playbook_nid: str,
+        file_path: str,
+        play_index: int,
+        scope: NodeScope,
+        *,
+        file_content: str = "",
+    ) -> str:
         """Build graph nodes for a play and its children.
 
         Args:
@@ -1712,6 +1721,8 @@ class GraphBuilder:
             file_path: Playbook file path on disk.
             play_index: Zero-based index in ``pb.plays``.
             scope: Ownership scope for created nodes.
+            file_content: Full playbook file text for extracting the
+                play header YAML.
 
         Returns:
             Play node id (YAML-path identity under the playbook).
@@ -1723,6 +1734,8 @@ class GraphBuilder:
         nid = identity.path
 
         line_start, line_end = _extract_lines(play)
+        if line_start == 0 and file_content:
+            line_start, line_end = _find_play_lines(file_content, play_index)
 
         play_options = _safe_dict(getattr(play, "options", {}))
 
@@ -1808,6 +1821,10 @@ class GraphBuilder:
                 h_nid = self._build_handler(handler_obj, nid, file_path, play_index, h_idx, scope)
                 self._graph.add_edge(nid, h_nid, EdgeType.CONTAINS, position=position)
                 position += 1
+
+        if file_content and line_start > 0:
+            node.yaml_lines = _extract_play_header(file_content, line_start, line_end, self._graph, nid)
+            node.indent_depth = _detect_indent(node.yaml_lines)
 
         return nid
 
@@ -2543,6 +2560,75 @@ def _safe_dict(v: object) -> YAMLDict:
         ``v`` when it is a ``dict``, else ``{}``.
     """
     return cast(YAMLDict, v) if isinstance(v, dict) else {}
+
+
+def _find_play_lines(file_content: str, play_index: int) -> tuple[int, int]:
+    """Derive 1-based line range for the nth play from playbook YAML.
+
+    Scans for top-level list items (lines starting with ``- ``) which
+    correspond to individual plays in a standard playbook.
+
+    Args:
+        file_content: Full playbook file text.
+        play_index: Zero-based play index.
+
+    Returns:
+        ``(start, end)`` 1-based line numbers, or ``(0, 0)`` if the
+        play index cannot be located.
+    """
+    lines = file_content.splitlines()
+    play_starts: list[int] = []
+    for i, line in enumerate(lines):
+        if line.startswith("- ") or line == "-":
+            play_starts.append(i + 1)
+
+    if play_index >= len(play_starts):
+        return 0, 0
+
+    start = play_starts[play_index]
+    end = play_starts[play_index + 1] - 1 if play_index + 1 < len(play_starts) else len(lines)
+    return start, end
+
+
+def _extract_play_header(
+    file_content: str,
+    play_line_start: int,
+    play_line_end: int,
+    graph: ContentGraph,
+    play_nid: str,
+) -> str:
+    """Extract the play header YAML (structural keys, without child bodies).
+
+    Returns the lines from ``play_line_start`` up to (but not including)
+    the first child node's start line.  If the play has no children with
+    valid line numbers, the full play span is returned.
+
+    Args:
+        file_content: Full playbook file text.
+        play_line_start: 1-based start line of the play.
+        play_line_end: 1-based end line of the play.
+        graph: ContentGraph (children already added).
+        play_nid: Play node ID to query children from.
+
+    Returns:
+        Play header YAML string.
+    """
+    if not file_content or play_line_start < 1:
+        return ""
+
+    file_lines = file_content.splitlines(keepends=True)
+
+    first_child_line = 0
+    for child in graph.children(play_nid):
+        if child.line_start > 0 and (first_child_line == 0 or child.line_start < first_child_line):
+            first_child_line = child.line_start
+
+    end = play_line_end if play_line_end > 0 else len(file_lines)
+    if first_child_line > play_line_start:
+        end = first_child_line - 1
+
+    header = "".join(file_lines[play_line_start - 1 : end])
+    return header.rstrip("\n") + "\n" if header.strip() else ""
 
 
 def _extract_lines(obj: object) -> tuple[int, int]:

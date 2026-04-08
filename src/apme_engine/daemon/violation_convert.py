@@ -27,6 +27,10 @@ _COMMON_KEYS = frozenset(
         "scope",
         "source",
         "snippet",
+        "original_yaml",
+        "fixed_yaml",
+        "co_fixes",
+        "node_line_start",
         "affected_children",
     }
 )
@@ -177,8 +181,13 @@ def violation_dict_to_proto(v: ViolationDict | Mapping[str, str | int | list[int
         remediation_resolution=resolution_proto,
         scope=scope_proto,
         source=str(v.get("source") or ""),
-        snippet=str(v.get("snippet") or ""),
+        original_yaml=str(v.get("original_yaml") or ""),
+        fixed_yaml=str(v.get("fixed_yaml") or ""),
+        node_line_start=int(v.get("node_line_start") or 0),  # type: ignore[arg-type]
     )
+    co = v.get("co_fixes")
+    if co and isinstance(co, list):
+        out.co_fixes.extend(str(x) for x in co)
     line = v.get("line")
     if isinstance(line, list | tuple) and len(line) >= 2:
         out.line_range.CopyFrom(LineRange(start=int(line[0]), end=int(line[1])))
@@ -246,8 +255,12 @@ def violation_proto_to_dict(v: Violation) -> ViolationDict:
         "remediation_resolution": resolution,
         "scope": scope,
         "source": v.source,
-        "snippet": v.snippet,
+        "original_yaml": v.original_yaml,
+        "fixed_yaml": v.fixed_yaml,
+        "node_line_start": v.node_line_start,
     }
+    if v.co_fixes:
+        result["co_fixes"] = list(v.co_fixes)  # type: ignore[arg-type]
 
     if v.affected_children > 0:
         result["affected_children"] = v.affected_children

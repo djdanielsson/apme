@@ -9,7 +9,10 @@ export interface ViolationDetail {
   remediation_class: number;
   scope: number;
   validator_source?: string;
-  snippet?: string;
+  original_yaml?: string;
+  fixed_yaml?: string;
+  co_fixes?: string[];
+  node_line_start?: number;
 }
 
 export interface LogEntry {

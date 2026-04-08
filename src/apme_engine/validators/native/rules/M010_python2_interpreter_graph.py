@@ -1,8 +1,8 @@
 """GraphRule M010: detect ``ansible_python_interpreter`` pointing at Python 2.
 
-Graph-aware port of ``M010_python2_interpreter.py``.  Uses
-``VariableProvenanceResolver.resolve_variables`` for scope-wide variable
-bindings and still inspects task-local ``vars`` and module arguments.
+Reports the finding at the defining scope (play/block) rather than
+duplicating it on every child task.  Task-local ``vars`` and module
+arguments are still checked directly on each task.
 """
 
 import re
@@ -11,10 +11,11 @@ from dataclasses import dataclass
 from apme_engine.engine.content_graph import ContentGraph, ContentNode, NodeType
 from apme_engine.engine.models import RuleScope, Severity, YAMLDict
 from apme_engine.engine.models import RuleTag as Tag
-from apme_engine.engine.variable_provenance import VariableProvenanceResolver
 from apme_engine.validators.native.rules.graph_rule_base import GraphRule, GraphRuleResult
 
 _TASK_TYPES = frozenset({NodeType.TASK, NodeType.HANDLER})
+_VAR_SCOPE_TYPES = frozenset({NodeType.PLAY, NodeType.BLOCK})
+_MATCH_TYPES = _TASK_TYPES | _VAR_SCOPE_TYPES
 
 _PY2_PATH = re.compile(r"python2(\.\d+)?$")
 
@@ -82,73 +83,110 @@ class Python2InterpreterGraphRule(GraphRule):
     precedence: int = 10
 
     def match(self, graph: ContentGraph, node_id: str) -> bool:
-        """Match task and handler nodes.
+        """Match play, block, task, and handler nodes.
+
+        Plays and blocks are matched so that a play/block-level
+        ``ansible_python_interpreter`` is reported once at the defining
+        scope rather than duplicated on every child task.
 
         Args:
             graph: The full ContentGraph.
             node_id: ID of the node to check.
 
         Returns:
-            True if the node is a task or handler.
+            True if the node is a play, block, task, or handler.
         """
         node = graph.get_node(node_id)
         if node is None:
             return False
-        return node.node_type in _TASK_TYPES
+        return node.node_type in _MATCH_TYPES
 
     def process(self, graph: ContentGraph, node_id: str) -> GraphRuleResult | None:
-        """Detect Python-2 interpreter paths from locals and resolved variables.
+        """Detect Python-2 interpreter paths.
+
+        For plays/blocks: check the node's own vars for a Python-2 path.
+        For tasks/handlers: only check task-local fields (vars, module_options,
+        options) — inherited play/block vars are caught at the defining scope.
 
         Args:
             graph: The full ContentGraph.
             node_id: ID of the node to evaluate.
 
         Returns:
-            Graph rule result with interpreter and provenance detail, or None if the node is missing.
+            Graph rule result, or None if node is missing.
         """
         node = graph.get_node(node_id)
         if node is None:
             return None
 
-        resolver = VariableProvenanceResolver(graph)
-        resolved = resolver.resolve_variables(node_id)
-        prov = resolved.get("ansible_python_interpreter")
+        if node.node_type in _VAR_SCOPE_TYPES:
+            return self._check_scope_node(node)
 
-        detail: YAMLDict = {}
-        local_hit = _local_py2_hit(node)
+        return self._check_task_node(node)
 
-        if local_hit is not None:
-            detail["message"] = f"ansible_python_interpreter set to Python 2 path: {local_hit}"
-            detail["interpreter"] = local_hit
-            return GraphRuleResult(
-                verdict=True,
-                detail=detail,
-                node_id=node_id,
-                file=(node.file_path, node.line_start),
-            )
+    def _check_scope_node(self, node: ContentNode) -> GraphRuleResult:
+        """Check a play or block node's own vars for Python-2 interpreter.
 
-        if prov is not None and prov.value is not None:
-            s = str(prov.value)
+        Args:
+            node: Play or block node.
+
+        Returns:
+            GraphRuleResult with verdict.
+        """
+        val = node.variables.get("ansible_python_interpreter")
+        if val is None:
+            raw_vars = node.options.get("vars")
+            if isinstance(raw_vars, dict):
+                val = raw_vars.get("ansible_python_interpreter")
+
+        if val is not None and val != "":
+            s = str(val)
             if _PY2_PATH.search(s):
-                detail["message"] = f"ansible_python_interpreter set to Python 2 path: {s}"
-                detail["interpreter"] = s
-                if prov.defining_node_id and prov.defining_node_id != node_id:
-                    detail["defined_at"] = prov.defining_node_id
-                    detail["source"] = prov.source.value
-                    if prov.file_path:
-                        detail["defined_in_file"] = prov.file_path
-                    if prov.line:
-                        detail["defined_at_line"] = prov.line
                 return GraphRuleResult(
                     verdict=True,
-                    detail=detail,
-                    node_id=node_id,
+                    detail={
+                        "message": f"ansible_python_interpreter set to Python 2 path: {s}",
+                        "interpreter": s,
+                    },
+                    node_id=node.node_id,
                     file=(node.file_path, node.line_start),
                 )
 
         return GraphRuleResult(
             verdict=False,
             detail={},
-            node_id=node_id,
+            node_id=node.node_id,
+            file=(node.file_path, node.line_start),
+        )
+
+    def _check_task_node(self, node: ContentNode) -> GraphRuleResult:
+        """Check a task/handler for a task-local Python-2 interpreter.
+
+        Only inspects fields directly on the task (vars, module_options,
+        options). Inherited play/block vars are not checked here — they
+        are caught by ``_check_scope_node`` on the defining ancestor.
+
+        Args:
+            node: Task or handler node.
+
+        Returns:
+            GraphRuleResult with verdict.
+        """
+        local_hit = _local_py2_hit(node)
+        if local_hit is not None:
+            return GraphRuleResult(
+                verdict=True,
+                detail={
+                    "message": f"ansible_python_interpreter set to Python 2 path: {local_hit}",
+                    "interpreter": local_hit,
+                },
+                node_id=node.node_id,
+                file=(node.file_path, node.line_start),
+            )
+
+        return GraphRuleResult(
+            verdict=False,
+            detail={},
+            node_id=node.node_id,
             file=(node.file_path, node.line_start),
         )
