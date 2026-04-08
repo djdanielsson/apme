@@ -28,6 +28,7 @@ from apme_engine.validators.dep_audit.auditor import (
 logger = logging.getLogger("apme.dep_audit")
 
 _MAX_CONCURRENT_RPCS = int(os.environ.get("APME_DEP_AUDIT_MAX_RPCS", "8"))
+_SESSIONS_ROOT = Path(os.environ.get("APME_SESSIONS_ROOT", "/sessions"))
 
 
 def _run_audit(venv_path: str) -> list[ViolationDict]:
@@ -39,7 +40,10 @@ def _run_audit(venv_path: str) -> list[ViolationDict]:
     Returns:
         List of violation dicts from pip-audit.
     """
-    venv_dir = Path(venv_path)
+    venv_dir = Path(venv_path).resolve()
+    if not venv_dir.is_relative_to(_SESSIONS_ROOT.resolve()):
+        logger.warning("Dep audit: venv_path outside sessions root: %s", venv_path)
+        return []
     if not venv_dir.is_dir():
         logger.warning("Dep audit: venv_path not a directory: %s", venv_path)
         return []

@@ -48,6 +48,7 @@ _ALLOWED_SCHEMES = ("https://",)
 
 _REMOTE_HEAD_CACHE: dict[str, tuple[float, str | None]] = {}
 _REMOTE_HEAD_TTL = 60.0  # seconds
+_REMOTE_HEAD_CACHE_MAX = 256
 
 
 async def fetch_remote_head(repo_url: str, branch: str) -> str | None:
@@ -85,6 +86,13 @@ async def fetch_remote_head(repo_url: str, branch: str) -> str | None:
             sha = result.stdout.strip().split()[0]
     except Exception:  # noqa: BLE001
         logger.debug("ls-remote failed for %s branch %s", repo_url, branch, exc_info=True)
+
+    if len(_REMOTE_HEAD_CACHE) >= _REMOTE_HEAD_CACHE_MAX:
+        expired = [k for k, (ts, _) in _REMOTE_HEAD_CACHE.items() if (now - ts) >= _REMOTE_HEAD_TTL]
+        for k in expired:
+            del _REMOTE_HEAD_CACHE[k]
+        if len(_REMOTE_HEAD_CACHE) >= _REMOTE_HEAD_CACHE_MAX:
+            _REMOTE_HEAD_CACHE.clear()
 
     _REMOTE_HEAD_CACHE[cache_key] = (now, sha)
     return sha

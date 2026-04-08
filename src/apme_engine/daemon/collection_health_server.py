@@ -25,6 +25,7 @@ from apme_engine.validators.collection_health.scanner import scan_collections
 logger = logging.getLogger("apme.collection_health")
 
 _MAX_CONCURRENT_RPCS = int(os.environ.get("APME_COLLECTION_HEALTH_MAX_RPCS", "4"))
+_SESSIONS_ROOT = Path(os.environ.get("APME_SESSIONS_ROOT", "/sessions"))
 
 
 def _run_scan(venv_path: str, rescan: bool) -> list[ViolationDict]:
@@ -37,7 +38,10 @@ def _run_scan(venv_path: str, rescan: bool) -> list[ViolationDict]:
     Returns:
         List of violation dicts from collection scanning.
     """
-    venv_dir = Path(venv_path)
+    venv_dir = Path(venv_path).resolve()
+    if not venv_dir.is_relative_to(_SESSIONS_ROOT.resolve()):
+        logger.warning("Collection health: venv_path outside sessions root: %s", venv_path)
+        return []
     if not venv_dir.is_dir():
         logger.warning("Collection health: venv_path not a directory: %s", venv_path)
         return []

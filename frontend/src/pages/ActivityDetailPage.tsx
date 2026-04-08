@@ -204,11 +204,7 @@ export function ActivityDetailPage() {
       <div className="apme-activity-layout">
         {/* Status bar + severity bar (fixed height, always visible) */}
         <ViolationStatusBar
-          detail={{
-            ...detail,
-            total_violations: projectViolations.length,
-            violations: projectViolations,
-          }}
+          detail={detail}
           depHealthCount={depHealthCount}
         />
         <SeverityStatusBar sevCounts={sevCounts} />

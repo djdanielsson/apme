@@ -12,6 +12,7 @@ import hashlib
 import json
 import logging
 import os
+import tempfile
 from functools import lru_cache
 from pathlib import Path
 from typing import cast
@@ -94,7 +95,11 @@ def put_cached(
             "schema": cache_schema,
             "findings": findings,
         }
-        path.write_text(json.dumps(payload, indent=2) + "\n")
+        content = (json.dumps(payload, indent=2) + "\n").encode()
+        fd, tmp_path = tempfile.mkstemp(dir=str(_CACHE_DIR), suffix=".tmp")
+        with os.fdopen(fd, "wb") as f:
+            f.write(content)
+        os.replace(tmp_path, str(path))
     except OSError as exc:
         logger.warning("Cache write error for %s %s: %s", fqcn, version, exc)
 
