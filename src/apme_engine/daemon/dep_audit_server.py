@@ -74,7 +74,7 @@ class DepAuditValidatorServicer(validate_pb2_grpc.ValidatorServicer):
 
                 logger.info("Dep audit: validate start (venv=%s, req=%s)", venv_path, req_id)
 
-                violations = await asyncio.get_event_loop().run_in_executor(
+                violations = await asyncio.get_running_loop().run_in_executor(
                     None,
                     _run_audit,
                     venv_path,

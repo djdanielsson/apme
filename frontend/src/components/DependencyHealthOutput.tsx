@@ -9,10 +9,10 @@ import {
 import { severityClass, severityLabel, severityOrder, bareRuleId, SEVERITY_ORDER } from './severity';
 import type { ViolationDetail } from '../types/api';
 
-const SCOPE_COLLECTION = 7;
+const DEP_HEALTH_SOURCES = new Set(['collection_health', 'dep_audit']);
 
 export function isDepHealthViolation(v: ViolationDetail): boolean {
-  return v.scope === SCOPE_COLLECTION || v.validator_source === 'dep_audit';
+  return DEP_HEALTH_SOURCES.has(v.validator_source ?? '');
 }
 
 interface DependencyHealthOutputProps {
@@ -34,7 +34,7 @@ function groupDepViolations(violations: ViolationDetail[]): DepGroup[] {
     if (!isDepHealthViolation(v)) continue;
     if (v.validator_source === 'dep_audit') {
       cveList.push(v);
-    } else if (v.scope === SCOPE_COLLECTION) {
+    } else if (v.validator_source === 'collection_health') {
       const fqcn = v.path || 'unknown';
       const arr = collMap.get(fqcn) ?? [];
       arr.push(v);
@@ -111,7 +111,7 @@ export function DependencyHealthOutput({ violations }: DependencyHealthOutputPro
 
   if (depViolations.length === 0) return null;
 
-  const collCount = depViolations.filter(v => v.scope === SCOPE_COLLECTION).length;
+  const collCount = depViolations.filter(v => v.validator_source === 'collection_health').length;
   const cveCount = depViolations.filter(v => v.validator_source === 'dep_audit').length;
 
   const summaryParts: string[] = [];

@@ -140,6 +140,8 @@ export interface ProjectSummary {
   last_scanned_at: string | null;
   scm_provider: string | null;
   has_scm_token: boolean;
+  last_scanned_commit: string;
+  has_new_commits: boolean;
 }
 
 export interface ProjectDetail extends ProjectSummary {

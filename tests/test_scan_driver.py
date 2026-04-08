@@ -161,7 +161,19 @@ def test_get_clone_head_returns_sha() -> None:
 
         subprocess.run(["git", "init", td], check=True, capture_output=True)  # noqa: S603, S607
         subprocess.run(  # noqa: S603, S607
-            ["git", "commit", "--allow-empty", "-m", "init"],
+            [
+                "git",
+                "-c",
+                "user.name=test",
+                "-c",
+                "user.email=test@test",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "--allow-empty",
+                "-m",
+                "init",
+            ],
             check=True,
             capture_output=True,
             cwd=td,

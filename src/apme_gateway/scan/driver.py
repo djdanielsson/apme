@@ -15,6 +15,7 @@ import logging
 import shutil
 import subprocess
 import tempfile
+import time
 import uuid
 from collections.abc import AsyncIterator, Callable, Coroutine
 from typing import Any
@@ -45,11 +46,16 @@ def derive_session_id(project_id: str) -> str:
 
 _ALLOWED_SCHEMES = ("https://",)
 
+_REMOTE_HEAD_CACHE: dict[str, tuple[float, str | None]] = {}
+_REMOTE_HEAD_TTL = 60.0  # seconds
+
 
 async def fetch_remote_head(repo_url: str, branch: str) -> str | None:
     """Query the remote for the HEAD commit SHA of *branch* without cloning.
 
     Uses ``git ls-remote`` which only contacts the server for ref advertisement.
+    Results are cached for 60 seconds per (repo_url, branch) to avoid repeated
+    outbound calls on frequent UI refreshes.
 
     Args:
         repo_url: HTTPS clone URL.
@@ -61,18 +67,27 @@ async def fetch_remote_head(repo_url: str, branch: str) -> str | None:
     if not any(repo_url.startswith(scheme) for scheme in _ALLOWED_SCHEMES):
         return None
 
+    cache_key = f"{repo_url}:{branch}"
+    now = time.monotonic()
+    cached = _REMOTE_HEAD_CACHE.get(cache_key)
+    if cached and (now - cached[0]) < _REMOTE_HEAD_TTL:
+        return cached[1]
+
     cmd = ["git", "ls-remote", "--exit-code", repo_url, f"refs/heads/{branch}"]
     loop = asyncio.get_running_loop()
+    sha: str | None = None
     try:
         result = await loop.run_in_executor(
             None,
             lambda: subprocess.run(cmd, capture_output=True, text=True, timeout=30),  # noqa: S603
         )
         if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip().split()[0]
+            sha = result.stdout.strip().split()[0]
     except Exception:  # noqa: BLE001
         logger.debug("ls-remote failed for %s branch %s", repo_url, branch, exc_info=True)
-    return None
+
+    _REMOTE_HEAD_CACHE[cache_key] = (now, sha)
+    return sha
 
 
 def get_clone_head(clone_dir: str) -> str | None:

@@ -19,7 +19,7 @@ import {
 import { severityClass, severityLabel, SEVERITY_ORDER, SEV_CSS_VAR } from './severity';
 import type { ViolationDetail } from '../types/api';
 
-const SCOPE_COLLECTION = 7;
+const DEP_HEALTH_SOURCES = new Set(['collection_health', 'dep_audit']);
 
 interface CollectionGroup {
   fqcn: string;
@@ -56,7 +56,7 @@ function SevBadge({ sev, count }: { sev: string; count: number }) {
 }
 
 export function isDepHealthViolation(v: ViolationDetail): boolean {
-  return v.scope === SCOPE_COLLECTION || v.validator_source === 'dep_audit';
+  return DEP_HEALTH_SOURCES.has(v.validator_source ?? '');
 }
 
 interface DependencyHealthPanelProps {
@@ -149,7 +149,7 @@ export function DependencyHealthPanel({ violations }: DependencyHealthPanelProps
   const collectionGroups = useMemo(() => {
     const groups = new Map<string, CollectionGroup>();
     for (const v of depViolations) {
-      if (v.scope !== SCOPE_COLLECTION) continue;
+      if (v.validator_source !== 'collection_health') continue;
       const fqcn = v.path || 'unknown';
       const key = fqcn;
       if (!groups.has(key)) {

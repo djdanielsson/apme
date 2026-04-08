@@ -90,7 +90,7 @@ class CollectionHealthValidatorServicer(validate_pb2_grpc.ValidatorServicer):
 
                 rescan = self._rescan
 
-                violations = await asyncio.get_event_loop().run_in_executor(
+                violations = await asyncio.get_running_loop().run_in_executor(
                     None,
                     _run_scan,
                     venv_path,
