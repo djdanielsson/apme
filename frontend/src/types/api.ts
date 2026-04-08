@@ -261,6 +261,31 @@ export interface PythonPackageDetail {
   projects: PythonPackageProjectRef[];
 }
 
+// ── Dependency health types (ADR-051) ─────────────────────────────
+
+export interface CollectionHealthSummary {
+  fqcn: string;
+  finding_count: number;
+  critical: number;
+  error: number;
+  high: number;
+  medium: number;
+  low: number;
+  info: number;
+}
+
+export interface PythonCveSummary {
+  rule_id: string;
+  level: string;
+  message: string;
+  occurrence_count: number;
+}
+
+export interface DepHealthSummary {
+  collection_findings: CollectionHealthSummary[];
+  python_cves: PythonCveSummary[];
+}
+
 // ── Galaxy server types (ADR-045) ────────────────────────────────────
 
 export interface GalaxyServer {

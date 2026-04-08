@@ -29,6 +29,7 @@ from apme_gateway.api.schemas import (
     AiAcceptanceEntry,
     AiModelInfo,
     CollectionDetail,
+    CollectionHealthSummary,
     CollectionProjectRef,
     CollectionRefSchema,
     CollectionSummary,
@@ -38,6 +39,7 @@ from apme_gateway.api.schemas import (
     CreatePullRequestRequest,
     CreatePullRequestResponse,
     DashboardSummary,
+    DepHealthSummary,
     GalaxyServerSchema,
     HealthStatus,
     LogEntry,
@@ -48,6 +50,7 @@ from apme_gateway.api.schemas import (
     ProjectRanking,
     ProjectSummary,
     ProposalDetail,
+    PythonCveSummary,
     PythonPackageDetail,
     PythonPackageProjectRef,
     PythonPackageRefSchema,
@@ -98,6 +101,8 @@ _UPSTREAM_SERVICES: list[tuple[str, str, str]] = [
     ("OPA Validator", "OPA_GRPC_ADDRESS", "127.0.0.1:50054"),
     ("Ansible Validator", "ANSIBLE_GRPC_ADDRESS", "127.0.0.1:50053"),
     ("Gitleaks Validator", "GITLEAKS_GRPC_ADDRESS", "127.0.0.1:50056"),
+    ("Collection Health", "COLLECTION_HEALTH_GRPC_ADDRESS", "127.0.0.1:50058"),
+    ("Dep Audit", "DEP_AUDIT_GRPC_ADDRESS", "127.0.0.1:50059"),
     ("Galaxy Proxy", "APME_GALAXY_PROXY_URL", "http://127.0.0.1:8765"),
     ("Abbenay AI", "APME_ABBENAY_ADDR", "127.0.0.1:50057"),
 ]
@@ -1022,6 +1027,90 @@ async def get_python_package_detail(name: str) -> PythonPackageDetail:
                 package_version=str(p.get("package_version", "")),
             )
             for p in pkg_projects
+        ],
+    )
+
+
+# ── Dependency health (ADR-051) ──────────────────────────────────────
+
+
+@router.get("/dep-health")  # type: ignore[untyped-decorator]
+async def dep_health_summary() -> DepHealthSummary:
+    """Return aggregated dependency health findings from latest scans.
+
+    Returns:
+        Summary of collection health findings and Python CVEs.
+    """
+    async with get_session() as db:
+        coll_rows = await q.collection_health_counts(db)
+        cve_rows = await q.python_cve_counts(db)
+    return DepHealthSummary(
+        collection_findings=[
+            CollectionHealthSummary(
+                fqcn=str(r["fqcn"]),
+                finding_count=cast(int, r["finding_count"]),
+                critical=cast(int, r.get("critical", 0)),
+                error=cast(int, r.get("error", 0)),
+                high=cast(int, r.get("high", 0)),
+                medium=cast(int, r.get("medium", 0)),
+                low=cast(int, r.get("low", 0)),
+                info=cast(int, r.get("info", 0)),
+            )
+            for r in coll_rows
+        ],
+        python_cves=[
+            PythonCveSummary(
+                rule_id=str(r["rule_id"]),
+                level=str(r["level"]),
+                message=str(r["message"]),
+                occurrence_count=cast(int, r["occurrence_count"]),
+            )
+            for r in cve_rows
+        ],
+    )
+
+
+@router.get("/projects/{project_id}/dep-health")  # type: ignore[untyped-decorator]
+async def project_dep_health_summary(project_id: str) -> DepHealthSummary:
+    """Return dependency health findings for a specific project.
+
+    Args:
+        project_id: UUID of the project.
+
+    Returns:
+        Summary of collection health findings and Python CVEs for this project.
+
+    Raises:
+        HTTPException: 404 if project not found.
+    """
+    async with get_session() as db:
+        proj = await q.get_project(db, project_id)
+        if proj is None:
+            raise HTTPException(status_code=404, detail="Project not found")
+        coll_rows = await q.project_collection_health_counts(db, proj.id)
+        cve_rows = await q.project_python_cve_counts(db, proj.id)
+    return DepHealthSummary(
+        collection_findings=[
+            CollectionHealthSummary(
+                fqcn=str(r["fqcn"]),
+                finding_count=cast(int, r["finding_count"]),
+                critical=cast(int, r.get("critical", 0)),
+                error=cast(int, r.get("error", 0)),
+                high=cast(int, r.get("high", 0)),
+                medium=cast(int, r.get("medium", 0)),
+                low=cast(int, r.get("low", 0)),
+                info=cast(int, r.get("info", 0)),
+            )
+            for r in coll_rows
+        ],
+        python_cves=[
+            PythonCveSummary(
+                rule_id=str(r["rule_id"]),
+                level=str(r["level"]),
+                message=str(r["message"]),
+                occurrence_count=cast(int, r["occurrence_count"]),
+            )
+            for r in cve_rows
         ],
     )
 

@@ -86,12 +86,36 @@ def _resolve_session_id(args: argparse.Namespace) -> str:
     return derive_session_id(project_root)
 
 
+def _apply_dep_scan_flags(args: argparse.Namespace) -> None:
+    """Suppress dependency validator env vars based on CLI skip flags.
+
+    When the daemon auto-starts, unsetting these env vars prevents the
+    corresponding optional validators from being launched.  For an
+    already-running daemon, these flags are a no-op (the validators are
+    already running or not running based on the daemon's startup config).
+
+    Args:
+        args: Parsed CLI arguments with dep-scan flags.
+    """
+    import os
+
+    skip_all = getattr(args, "skip_dep_scan", False)
+    skip_collection = getattr(args, "skip_collection_scan", False) or skip_all
+    skip_python = getattr(args, "skip_python_audit", False) or skip_all
+
+    if skip_collection:
+        os.environ.pop("COLLECTION_HEALTH_GRPC_ADDRESS", None)
+    if skip_python:
+        os.environ.pop("DEP_AUDIT_GRPC_ADDRESS", None)
+
+
 def run_check(args: argparse.Namespace) -> None:
     """Execute the check subcommand.
 
     Args:
         args: Parsed CLI arguments.
     """
+    _apply_dep_scan_flags(args)
     verbosity = getattr(args, "verbose", 0) or 0
     session_id = _resolve_session_id(args)
 
@@ -151,7 +175,7 @@ def run_check(args: argparse.Namespace) -> None:
     got_result = False
 
     try:
-        check_timeout = float(getattr(args, "timeout", None) or 120)
+        check_timeout = float(getattr(args, "timeout", None) or 300)
         responses = stub.FixSession(command_iter(), timeout=check_timeout)
 
         for event in responses:

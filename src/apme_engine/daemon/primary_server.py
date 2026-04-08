@@ -272,14 +272,15 @@ def _write_chunked_fs(files: list[File]) -> Path:
 async def _call_validator(
     address: str,
     request: ValidateRequest,
-    timeout: int = 60,
+    timeout: int = 300,
 ) -> _ValidatorResult:
     """Call a validator over async gRPC; return violations + diagnostics.
 
     Args:
         address: gRPC address of the validator (e.g. localhost:50055).
         request: ValidateRequest to send.
-        timeout: Request timeout in seconds.
+        timeout: Request timeout in seconds (default 300 to accommodate
+            collection health scanning of many large collections).
 
     Returns:
         _ValidatorResult with violations and optional diagnostics.
@@ -457,6 +458,8 @@ VALIDATOR_ENV_VARS = {
     "opa": "OPA_GRPC_ADDRESS",
     "ansible": "ANSIBLE_GRPC_ADDRESS",
     "gitleaks": "GITLEAKS_GRPC_ADDRESS",
+    "collection_health": "COLLECTION_HEALTH_GRPC_ADDRESS",
+    "dep_audit": "DEP_AUDIT_GRPC_ADDRESS",
 }
 
 
@@ -1409,6 +1412,11 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
         # 1. Initial full-pipeline scan to get violations + graph
         initial_violations = await scan_fn(yaml_paths)
 
+        dep_health_sources = {"collection_health", "dep_audit"}
+        dep_health_violations = [v for v in initial_violations if str(v.get("source", "")) in dep_health_sources]
+        project_violations = [v for v in initial_violations if str(v.get("source", "")) not in dep_health_sources]
+        initial_violations = project_violations
+
         graph = captured_graph[0]
         if not isinstance(graph, ContentGraph):
             logger.warning(
@@ -1627,6 +1635,7 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
         # Copy before enrichment so classification metadata does not mutate
         # the graph-owned NodeState snapshot objects.
         remaining = [dict(v) for v in graph_report.remaining_violations]
+        remaining.extend(dep_health_violations)
         add_classification_to_violations(remaining, registry)  # type: ignore[arg-type]
 
         from apme_engine.remediation.partition import count_by_remediation_class

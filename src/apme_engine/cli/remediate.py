@@ -45,6 +45,9 @@ def run_remediate(args: argparse.Namespace) -> None:
     Args:
         args: Parsed CLI arguments.
     """
+    from apme_engine.cli.check import _apply_dep_scan_flags
+
+    _apply_dep_scan_flags(args)
     target = Path(args.target).resolve()
     if not target.exists():
         sys.stderr.write(f"Target not found: {args.target}\n")

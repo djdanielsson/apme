@@ -89,6 +89,8 @@ def galaxy_to_metadata_with_python_deps(
         line = re.split(r"\s+#", line, maxsplit=1)[0].strip()
         if not line or line.startswith("#") or line.startswith("-"):
             continue
+        if "://" in line or line.startswith((".", "/")):
+            continue
         extra_lines.append(f"Requires-Dist: {line}")
 
     if extra_lines:

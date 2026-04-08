@@ -594,6 +594,61 @@ class CreatePullRequestResponse(BaseModel):  # type: ignore[misc]
     provider: str
 
 
+# ── Dependency health schemas (ADR-051) ──────────────────────────────
+
+
+class CollectionHealthSummary(BaseModel):  # type: ignore[misc]
+    """Collection health findings count (ADR-051).
+
+    Attributes:
+        fqcn: Fully-qualified collection name.
+        finding_count: Total findings from collection health scan.
+        critical: Critical-severity count.
+        error: Error-severity count.
+        high: High-severity count.
+        medium: Medium-severity count.
+        low: Low-severity count.
+        info: Info-severity count.
+    """
+
+    fqcn: str
+    finding_count: int
+    critical: int = 0
+    error: int = 0
+    high: int = 0
+    medium: int = 0
+    low: int = 0
+    info: int = 0
+
+
+class PythonCveSummary(BaseModel):  # type: ignore[misc]
+    """Python CVE finding summary (ADR-051).
+
+    Attributes:
+        rule_id: Rule identifier (e.g. R200).
+        level: Severity level string.
+        message: Human-readable CVE description.
+        occurrence_count: Number of projects affected.
+    """
+
+    rule_id: str
+    level: str
+    message: str
+    occurrence_count: int
+
+
+class DepHealthSummary(BaseModel):  # type: ignore[misc]
+    """Aggregated dependency health findings (ADR-051).
+
+    Attributes:
+        collection_findings: Per-collection finding counts.
+        python_cves: Per-CVE finding summaries.
+    """
+
+    collection_findings: list[CollectionHealthSummary] = Field(default_factory=list)
+    python_cves: list[PythonCveSummary] = Field(default_factory=list)
+
+
 class OperationRequestOptions(BaseModel):  # type: ignore[misc]
     """Per-operation check/remediate options (ADR-037).
 
