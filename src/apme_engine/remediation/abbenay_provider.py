@@ -6,6 +6,7 @@ Install with: pip install apme-engine[ai]
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -15,7 +16,12 @@ from pathlib import Path
 import yaml
 
 from apme_engine.remediation.ai_context import AINodeContext
-from apme_engine.remediation.ai_provider import AINodeFix, AISkipped
+from apme_engine.remediation.ai_provider import (
+    AINodeFix,
+    AISkipped,
+    AIValidationResult,
+    AIValidationVerdict,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +106,139 @@ Rules:
 - If you cannot fix a violation confidently, add it to "skipped" instead
 - Every violation must appear in either "changes" or "skipped"
 """
+
+
+VALIDATION_PROMPT_TEMPLATE = """\
+You are an Ansible security and best-practices reviewer. A policy scanner flagged
+the following violation. Your job is to determine whether this is a TRUE positive
+(a real issue that should be fixed) or a FALSE positive (the flagged behavior is
+expected and legitimate in this context).
+
+## Violation
+
+Rule: [{rule_id}] {message}
+File: {file_path}
+
+## YAML Under Review
+```yaml
+{yaml_lines}
+```
+
+{parent_context_section}
+
+{sibling_context_section}
+
+## Instructions
+
+Analyze the task in context. Consider:
+- Does this task genuinely require the flagged behavior?
+  (e.g., does it need become:true because it manages system services or packages?)
+- Would removing the flagged behavior break the task's purpose?
+- Is this a common, well-understood pattern in Ansible automation?
+
+Respond with ONLY this JSON (no markdown fences, no explanation outside JSON):
+{{
+  "verdict": "true_positive" | "false_positive" | "uncertain",
+  "confidence": <0.0-1.0>,
+  "reasoning": "<1-2 sentence explanation>",
+  "suggestion": "<recommended action for the user>"
+}}
+
+- "true_positive" = the finding is a real issue that should be addressed
+- "false_positive" = the flagged behavior is legitimate and expected
+- "uncertain" = not enough context to determine confidently
+"""
+
+AI_REVIEWABLE_RULES: frozenset[str] = frozenset(
+    {
+        "R108",  # Privilege escalation — often legitimate for service management
+        "R103",  # External command execution — may be necessary
+        "R104",  # Package install in task — may be intentional
+        "R101",  # Become user without become — could be inherited
+        "R105",  # Environment variable manipulation — may be required
+    }
+)
+
+
+def _build_validation_prompt(context: AINodeContext) -> str:
+    """Build LLM prompt for validation of a contextual finding.
+
+    Args:
+        context: ``AINodeContext`` with a single violation to validate.
+
+    Returns:
+        Formatted validation prompt string.
+    """
+    v = context.violations[0] if context.violations else {}
+    rule_id = str(v.get("rule_id", ""))
+    message = str(v.get("message", ""))
+
+    parent_section = ""
+    if context.parent_context:
+        parent_section = f"## Inherited Context (from parent play/block)\n{context.parent_context}"
+
+    sibling_section = ""
+    if context.sibling_snippets:
+        sibling_yaml = "\n---\n".join(context.sibling_snippets)
+        sibling_section = f"## Surrounding Tasks (for awareness)\n```yaml\n{sibling_yaml}\n```"
+
+    return VALIDATION_PROMPT_TEMPLATE.format(
+        rule_id=rule_id,
+        message=message,
+        file_path=context.file_path,
+        yaml_lines=context.yaml_lines,
+        parent_context_section=parent_section,
+        sibling_context_section=sibling_section,
+    )
+
+
+def _parse_validation_response(
+    response_text: str,
+    rule_id: str,
+) -> AIValidationResult | None:
+    """Parse LLM validation response into an ``AIValidationResult``.
+
+    Args:
+        response_text: Raw text response from the LLM.
+        rule_id: Rule ID being validated.
+
+    Returns:
+        ``AIValidationResult`` if the AI produced a valid assessment, else ``None``.
+    """
+    data = _extract_json_object(response_text)
+    if data is None:
+        return None
+
+    verdict_str = str(data.get("verdict", "")).lower()
+    try:
+        verdict = AIValidationVerdict(verdict_str)
+    except ValueError:
+        logger.warning("Invalid validation verdict from AI: %r", verdict_str)
+        return None
+
+    confidence = 0.5
+    raw_conf = data.get("confidence")
+    if raw_conf is not None:
+        with contextlib.suppress(TypeError, ValueError):
+            confidence = max(0.0, min(1.0, float(raw_conf)))
+
+    reasoning = str(data.get("reasoning", ""))
+    suggestion = str(data.get("suggestion", ""))
+
+    noqa_comment = ""
+    if verdict == AIValidationVerdict.FALSE_POSITIVE:
+        noqa_comment = f"# noqa: {rule_id}"
+        if not suggestion:
+            suggestion = f"Add '{noqa_comment}' to suppress this finding."
+
+    return AIValidationResult(
+        rule_id=rule_id,
+        verdict=verdict,
+        confidence=confidence,
+        reasoning=reasoning,
+        suggestion=suggestion,
+        noqa_comment=noqa_comment,
+    )
 
 
 def _build_node_prompt(context: AINodeContext) -> str:
@@ -588,3 +727,65 @@ class AbbenayProvider:
             response_text,
         )
         return _parse_node_response(response_text, context.yaml_lines)
+
+    async def validate_finding(
+        self,
+        context: AINodeContext,
+        *,
+        model: str | None = None,
+    ) -> AIValidationResult | None:
+        """Validate whether a contextual finding is a true or false positive.
+
+        Uses the task's YAML, parent context, and surrounding siblings to
+        determine if the flagged behavior is legitimate in context.
+
+        Args:
+            context: Graph-derived context with a single violation to validate.
+            model: Optional model override.
+
+        Returns:
+            ``AIValidationResult`` with verdict and reasoning, or ``None`` on failure.
+        """
+        if not context.violations:
+            return None
+
+        rule_id = str(context.violations[0].get("rule_id", ""))
+        prompt = _build_validation_prompt(context)
+        effective_model = model or self._model
+
+        policy: dict[str, object] = {
+            "sampling": {"temperature": 0.0},
+            "output": {
+                "format": "json_only",
+                "max_tokens": 2048,
+            },
+            "reliability": {
+                "timeout": 30000,
+            },
+        }
+
+        try:
+            response_text = await self._chat_with_reconnect(
+                effective_model or "",
+                prompt,
+                policy,
+            )
+        except Exception:
+            logger.exception(
+                "Abbenay validation call failed for %s on %s",
+                rule_id,
+                context.node_id,
+            )
+            return None
+
+        if not response_text.strip():
+            return None
+
+        logger.debug(
+            "Abbenay validation response (%d chars) for %s on %s: %.500s",
+            len(response_text),
+            rule_id,
+            context.node_id,
+            response_text,
+        )
+        return _parse_validation_response(response_text, rule_id)

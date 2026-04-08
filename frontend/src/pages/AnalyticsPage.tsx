@@ -168,12 +168,13 @@ export function AnalyticsPage() {
               <table className="pf-v6-c-table pf-m-compact pf-m-grid-md" role="grid" style={{ tableLayout: 'auto' }}>
                 <thead>
                   <tr role="row">
-                    <th role="columnheader" style={{ paddingLeft: 24 }}>Rule ID</th>
-                    <th role="columnheader" style={{ textAlign: 'right' }}>Approved</th>
-                    <th role="columnheader" style={{ textAlign: 'right' }}>Rejected</th>
-                    <th role="columnheader" style={{ textAlign: 'right' }}>Pending</th>
-                    <th role="columnheader" style={{ textAlign: 'right' }}>Acceptance Rate</th>
-                    <th role="columnheader" style={{ paddingRight: 24, textAlign: 'right' }}>Avg Confidence</th>
+                    <th role="columnheader" style={{ paddingLeft: 24, width: 100 }}>Rule ID</th>
+                    <th role="columnheader">Description</th>
+                    <th role="columnheader" style={{ textAlign: 'right', width: 90 }}>Approved</th>
+                    <th role="columnheader" style={{ textAlign: 'right', width: 90 }}>Rejected</th>
+                    <th role="columnheader" style={{ textAlign: 'right', width: 80 }}>Pending</th>
+                    <th role="columnheader" style={{ textAlign: 'right', width: 120 }}>Acceptance Rate</th>
+                    <th role="columnheader" style={{ paddingRight: 24, textAlign: 'right', width: 120 }}>Avg Confidence</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -186,6 +187,9 @@ export function AnalyticsPage() {
                           <span style={{ fontFamily: 'var(--pf-t--global--font--family--mono)' }}>
                             {a.rule_id}
                           </span>
+                        </td>
+                        <td role="cell" style={{ opacity: 0.8, maxWidth: 360, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {descFor(a.rule_id) || '—'}
                         </td>
                         <td role="cell" style={{ textAlign: 'right' }}>
                           <Label color="green" isCompact>{a.approved}</Label>

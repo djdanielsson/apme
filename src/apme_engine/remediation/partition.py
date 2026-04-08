@@ -1,4 +1,9 @@
-"""Finding partition — routes violations to Tier 1, 2, or 3."""
+"""Finding partition — routes violations to Tier 1, 2, or 3.
+
+Also identifies AI-reviewable rules — contextual findings where AI
+can assess whether the violation is a true or false positive (e.g.
+R108 privilege escalation that may be legitimately required).
+"""
 
 from __future__ import annotations
 
@@ -12,11 +17,20 @@ from apme_engine.remediation.registry import TransformRegistry
 AI_PROPOSABLE_SCOPES: frozenset[str] = frozenset({RuleScope.TASK, RuleScope.BLOCK})
 
 # Task-scoped rules whose remediation requires cross-file context.
-# These are structurally task-level but the fix needs role/taskfile inventory.
 CROSS_FILE_RULES: frozenset[str] = frozenset(
     {
         "R111",  # parameterized role import — needs role inventory
         "R112",  # parameterized task import — needs taskfile inventory
+    }
+)
+
+AI_REVIEWABLE_RULES: frozenset[str] = frozenset(
+    {
+        "R108",  # privilege escalation — often legitimate for service management
+        "R103",  # external command execution — may be necessary
+        "R104",  # package install in task — may be intentional
+        "R101",  # become user without become — could be inherited
+        "R105",  # environment variable manipulation — may be required
     }
 )
 
@@ -185,6 +199,23 @@ def count_by_remediation_class(violations: list[ViolationDict]) -> dict[str, int
         else:
             counts[default] += 1
     return counts
+
+
+def is_ai_reviewable(violation: ViolationDict) -> bool:
+    """Return True if the violation can be AI-validated for true/false positive.
+
+    AI-reviewable rules are contextual findings where the AI can assess
+    whether the flagged behavior is legitimate (e.g. R108 privilege
+    escalation on a service management task).
+
+    Args:
+        violation: Violation dict with rule_id.
+
+    Returns:
+        True if rule_id is in the AI-reviewable set.
+    """
+    bare_id = normalize_rule_id(str(violation.get("rule_id", "")))
+    return bare_id in AI_REVIEWABLE_RULES
 
 
 def count_by_resolution(violations: list[ViolationDict]) -> dict[str, int]:

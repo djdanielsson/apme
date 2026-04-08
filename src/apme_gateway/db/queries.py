@@ -312,6 +312,32 @@ async def project_violations(
     return list(result.scalars().all())
 
 
+async def project_violation_count(
+    db: AsyncSession,
+    project_id: str,
+) -> int:
+    """Return the total violation count for a project's latest scan.
+
+    Args:
+        db: Active async database session.
+        project_id: UUID of the project.
+
+    Returns:
+        Total violation count.
+    """
+    latest_scan_stmt = (
+        select(Scan.scan_id).where(Scan.project_id == project_id).order_by(Scan.created_at.desc()).limit(1)
+    )
+    latest_result = await db.execute(latest_scan_stmt)
+    latest_scan_id = latest_result.scalar_one_or_none()
+    if latest_scan_id is None:
+        return 0
+
+    stmt = select(func.count()).select_from(Violation).where(Violation.scan_id == latest_scan_id)
+    result = await db.execute(stmt)
+    return int(result.scalar_one())
+
+
 async def project_severity_breakdown(
     db: AsyncSession,
     project_id: str,

@@ -478,7 +478,7 @@ async def list_projects(
             trend_scans = await q.project_trend(db, proj.id, limit=5)
             last_scan_at = trend_scans[-1].created_at if trend_scans else None
             vt = _compute_violation_trend(trend_scans)
-            violations = await q.project_violations(db, proj.id)
+            violation_count = await q.project_violation_count(db, proj.id)
             items.append(
                 ProjectSummary(
                     id=proj.id,
@@ -487,7 +487,7 @@ async def list_projects(
                     branch=proj.branch,
                     created_at=proj.created_at,
                     health_score=proj.health_score,
-                    total_violations=len(violations),
+                    total_violations=violation_count,
                     violation_trend=vt,
                     scan_count=scan_cnt,
                     last_scanned_at=last_scan_at,

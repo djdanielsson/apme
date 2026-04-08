@@ -1709,17 +1709,38 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
             ),
         )
 
-        # Yield AI proposals for human approval, or complete immediately
-        if graph_report.ai_proposals:
-            proposals = self._build_graph_proposals(graph_report.ai_proposals)
-            for p in proposals:
+        # Yield AI proposals for human approval, or complete immediately.
+        # Build "declined" entries for AI-candidate violations the AI couldn't fix
+        # so the user sees them in the review panel.
+        proposed_proposals = self._build_graph_proposals(graph_report.ai_proposals) if graph_report.ai_proposals else []
+        proposed_rule_files: set[tuple[str, str]] = set()
+        for p in proposed_proposals:
+            proposed_rule_files.add((p.rule_id, p.file))
+
+        declined_proposals = self._build_declined_proposals(
+            remaining,
+            proposed_rule_files,
+            start_idx=len(proposed_proposals),
+        )
+        all_proposals = proposed_proposals + declined_proposals
+
+        if all_proposals:
+            for p in proposed_proposals:
                 session.proposals[p.id] = p
-            session.ai_proposals = list(graph_report.ai_proposals)
-            session.status = 4  # AWAITING_APPROVAL
+            session.ai_proposals = list(graph_report.ai_proposals) if graph_report.ai_proposals else []
+
+            if proposed_proposals:
+                session.status = 4  # AWAITING_APPROVAL
+            else:
+                session.status = 3  # COMPLETE
 
             yield SessionEvent(
-                proposals=ProposalsReady(proposals=list(proposals)),
+                proposals=ProposalsReady(proposals=all_proposals),
             )
+
+            if session.status == 3:
+                async for event in self._session_build_result(session):
+                    yield event
         else:
             session.status = 3  # COMPLETE
             async for event in self._session_build_result(session):
@@ -1819,6 +1840,56 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
                 )
             )
         return proposals
+
+    @staticmethod
+    def _build_declined_proposals(
+        remaining_violations: Sequence[Mapping[str, object]],
+        proposed_rule_files: set[tuple[str, str]],
+        start_idx: int = 0,
+    ) -> list[Proposal]:
+        """Build declined proposals for AI-candidate violations the AI couldn't fix.
+
+        These let the user see all AI-candidate violations in the review panel,
+        not just the ones the AI successfully produced fixes for.
+
+        Args:
+            remaining_violations: Remaining violations after remediation.
+            proposed_rule_files: Set of (rule_id, file) already covered by proposed proposals.
+            start_idx: Starting index for declined proposal IDs.
+
+        Returns:
+            List of Proposal protos with ``status="declined"``.
+        """
+        from apme_engine.engine.models import RemediationClass  # noqa: PLC0415
+
+        declined: list[Proposal] = []
+        idx = start_idx
+        for v in remaining_violations:
+            rc = v.get("remediation_class")
+            rc_val = rc.value if hasattr(rc, "value") else str(rc) if rc else ""
+            if rc_val != RemediationClass.AI_CANDIDATE.value:
+                continue
+            rule_id = str(v.get("rule_id", ""))
+            file_path = str(v.get("file", ""))
+            if (rule_id, file_path) in proposed_rule_files:
+                continue
+            raw_line = v.get("line")
+            line_start = int(str(raw_line)) if raw_line is not None else 0
+            declined.append(
+                Proposal(
+                    id=f"ai-declined-{idx:04d}",
+                    file=file_path,
+                    rule_id=rule_id,
+                    line_start=line_start,
+                    tier=2,
+                    status="declined",
+                    suggestion=str(v.get("message", "")),
+                    explanation="AI could not generate a fix for this violation.",
+                    source="ai",
+                )
+            )
+            idx += 1
+        return declined
 
     @staticmethod
     def _session_apply_approved(

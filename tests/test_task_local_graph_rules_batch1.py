@@ -206,7 +206,7 @@ class TestL030NonBuiltinUseGraphRule:
         assert not rule.match(g, tid)
 
     def test_violation_detail_has_fqcn(self, rule: NonBuiltinUseGraphRule) -> None:
-        """Violation detail exposes fqcn.
+        """Violation detail exposes fqcn and builtin alternative.
 
         Args:
             rule: Rule instance under test.
@@ -218,6 +218,36 @@ class TestL030NonBuiltinUseGraphRule:
         assert result.detail is not None
         d: YAMLDict = result.detail
         assert d["fqcn"] == "community.general.copy"
+        assert d["builtin_alternative"] == "ansible.builtin.copy"
+
+    def test_no_match_no_builtin_equivalent(self, rule: NonBuiltinUseGraphRule) -> None:
+        """Non-builtin FQCN with no builtin counterpart does not match.
+
+        Args:
+            rule: Rule instance under test.
+        """
+        g, tid = _make_task(module="community.general.timezone")
+        assert not rule.match(g, tid)
+
+    def test_no_violation_no_builtin_equivalent(self, rule: NonBuiltinUseGraphRule) -> None:
+        """Process returns verdict=False when no builtin equivalent exists.
+
+        Args:
+            rule: Rule instance under test.
+        """
+        g, tid = _make_task(module="community.general.timezone")
+        result = rule.process(g, tid)
+        assert result is not None
+        assert result.verdict is False
+
+    def test_no_match_amazon_aws_module(self, rule: NonBuiltinUseGraphRule) -> None:
+        """Cloud provider modules without builtin equivalents pass.
+
+        Args:
+            rule: Rule instance under test.
+        """
+        g, tid = _make_task(module="amazon.aws.ec2_instance")
+        assert not rule.match(g, tid)
 
 
 class TestL036UnnecessaryIncludeVarsGraphRule:
@@ -699,3 +729,74 @@ class TestTaskLocalGraphScanIntegration:
                     found = True
                     break
         assert found
+
+
+class TestNoqaSuppression:
+    """Tests for inline ``# noqa:`` comment suppression in the scanner."""
+
+    def test_noqa_suppresses_specific_rule(self) -> None:
+        """A ``# noqa: L026`` comment suppresses that rule for the node."""
+        g, tid = _make_task(module="copy")
+        node = g.get_node(tid)
+        assert node is not None
+        node.yaml_lines = "- name: Copy file\n  copy:  # noqa: L026\n    src: a\n    dest: /tmp/b\n"
+
+        rules: list[GraphRule] = [NonFQCNUseGraphRule()]
+        report = scan(g, rules)
+        for nr in report.node_results:
+            for rr in nr.rule_results:
+                meta = rr.rule
+                assert meta is None or meta.rule_id != "L026" or not rr.verdict
+
+    def test_noqa_does_not_suppress_other_rules(self) -> None:
+        """A ``# noqa: L030`` comment does not suppress L026."""
+        g, tid = _make_task(module="copy")
+        node = g.get_node(tid)
+        assert node is not None
+        node.yaml_lines = "- name: Copy file\n  copy:  # noqa: L030\n    src: a\n    dest: /tmp/b\n"
+
+        rules: list[GraphRule] = [NonFQCNUseGraphRule()]
+        report = scan(g, rules)
+        found = False
+        for nr in report.node_results:
+            for rr in nr.rule_results:
+                meta = rr.rule
+                if meta is not None and meta.rule_id == "L026" and rr.verdict:
+                    found = True
+                    break
+        assert found
+
+    def test_noqa_multiple_rules(self) -> None:
+        """A ``# noqa: L026, L030`` comment suppresses both rules."""
+        g, tid = _make_task(module="community.general.copy")
+        node = g.get_node(tid)
+        assert node is not None
+        node.yaml_lines = (
+            "- name: Copy file  # noqa: L026, L030\n  community.general.copy:\n    src: a\n    dest: /tmp/b\n"
+        )
+
+        rules: list[GraphRule] = [NonFQCNUseGraphRule(), NonBuiltinUseGraphRule()]
+        report = scan(g, rules)
+        for nr in report.node_results:
+            for rr in nr.rule_results:
+                meta = rr.rule
+                assert meta is None or meta.rule_id not in ("L026", "L030") or not rr.verdict
+
+    def test_parse_noqa_empty(self) -> None:
+        """No noqa comment yields empty set."""
+        from apme_engine.engine.graph_scanner import parse_noqa
+
+        assert parse_noqa("- name: Install\n  ansible.builtin.yum:\n") == frozenset()
+
+    def test_parse_noqa_single(self) -> None:
+        """Single rule noqa is parsed correctly."""
+        from apme_engine.engine.graph_scanner import parse_noqa
+
+        assert parse_noqa("- name: Run cmd  # noqa: R108\n") == frozenset({"R108"})
+
+    def test_parse_noqa_multi(self) -> None:
+        """Multiple rules in one noqa comment are all captured."""
+        from apme_engine.engine.graph_scanner import parse_noqa
+
+        result = parse_noqa("  become: true  # noqa: R108, R103\n")
+        assert result == frozenset({"R108", "R103"})

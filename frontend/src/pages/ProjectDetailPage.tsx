@@ -123,7 +123,7 @@ export function ProjectDetailPage() {
       setProject(proj);
       const [scanResult, violResult, depsResult, trendResult, healthResult] = await Promise.allSettled([
         listProjectActivity(projectId, 20, 0),
-        listProjectViolations(projectId, 100, 0),
+        listProjectViolations(projectId, 500, 0),
         getProjectDependencies(projectId),
         getProjectTrend(projectId),
         getProjectDepHealth(projectId),

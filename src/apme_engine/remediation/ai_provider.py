@@ -7,7 +7,8 @@ for the graph-native transform design.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Protocol
+from enum import Enum
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from apme_engine.remediation.ai_context import AINodeContext
@@ -53,6 +54,43 @@ class AINodeFix:
     skipped: list[AISkipped] = field(default_factory=list)
 
 
+class AIValidationVerdict(str, Enum):
+    """Outcome of AI-assisted validation for a contextual rule finding.
+
+    Attributes:
+        TRUE_POSITIVE: The finding is a real issue that should be addressed.
+        FALSE_POSITIVE: The finding is expected/legitimate in context.
+        UNCERTAIN: The AI could not determine with confidence.
+    """
+
+    TRUE_POSITIVE = "true_positive"
+    FALSE_POSITIVE = "false_positive"
+    UNCERTAIN = "uncertain"
+
+
+@dataclass
+class AIValidationResult:
+    """AI assessment of whether a contextual violation is a true positive.
+
+    Returned by ``AIValidationProvider.validate_finding()``.
+
+    Attributes:
+        rule_id: Rule ID being validated.
+        verdict: Whether the finding is a true or false positive.
+        confidence: Confidence score (0.0-1.0).
+        reasoning: Explanation of why the AI reached this verdict.
+        suggestion: Recommended action (e.g. add noqa, fix the issue).
+        noqa_comment: The exact ``# noqa: <rule_id>`` comment to add if suppressing.
+    """
+
+    rule_id: str
+    verdict: AIValidationVerdict
+    confidence: float
+    reasoning: str
+    suggestion: str
+    noqa_comment: str = ""
+
+
 class AIProvider(Protocol):
     """Protocol for AI-powered fix proposal providers.
 
@@ -83,5 +121,36 @@ class AIProvider(Protocol):
 
         Returns:
             ``AINodeFix`` with corrected YAML, or ``None`` on failure.
+        """
+        ...
+
+
+@runtime_checkable
+class AIValidationProvider(Protocol):
+    """Protocol for AI-assisted finding validation.
+
+    Extends the AI remediation concept to **validation** — the AI reviews
+    contextual findings (e.g. R108 privilege escalation) to determine
+    whether they are true or false positives.  If false positive, it
+    suggests adding ``# noqa: <rule_id>`` to suppress the finding.
+    """
+
+    async def validate_finding(
+        self,
+        context: AINodeContext,
+        *,
+        model: str | None = None,
+    ) -> AIValidationResult | None:
+        """Validate whether a contextual finding is a true positive.
+
+        Uses the task's YAML, parent context (become, vars), and
+        surrounding siblings to determine if the violation is legitimate.
+
+        Args:
+            context: Graph-derived context with the single violation to validate.
+            model: Optional model identifier.
+
+        Returns:
+            ``AIValidationResult`` with verdict and reasoning, or ``None`` on failure.
         """
         ...

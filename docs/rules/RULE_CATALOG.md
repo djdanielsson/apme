@@ -7,7 +7,7 @@
 | Metric | Count |
 |--------|-------|
 | Implemented | 144/153 |
-| Tested | 105/153 |
+| Tested | 106/153 |
 | Documented | 152/153 |
 | Deterministic fixer | 24/153 |
 
@@ -149,7 +149,7 @@
 | P003 | Native | error | Validate module argument values (Ansible required). | — | — | Yes | — |
 | P004 | Native | error | Validate variables (Ansible required). | — | — | Yes | — |
 | R101 | Native | medium | Task executes parameterized command (annotation-based) | Yes | Yes | Yes | — |
-| R103 | Native | medium | Task downloads and executes (annotation-based). | Yes | — | Yes | — |
+| R103 | Native | medium | Task downloads and executes (annotation-based). | Yes | Yes | Yes | — |
 | R104 | Native | medium | Download from unauthorized source (annotation-based). | Yes | Yes | Yes | — |
 | R105 | Native | medium | Outbound transfer (annotation-based). | Yes | — | Yes | — |
 | R106 | Native | medium | Inbound transfer (annotation-based). | Yes | — | Yes | — |
@@ -225,7 +225,7 @@
 | M028 | high | first_found lookup auto-splitting paths on delimiters is deprecated (2.23) | Yes | Yes | Yes | — |
 | R118 | info | Task downloads from an external source (inbound transfer). | Yes | Yes | Yes | — |
 
-### Native (96 rules, 87 impl, 49 tested, 3 fixers)
+### Native (96 rules, 87 impl, 50 tested, 3 fixers)
 
 | Rule ID | Severity | Description | Impl | Tested | Doc | Fixer |
 |---------|----------|-------------|------|--------|-----|-------|
@@ -308,7 +308,7 @@
 | P003 | error | Validate module argument values (Ansible required). | — | — | Yes | — |
 | P004 | error | Validate variables (Ansible required). | — | — | Yes | — |
 | R101 | medium | Task executes parameterized command (annotation-based) | Yes | Yes | Yes | — |
-| R103 | medium | Task downloads and executes (annotation-based). | Yes | — | Yes | — |
+| R103 | medium | Task downloads and executes (annotation-based). | Yes | Yes | Yes | — |
 | R104 | medium | Download from unauthorized source (annotation-based). | Yes | Yes | Yes | — |
 | R105 | medium | Outbound transfer (annotation-based). | Yes | — | Yes | — |
 | R106 | medium | Inbound transfer (annotation-based). | Yes | — | Yes | — |
@@ -358,7 +358,7 @@
 - **R404** (Native): Expose variable_set for the task.
 - **R501** (Native): Suggest collection/role dependency.
 
-### Implemented but untested — 42
+### Implemented but untested — 41
 
 - **L032** (Native): Variable redefinition may cause confusion.
 - **L033** (Native): Overriding vars without conditions.
@@ -394,7 +394,6 @@
 - **M022** (Native): tree and oneline callback plugins are removed in 2.23; choose an alternative
 - **M026** (Native): Inventory variable names must be valid Python identifiers (enforced in 2.23)
 - **M027** (Native): Mixing inline k=v arguments with args: mapping is deprecated (2.23)
-- **R103** (Native): Task downloads and executes (annotation-based).
 - **R105** (Native): Outbound transfer (annotation-based).
 - **R106** (Native): Inbound transfer (annotation-based).
 - **R107** (Native): Package install with insecure option (annotation-based).

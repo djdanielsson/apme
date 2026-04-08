@@ -7,12 +7,16 @@ Iterates over all owned nodes in the graph, applying each GraphRule's
 
 Also provides ``graph_report_to_violations`` for converting results to
 the ``ViolationDict`` format expected by the gRPC response path.
+
+Supports inline ``# noqa: <rule_id>`` comments in YAML to suppress
+specific rules on a per-task basis.
 """
 
 from __future__ import annotations
 
 import logging
 import os
+import re
 import time
 import traceback
 from dataclasses import dataclass, field
@@ -154,6 +158,30 @@ _SCANNABLE_TYPES = frozenset(
     }
 )
 
+_NOQA_RE = re.compile(r"#\s*noqa:\s*([A-Za-z0-9_,\t ]+)")
+
+
+def parse_noqa(yaml_lines: str) -> frozenset[str]:
+    """Extract suppressed rule IDs from ``# noqa:`` comments in YAML.
+
+    Supports both single-rule (``# noqa: R108``) and multi-rule
+    (``# noqa: R108, L030``) forms.  Rule IDs are normalized to
+    uppercase with whitespace stripped.
+
+    Args:
+        yaml_lines: Raw YAML text for a node.
+
+    Returns:
+        Frozen set of suppressed rule IDs (empty if none found).
+    """
+    suppressed: set[str] = set()
+    for match in _NOQA_RE.finditer(yaml_lines):
+        for rule_id in match.group(1).split(","):
+            rid = rule_id.strip().upper()
+            if rid:
+                suppressed.add(rid)
+    return frozenset(suppressed)
+
 
 def _evaluate_node(
     graph: ContentGraph,
@@ -162,6 +190,10 @@ def _evaluate_node(
     report: GraphScanReport,
 ) -> None:
     """Run all rules against a single node and append results to ``report``.
+
+    Rules suppressed via ``# noqa: <rule_id>`` in the node's YAML are
+    skipped.  Suppressed rules are still counted in diagnostics as
+    "suppressed" rather than "clean".
 
     Args:
         graph: ContentGraph being scanned.
@@ -172,7 +204,11 @@ def _evaluate_node(
     report.nodes_scanned += 1
     node_result = GraphNodeResult(node_id=node.node_id, node=node)
 
+    suppressed = parse_noqa(node.yaml_lines) if node.yaml_lines else frozenset()
+
     for rule in enabled_rules:
+        if rule.rule_id.upper() in suppressed:
+            continue
         try:
             matched = rule.match(graph, node.node_id)
             if not matched:

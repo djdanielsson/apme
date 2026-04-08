@@ -11,6 +11,19 @@ server {
     root         /usr/share/nginx/html;
     index        index.html;
 
+    # index.html must never be cached — it carries hashed asset references.
+    location = /index.html {
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
+        add_header Pragma "no-cache";
+    }
+
+    # Hashed assets are immutable — cache forever.
+    location /assets/ {
+        add_header Cache-Control "public, max-age=31536000, immutable";
+        try_files $uri =404;
+    }
+
+    # SPA fallback — only for non-asset routes.
     location / {
         try_files $uri $uri/ /index.html;
     }

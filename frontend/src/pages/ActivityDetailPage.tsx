@@ -40,6 +40,7 @@ export function ActivityDetailPage() {
   const [ruleFilters, setRuleFilters] = useState<Set<string>>(new Set());
   const [searchText, setSearchText] = useState('');
   const [resultsOpen, setResultsOpen] = useState(true);
+  const [proposalsOpen, setProposalsOpen] = useState(true);
   const [prCreating, setPrCreating] = useState(false);
   const [prError, setPrError] = useState<string | null>(null);
 
@@ -244,9 +245,13 @@ export function ActivityDetailPage() {
 
       <div style={{ padding: '16px 24px 24px' }}>
         {detail.proposals.length > 0 && (
-          <div style={{ marginTop: 8 }}>
-            <h3 style={{ marginBottom: 12 }}>AI Proposals ({detail.proposals.length})</h3>
-            <table className="pf-v6-c-table pf-m-compact" role="grid">
+          <ExpandableSection
+            toggleText={`AI Proposals (${detail.proposals.length})`}
+            isExpanded={proposalsOpen}
+            onToggle={(_e, open) => setProposalsOpen(open)}
+            style={{ marginTop: 8 }}
+          >
+            <table className="pf-v6-c-table pf-m-compact" role="grid" style={{ marginTop: 8 }}>
               <thead>
                 <tr role="row">
                   <th role="columnheader" style={{ width: 90 }}>Rule</th>
@@ -272,7 +277,7 @@ export function ActivityDetailPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </ExpandableSection>
         )}
 
         {detail.diagnostics_json && (
