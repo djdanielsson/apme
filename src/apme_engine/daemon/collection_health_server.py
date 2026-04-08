@@ -51,18 +51,6 @@ def _run_scan(venv_path: str, rescan: bool) -> list[ViolationDict]:
 class CollectionHealthValidatorServicer(validate_pb2_grpc.ValidatorServicer):
     """Async gRPC adapter: scans collections in executor thread."""
 
-    def __init__(self) -> None:
-        """Initialize servicer with default rescan=False."""
-        self._rescan = False
-
-    def set_rescan(self, rescan: bool) -> None:
-        """Toggle cache bypass for subsequent requests.
-
-        Args:
-            rescan: If True, ignore cached results.
-        """
-        self._rescan = rescan
-
     async def Validate(
         self,
         request: ValidateRequest,
@@ -92,13 +80,11 @@ class CollectionHealthValidatorServicer(validate_pb2_grpc.ValidatorServicer):
                     req_id,
                 )
 
-                rescan = self._rescan
-
                 violations = await asyncio.get_running_loop().run_in_executor(
                     None,
                     _run_scan,
                     venv_path,
-                    rescan,
+                    False,
                 )
 
                 total_ms = (time.monotonic() - t0) * 1000
