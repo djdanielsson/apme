@@ -450,6 +450,18 @@ async def link_scan_to_project(
     return True
 
 
+async def update_project_commit(db: AsyncSession, project_id: str, commit_sha: str) -> None:
+    """Store the git commit SHA used in the most recent scan.
+
+    Args:
+        db: Active async database session.
+        project_id: UUID of the project.
+        commit_sha: 40-char hex SHA from the cloned repo HEAD.
+    """
+    await db.execute(Project.__table__.update().where(Project.id == project_id).values(last_scanned_commit=commit_sha))
+    await db.commit()
+
+
 async def update_project_health(db: AsyncSession, project_id: str) -> int:
     """Recompute and persist health score from the latest scan.
 

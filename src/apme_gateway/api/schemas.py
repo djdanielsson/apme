@@ -346,6 +346,8 @@ class ProjectSummary(BaseModel):  # type: ignore[misc]
         last_scanned_at: ISO timestamp of most recent run (``last_scanned_at`` column).
         scm_provider: Explicit SCM provider type (ADR-050), or None for auto-detect.
         has_scm_token: Whether a project-level SCM token is configured (ADR-050).
+        last_scanned_commit: Git SHA of the commit used in the most recent scan.
+        has_new_commits: True when the remote branch HEAD is ahead of last_scanned_commit.
     """
 
     id: str
@@ -360,6 +362,8 @@ class ProjectSummary(BaseModel):  # type: ignore[misc]
     last_scanned_at: str | None = None
     scm_provider: str | None = None
     has_scm_token: bool = False
+    last_scanned_commit: str = ""
+    has_new_commits: bool = False
 
 
 class ProjectDetail(ProjectSummary):
