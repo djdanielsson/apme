@@ -337,7 +337,7 @@ def _add_patches(db: AsyncSession, scan_id: str, patches: Sequence[object]) -> N
                 )
             )
         patched_bytes: bytes = p.patched  # type: ignore[attr-defined]
-        if patched_bytes is not None:
+        if patched_bytes:
             db.add(
                 PatchedFile(
                     scan_id=scan_id,

@@ -63,7 +63,7 @@ from apme_gateway.api.schemas import (
 )
 from apme_gateway.db import get_session
 from apme_gateway.db import queries as q
-from apme_gateway.db.models import GalaxyServer, Rule, RuleOverride, Scan, ScanManifest
+from apme_gateway.db.models import GalaxyServer, PatchedFile, Rule, RuleOverride, Scan, ScanManifest
 
 logger = logging.getLogger(__name__)
 
@@ -1353,31 +1353,28 @@ async def create_pull_request(
     )
 
 
-def _build_pr_body(scan: object, patched_files: Sequence[object]) -> str:
+def _build_pr_body(scan: Scan, patched_files: Sequence[PatchedFile]) -> str:
     """Generate a Markdown PR body from activity data (ADR-050).
 
     Args:
-        scan: The Scan ORM row (with ``fixed_count``, ``total_violations``, ``scan_type``).
-        patched_files: List of PatchedFile rows (with ``path`` attribute).
+        scan: The Scan ORM row.
+        patched_files: PatchedFile rows for this activity.
 
     Returns:
         Markdown string.
     """
-    fixed = getattr(scan, "fixed_count", 0)
-    total = getattr(scan, "total_violations", 0)
-    scan_type = getattr(scan, "scan_type", "remediate")
     lines: list[str] = [
         "## APME Automated Remediation",
         "",
-        f"**Findings resolved:** {fixed}",
-        f"**Total violations (before):** {total}",
-        f"**Scan type:** {scan_type}",
+        f"**Findings resolved:** {scan.fixed_count}",
+        f"**Total violations (before):** {scan.total_violations}",
+        f"**Scan type:** {scan.scan_type}",
         "",
         "### Files modified",
         "",
     ]
     for pf in patched_files:
-        lines.append(f"- `{getattr(pf, 'path', '?')}`")
+        lines.append(f"- `{pf.path}`")
     lines.extend(
         [
             "",
