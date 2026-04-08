@@ -55,7 +55,7 @@ def _find_site_packages(venv_dir: Path) -> Path | None:
     lib_dir = venv_dir / "lib"
     if not lib_dir.is_dir():
         return None
-    for pydir in sorted(lib_dir.iterdir(), reverse=True):
+    for pydir in lib_dir.iterdir():
         sp = pydir / "site-packages"
         if sp.is_dir():
             return sp
