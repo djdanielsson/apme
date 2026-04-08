@@ -422,7 +422,7 @@ async def create_project(body: CreateProjectRequest) -> ProjectSummary:
                 name=body.name,
                 repo_url=body.repo_url,
                 branch=body.branch,
-                scm_token=body.scm_token,
+                scm_token=body.scm_token.strip() or None if body.scm_token else None,
                 scm_provider=_normalize_scm_provider(body.scm_provider),
             )
     except IntegrityError:
@@ -580,7 +580,8 @@ async def update_project(
     if body.branch is not None:
         updates["branch"] = body.branch
     if body.scm_token is not None:
-        updates["scm_token"] = body.scm_token or None
+        scm_token = body.scm_token.strip()
+        updates["scm_token"] = scm_token or None
     if body.scm_provider is not None:
         updates["scm_provider"] = _normalize_scm_provider(body.scm_provider)
     if not updates:
