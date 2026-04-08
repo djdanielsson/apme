@@ -47,7 +47,7 @@ def run_remediate(args: argparse.Namespace) -> None:
     """
     from apme_engine.cli.check import _apply_dep_scan_flags
 
-    _apply_dep_scan_flags(args)
+    skip_collection, skip_python = _apply_dep_scan_flags(args)
     target = Path(args.target).resolve()
     if not target.exists():
         sys.stderr.write(f"Target not found: {args.target}\n")
@@ -69,6 +69,8 @@ def run_remediate(args: argparse.Namespace) -> None:
             session_id=session_id,
             galaxy_servers=galaxy_servers,
             rule_configs=rule_cfgs or None,
+            skip_collection_health=skip_collection,
+            skip_dep_audit=skip_python,
         )
     except FileNotFoundError as e:
         sys.stderr.write(f"{e}\n")

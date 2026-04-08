@@ -86,16 +86,19 @@ def _resolve_session_id(args: argparse.Namespace) -> str:
     return derive_session_id(project_root)
 
 
-def _apply_dep_scan_flags(args: argparse.Namespace) -> None:
-    """Suppress dependency validator env vars based on CLI skip flags.
+def _apply_dep_scan_flags(args: argparse.Namespace) -> tuple[bool, bool]:
+    """Resolve dependency-scan skip flags from CLI arguments.
 
-    When the daemon auto-starts, unsetting these env vars prevents the
-    corresponding optional validators from being launched.  For an
-    already-running daemon, these flags are a no-op (the validators are
-    already running or not running based on the daemon's startup config).
+    Returns the resolved skip booleans *and* strips the corresponding
+    env vars so a freshly-forked daemon does not start unwanted validators.
+    The booleans are also forwarded on ``ScanOptions`` so that an
+    already-running Primary respects the flags at request scope.
 
     Args:
         args: Parsed CLI arguments with dep-scan flags.
+
+    Returns:
+        Tuple of ``(skip_collection_health, skip_dep_audit)``.
     """
     import os
 
@@ -108,6 +111,8 @@ def _apply_dep_scan_flags(args: argparse.Namespace) -> None:
     if skip_python:
         os.environ.pop("DEP_AUDIT_GRPC_ADDRESS", None)
 
+    return skip_collection, skip_python
+
 
 def run_check(args: argparse.Namespace) -> None:
     """Execute the check subcommand.
@@ -115,7 +120,7 @@ def run_check(args: argparse.Namespace) -> None:
     Args:
         args: Parsed CLI arguments.
     """
-    _apply_dep_scan_flags(args)
+    skip_collection, skip_python = _apply_dep_scan_flags(args)
     verbosity = getattr(args, "verbose", 0) or 0
     session_id = _resolve_session_id(args)
 
@@ -133,6 +138,8 @@ def run_check(args: argparse.Namespace) -> None:
             session_id=session_id,
             galaxy_servers=galaxy_servers,
             rule_configs=rule_cfgs or None,
+            skip_collection_health=skip_collection,
+            skip_dep_audit=skip_python,
         )
     except FileNotFoundError as e:
         sys.stderr.write(f"{e}\n")

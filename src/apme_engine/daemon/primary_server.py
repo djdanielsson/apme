@@ -550,6 +550,7 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
         galaxy_cfg_path: Path | None = None,
         rule_configs: list[object] | None = None,
         rule_configs_complete: bool = False,
+        skip_validators: frozenset[str] = frozenset(),
     ) -> tuple[
         list[ViolationDict],
         ScanDiagnostics | None,
@@ -598,6 +599,9 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
                 performs bidirectional audit and hard-fails on unknown **or**
                 missing rule IDs.  When ``False`` (CLI path), unknown IDs
                 produce a warning only.
+            skip_validators: Validator names to exclude from fan-out
+                (e.g. ``{"collection_health", "dep_audit"}``).  Allows
+                request-scoped control over optional validators (ADR-051).
 
         Raises:
             ValueError: If ``rule_configs_complete`` is ``True`` and either
@@ -726,6 +730,9 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
         task_names: list[str] = []
         task_coros: list[Awaitable[_ValidatorResult]] = []
         for name, env_var in VALIDATOR_ENV_VARS.items():
+            if name in skip_validators:
+                logger.debug("Skipping validator %s (request skip flag, req=%s)", name, scan_id)
+                continue
             addr = os.environ.get(env_var)
             if not addr:
                 continue
@@ -1165,6 +1172,13 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
             scan_rule_configs = list(scan_opts.rule_configs)
             scan_rule_configs_complete = scan_opts.rule_configs_complete
 
+        skip_validators: set[str] = set()
+        if scan_opts:
+            if scan_opts.skip_collection_health:
+                skip_validators.add("collection_health")
+            if scan_opts.skip_dep_audit:
+                skip_validators.add("dep_audit")
+
         if galaxy_servers:
             session.galaxy_cfg_path = _write_session_galaxy_cfg(galaxy_servers)
             if session.galaxy_cfg_path:
@@ -1309,6 +1323,7 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
                 galaxy_cfg_path=session.galaxy_cfg_path,
                 rule_configs=scan_rule_configs or None,
                 rule_configs_complete=scan_rule_configs_complete,
+                skip_validators=frozenset(skip_validators),
             )
 
             if graph_obj is not None:

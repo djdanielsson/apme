@@ -135,7 +135,8 @@ class DepAuditValidatorServicer(validate_pb2_grpc.ValidatorServicer):
         Returns:
             HealthResponse with pip-audit availability status.
         """
-        available, info = pip_audit_available()
+        loop = asyncio.get_running_loop()
+        available, info = await loop.run_in_executor(None, pip_audit_available)
         if available:
             return HealthResponse(status=f"ok ({info})")
         return HealthResponse(status=f"pip-audit not available: {info}")
