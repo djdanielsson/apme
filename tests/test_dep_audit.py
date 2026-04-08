@@ -1,10 +1,14 @@
-"""Unit tests for the Python Dependency Auditor (ADR-051)."""
+"""Unit and integration tests for the Python Dependency Auditor (ADR-051)."""
 
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from apme_engine.validators.dep_audit.auditor import (
     RULE_ID_CVE,
@@ -13,6 +17,8 @@ from apme_engine.validators.dep_audit.auditor import (
     pip_audit_available,
     run_pip_audit,
 )
+
+_HAS_UV = shutil.which("uv") is not None
 
 
 class TestFindSitePackages:
@@ -262,3 +268,46 @@ class TestDepAuditServicer:
         ):
             resp = await servicer.Health(HealthRequest(), ctx)
         assert "not available" in resp.status
+
+
+@pytest.mark.skipif(not _HAS_UV, reason="uv not available")
+class TestDepAuditIntegration:
+    """Integration test: real venv with a known-vulnerable package."""
+
+    def test_detects_cve_in_real_venv(self, tmp_path: Path) -> None:
+        """Install jinja2==3.1.2 (CVE-2024-22195) and verify pip-audit flags it.
+
+        Args:
+            tmp_path: Pytest temporary directory fixture.
+        """
+        available, info = pip_audit_available()
+        if not available:
+            pytest.skip(f"pip-audit not available: {info}")
+
+        venv_dir = tmp_path / "venv"
+        subprocess.run(  # noqa: S603, S607
+            ["uv", "venv", "--python", "3.12", str(venv_dir)],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(  # noqa: S603, S607
+            [
+                "uv",
+                "pip",
+                "install",
+                "--python",
+                str(venv_dir / "bin" / "python"),
+                "jinja2==3.1.2",
+            ],
+            check=True,
+            capture_output=True,
+        )
+
+        violations = run_pip_audit(venv_dir)
+
+        assert len(violations) >= 1, "pip-audit should find at least one CVE in jinja2==3.1.2"
+        assert all(v["rule_id"] == RULE_ID_CVE for v in violations)
+        jinja_hits = [v for v in violations if str(v.get("dep_package", "")).lower() == "jinja2"]
+        assert len(jinja_hits) >= 1, "Expected at least one Jinja2 CVE finding"
+        assert jinja_hits[0]["dep_installed_version"] == "3.1.2"
+        assert jinja_hits[0]["source"] == "dep_audit"

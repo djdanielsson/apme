@@ -1,4 +1,4 @@
-"""Unit tests for the Collection Health Validator (ADR-051)."""
+"""Unit and integration tests for the Collection Health Validator (ADR-051)."""
 
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ from apme_engine.validators.collection_health.scanner import (
     CURATED_RULE_IDS,
     _discover_collection_dirs,
     _read_collection_version,
+    _scan_collection,
     scan_collections,
 )
 
@@ -294,3 +295,79 @@ class TestCuratedRuleIds:
         """Play-level rules are excluded from collection scanning."""
         play_rules = {"L001", "L002", "L003", "L004", "L005"}
         assert not play_rules.intersection(CURATED_RULE_IDS)
+
+
+def _scaffold_collection(
+    base: Path,
+    *,
+    namespace: str = "testns",
+    name: str = "testcol",
+    version: str = "1.0.0",
+) -> Path:
+    """Create a minimal Ansible collection with a role that triggers R108.
+
+    Args:
+        base: Parent directory (used as a fake venv root).
+        namespace: Collection namespace.
+        name: Collection name.
+        version: Collection version string.
+
+    Returns:
+        Path to the collection root directory.
+    """
+    coll_dir = base / "lib" / "python3.12" / "site-packages" / "ansible_collections" / namespace / name
+    coll_dir.mkdir(parents=True)
+    (coll_dir / "MANIFEST.json").write_text(
+        json.dumps({"collection_info": {"namespace": namespace, "name": name, "version": version}})
+    )
+    (coll_dir / "galaxy.yml").write_text(f"namespace: {namespace}\nname: {name}\nversion: {version}\n")
+
+    tasks_dir = coll_dir / "roles" / "escalated" / "tasks"
+    tasks_dir.mkdir(parents=True)
+    (tasks_dir / "main.yml").write_text(
+        "---\n- name: Escalated task\n  become: true\n  ansible.builtin.command: whoami\n"
+    )
+
+    meta_dir = coll_dir / "roles" / "escalated" / "meta"
+    meta_dir.mkdir(parents=True)
+    (meta_dir / "main.yml").write_text("---\ngalaxy_info:\n  role_name: escalated\n")
+
+    return coll_dir
+
+
+class TestCollectionHealthIntegration:
+    """Integration: scan a scaffolded collection through the real engine pipeline."""
+
+    def test_scan_collection_finds_violations(self, tmp_path: Path) -> None:
+        """A role with ``become: true`` should trigger R108 via the scanner.
+
+        Args:
+            tmp_path: Pytest temporary directory fixture.
+        """
+        coll_dir = _scaffold_collection(tmp_path)
+
+        violations = _scan_collection("testns.testcol", "1.0.0", coll_dir)
+
+        r108_hits = [v for v in violations if v.get("rule_id") == "R108"]
+        assert len(r108_hits) >= 1, (
+            f"Expected R108 (privilege escalation) from become:true, "
+            f"got rule_ids: {[v.get('rule_id') for v in violations]}"
+        )
+        assert r108_hits[0]["source"] == "collection_health"
+        assert r108_hits[0]["collection_fqcn"] == "testns.testcol"
+        assert r108_hits[0]["collection_version"] == "1.0.0"
+
+    def test_scan_collections_aggregates(self, tmp_path: Path) -> None:
+        """Full ``scan_collections()`` discovers and scans the scaffolded collection.
+
+        Args:
+            tmp_path: Pytest temporary directory fixture.
+        """
+        _scaffold_collection(tmp_path)
+
+        with patch("apme_engine.validators.collection_health.cache._CACHE_DIR", tmp_path / "cache"):
+            violations = scan_collections(tmp_path, rescan=True)
+
+        assert len(violations) >= 1, "scan_collections should find violations in scaffolded collection"
+        assert all(v.get("source") == "collection_health" for v in violations)
+        assert all(v.get("scope") == "collection" for v in violations)

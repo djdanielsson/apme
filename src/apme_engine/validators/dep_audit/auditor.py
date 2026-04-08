@@ -86,7 +86,7 @@ def run_pip_audit(
         "-f",
         "json",
         "--strict",
-        "-l",
+        "--progress-spinner=off",
         "--path",
         str(site_packages),
     ]
