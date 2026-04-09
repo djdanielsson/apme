@@ -1792,12 +1792,16 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
             session.ai_proposals = list(graph_report.ai_proposals) if graph_report.ai_proposals else []
 
             if proposed_proposals:
-                session.status = 4  # AWAITING_APPROVAL
+                session.status = 1  # AWAITING_APPROVAL
             else:
                 session.status = 3  # COMPLETE
 
             yield SessionEvent(
-                proposals=ProposalsReady(proposals=all_proposals),
+                proposals=ProposalsReady(
+                    proposals=all_proposals,
+                    tier=session.current_tier,
+                    status=session.status,
+                ),
             )
 
             if session.status == 3:
