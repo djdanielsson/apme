@@ -169,8 +169,10 @@ def parse_noqa(yaml_lines: str) -> frozenset[str]:
     (``# noqa: R108, L030``) forms.  Rule IDs are normalized to
     uppercase with whitespace stripped.
 
-    Only matches ``# noqa:`` in actual YAML comments — occurrences
-    inside single- or double-quoted scalars are ignored.
+    Strips simple single- and double-quoted strings before matching
+    so that ``# noqa:`` inside typical quoted scalars is ignored.
+    YAML's escaped single-quote (``''``) is not handled — this is a
+    best-effort heuristic for the common case.
 
     Args:
         yaml_lines: Raw YAML text for a node.

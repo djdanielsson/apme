@@ -739,14 +739,28 @@ class TestNoqaSuppression:
         g, tid = _make_task(module="copy")
         node = g.get_node(tid)
         assert node is not None
-        node.yaml_lines = "- name: Copy file\n  copy:  # noqa: L026\n    src: a\n    dest: /tmp/b\n"
 
         rules: list[GraphRule] = [NonFQCNUseGraphRule()]
+
+        node.yaml_lines = "- name: Copy file\n  copy:\n    src: a\n    dest: /tmp/b\n"
+        baseline = scan(g, rules)
+        baseline_l026 = [
+            rr
+            for nr in baseline.node_results
+            for rr in nr.rule_results
+            if rr.rule and rr.rule.rule_id == "L026" and rr.verdict
+        ]
+        assert baseline_l026, "Baseline scan should produce an L026 violation without noqa"
+
+        node.yaml_lines = "- name: Copy file\n  copy:  # noqa: L026\n    src: a\n    dest: /tmp/b\n"
         report = scan(g, rules)
-        for nr in report.node_results:
-            for rr in nr.rule_results:
-                meta = rr.rule
-                assert meta is None or meta.rule_id != "L026" or not rr.verdict
+        suppressed_l026 = [
+            rr
+            for nr in report.node_results
+            for rr in nr.rule_results
+            if rr.rule and rr.rule.rule_id == "L026" and rr.verdict
+        ]
+        assert not suppressed_l026, "L026 should be suppressed by # noqa: L026"
 
     def test_noqa_does_not_suppress_other_rules(self) -> None:
         """A ``# noqa: L030`` comment does not suppress L026."""
@@ -771,16 +785,30 @@ class TestNoqaSuppression:
         g, tid = _make_task(module="community.general.copy")
         node = g.get_node(tid)
         assert node is not None
+
+        rules: list[GraphRule] = [NonFQCNUseGraphRule(), NonBuiltinUseGraphRule()]
+
+        node.yaml_lines = "- name: Copy file\n  community.general.copy:\n    src: a\n    dest: /tmp/b\n"
+        baseline = scan(g, rules)
+        baseline_hits = [
+            rr
+            for nr in baseline.node_results
+            for rr in nr.rule_results
+            if rr.rule and rr.rule.rule_id in ("L026", "L030") and rr.verdict
+        ]
+        assert baseline_hits, "Baseline scan should produce L026 and/or L030 violations without noqa"
+
         node.yaml_lines = (
             "- name: Copy file  # noqa: L026, L030\n  community.general.copy:\n    src: a\n    dest: /tmp/b\n"
         )
-
-        rules: list[GraphRule] = [NonFQCNUseGraphRule(), NonBuiltinUseGraphRule()]
         report = scan(g, rules)
-        for nr in report.node_results:
-            for rr in nr.rule_results:
-                meta = rr.rule
-                assert meta is None or meta.rule_id not in ("L026", "L030") or not rr.verdict
+        suppressed_hits = [
+            rr
+            for nr in report.node_results
+            for rr in nr.rule_results
+            if rr.rule and rr.rule.rule_id in ("L026", "L030") and rr.verdict
+        ]
+        assert not suppressed_hits, "Both L026 and L030 should be suppressed by # noqa: L026, L030"
 
     def test_parse_noqa_empty(self) -> None:
         """No noqa comment yields empty set."""
