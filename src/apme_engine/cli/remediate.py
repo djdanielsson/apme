@@ -162,6 +162,8 @@ def run_remediate(args: argparse.Namespace) -> None:
 
                 if getattr(args, "auto_approve", False):
                     approved = [p.id for p in proposals]
+                elif use_json:
+                    approved = []
                 else:
                     approved = _interactive_review(proposals)
 
