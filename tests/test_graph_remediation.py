@@ -691,6 +691,108 @@ class TestGraphRemediationEngine:
         assert len(report.ai_proposals) >= 1
         assert not report.oscillation_detected
 
+    async def test_tier1_stall_promotes_to_ai(self) -> None:
+        """When ALL violations are Tier 1 but transforms fail, they are promoted to Tier 2 for AI."""
+        from unittest.mock import AsyncMock
+
+        from apme_engine.remediation.ai_provider import AINodeFix
+
+        graph = ContentGraph()
+        node = _make_node(module="apt")
+        graph.add_node(node)
+        rules: list[GraphRule] = [_FQCNRule()]
+
+        def _always_fail_transform(task: CommentedMap, violation: ViolationDict) -> bool:
+            return False
+
+        registry = TransformRegistry()
+        registry.register("M001", node=_always_fail_transform)
+
+        ai_provider = AsyncMock()
+        ai_provider.propose_node_fix = AsyncMock(
+            return_value=AINodeFix(
+                fixed_snippet=_TASK_YAML_FQCN,
+                rule_ids=["M001"],
+                explanation="Fixed FQCN via AI",
+                confidence=0.9,
+            ),
+        )
+
+        violations: list[ViolationDict] = [
+            {
+                "rule_id": "M001",
+                "path": node.node_id,
+                "file": node.file_path,
+                "line": 3,
+                "message": "Use FQCN for apt",
+                "severity": "medium",
+                "source": "native",
+                "scope": "task",
+            },
+        ]
+        engine = GraphRemediationEngine(
+            registry,
+            graph,
+            rules,
+            max_passes=5,
+            ai_provider=ai_provider,
+        )
+        report = await engine.remediate(initial_violations=violations)
+
+        ai_provider.propose_node_fix.assert_called()
+        assert len(report.ai_proposals) >= 1
+        assert report.ai_proposals[0].rule_ids == ["M001"]
+
+    async def test_ai_resolved_violations_counted_in_fixed(self) -> None:
+        """Violations resolved by AI transforms are included in report.fixed and fixed_violations."""
+        from unittest.mock import AsyncMock
+
+        from apme_engine.remediation.ai_provider import AINodeFix
+
+        graph = ContentGraph()
+        node = _make_node(module="apt")
+        graph.add_node(node)
+        rules: list[GraphRule] = [_FQCNRule()]
+
+        registry = TransformRegistry()
+
+        ai_provider = AsyncMock()
+        ai_provider.propose_node_fix = AsyncMock(
+            return_value=AINodeFix(
+                fixed_snippet=_TASK_YAML_FQCN,
+                rule_ids=["M001"],
+                explanation="Fixed FQCN via AI",
+                confidence=0.9,
+            ),
+        )
+
+        violations: list[ViolationDict] = [
+            {
+                "rule_id": "M001",
+                "path": node.node_id,
+                "file": node.file_path,
+                "line": 3,
+                "message": "Use FQCN for apt",
+                "severity": "medium",
+                "source": "native",
+                "scope": "task",
+            },
+        ]
+        engine = GraphRemediationEngine(
+            registry,
+            graph,
+            rules,
+            max_passes=5,
+            ai_provider=ai_provider,
+        )
+        report = await engine.remediate(initial_violations=violations)
+
+        assert report.fixed == 1, f"expected 1 AI-resolved violation in fixed, got {report.fixed}"
+        assert len(report.fixed_violations) == 1
+        assert report.fixed_violations[0]["rule_id"] == "M001"
+        assert len(report.remaining_violations) == 0
+        assert len(report.ai_proposals) >= 1
+
     async def test_tier1_stall_no_false_convergence(self) -> None:
         """When Tier 1 stalls and no AI provider is set, the engine does not report full convergence."""
         graph = ContentGraph()

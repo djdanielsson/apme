@@ -130,7 +130,7 @@ def run_remediate(args: argparse.Namespace) -> None:
     result_patches: list[object] = []
 
     try:
-        responses = stub.FixSession(command_iter(), timeout=600)
+        responses = stub.FixSession(command_iter(), timeout=1800)
 
         for event in responses:
             oneof = event.WhichOneof("event")

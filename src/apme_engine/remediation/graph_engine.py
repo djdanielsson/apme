@@ -262,15 +262,20 @@ class GraphRemediationEngine:
 
                 if applied_this_pass == 0:
                     # Tier 1 stalled: transforms exist but none succeeded.
-                    # Fall through to Tier 2 AI instead of breaking.
+                    # Promote stalled violations to Tier 2 so AI can attempt them.
                     tier1_stalled = True
+                    tier2.extend(tier1)
                     logger.debug(
-                        "Graph remediation pass %d: tier1 stalled (0 applied); falling through to AI (tier2=%d)",
+                        "Graph remediation pass %d: tier1 stalled (0 applied); promoted %d to tier2 (total tier2=%d)",
                         pass_num,
+                        len(tier1),
                         len(tier2),
                     )
                 else:
-                    violations = await self._rescan_and_record(graph, pass_num)
+                    dirty_ids = graph.dirty_nodes
+                    rescan_violations = await self._rescan_and_record(graph, pass_num)
+                    non_dirty = [v for v in violations if str(v.get("path", "")) not in dirty_ids]
+                    violations = rescan_violations + non_dirty
                     new_tier1, new_tier2, _ = partition_violations(violations, registry)
                     new_fixable = len(new_tier1)
 
@@ -312,7 +317,21 @@ class GraphRemediationEngine:
                 ai_proposals.extend(new_ai_proposals)
 
                 if graph.dirty_nodes:
-                    violations = await self._rescan_and_record(graph, pass_num)
+                    dirty_ids = graph.dirty_nodes
+                    rescan_violations = await self._rescan_and_record(graph, pass_num)
+
+                    rescan_keys = {
+                        (str(v.get("path", "")), normalize_rule_id(str(v.get("rule_id", ""))))
+                        for v in rescan_violations
+                    }
+                    for v in violations:
+                        if str(v.get("path", "")) in dirty_ids:
+                            key = (str(v.get("path", "")), normalize_rule_id(str(v.get("rule_id", ""))))
+                            if key not in rescan_keys:
+                                all_fixed.append(dict(v))
+
+                    non_dirty = [v for v in violations if str(v.get("path", "")) not in dirty_ids]
+                    violations = rescan_violations + non_dirty
 
                     # Phase C: Post-AI Tier 1 cleanup
                     new_tier1, new_tier2, _ = partition_violations(violations, registry)
@@ -328,7 +347,10 @@ class GraphRemediationEngine:
                             all_fixed,
                             pass_num,
                         )
-                        violations = await self._rescan_and_record(graph, pass_num)
+                        dirty_ids = graph.dirty_nodes
+                        rescan_violations = await self._rescan_and_record(graph, pass_num)
+                        non_dirty = [v for v in violations if str(v.get("path", "")) not in dirty_ids]
+                        violations = rescan_violations + non_dirty
                         _, new_tier2, _ = partition_violations(violations, registry)
 
                     # Build feedback for AI resubmission

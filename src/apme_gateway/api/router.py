@@ -2123,7 +2123,8 @@ async def project_operate_ws(
                 patches_json = [{"file": p.path, "diff": p.diff} for p in result_patches if p.diff]
                 captured_patches.extend(patches_json)
 
-                remediated = (fixed + ai_accepted_count) if is_remediate else 0
+                remediated = fixed if is_remediate else 0
+                remaining_count = len(remaining)
                 await websocket.send_json(
                     {
                         "type": "result",
@@ -2132,7 +2133,9 @@ async def project_operate_ws(
                         "ai_proposed": ai_proposed_count,
                         "ai_declined": ai_declined_count,
                         "ai_accepted": ai_accepted_count,
-                        "manual_review": report.remaining_manual if report else 0,
+                        "manual_review": remaining_count
+                        if is_remediate
+                        else (report.remaining_manual if report else 0),
                         "remediated_count": remediated,
                         "fixed_violations": fixed_violations_json,
                         "patches": patches_json,

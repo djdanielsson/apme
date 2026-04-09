@@ -126,15 +126,6 @@ export function ActivityDetailPage() {
     return violations;
   }, [projectViolations, sevFilters, ruleFilters, scopeFilters, fixFilters, searchText]);
 
-  const patchByFile = useMemo(() => {
-    if (!detail) return new Map<string, string>();
-    const map = new Map<string, string>();
-    for (const p of detail.patches) {
-      map.set(p.file, p.diff);
-    }
-    return map;
-  }, [detail]);
-
   if (loading) return <PageLayout><div style={{ padding: 48, textAlign: 'center', opacity: 0.6 }}>Loading...</div></PageLayout>;
   if (!detail) return <PageLayout><div style={{ padding: 48, textAlign: 'center', opacity: 0.6 }}>Activity not found.</div></PageLayout>;
 
@@ -261,7 +252,6 @@ export function ActivityDetailPage() {
         <div className={`apme-output-panel ${resultsOpen ? 'apme-panel-open' : 'apme-panel-closed'}`}>
           <ViolationOutput
             violations={filtered}
-            patchByFile={patchByFile}
             hasFilters={hasFilters}
             scanType={detail.scan_type}
             getRuleDescription={getRuleDescription}

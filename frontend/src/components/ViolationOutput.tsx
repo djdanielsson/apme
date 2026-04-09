@@ -35,15 +35,12 @@ function groupByFile(violations: ViolationRecord[]): Map<string, ViolationRecord
 }
 
 interface DisplayRow {
-  type: 'violation' | 'combined-fixed';
+  type: 'violation';
   violation: ViolationRecord;
-  /** For combined-fixed rows, the individual violations that were merged. */
-  merged?: ViolationRecord[];
 }
 
 interface ViolationOutputProps {
   violations: ViolationRecord[];
-  patchByFile: Map<string, string>;
   hasFilters: boolean;
   scanType?: string;
   getRuleDescription?: (ruleId: string) => string | undefined;
@@ -52,7 +49,7 @@ interface ViolationOutputProps {
   feedbackEnabled?: boolean;
 }
 
-export function ViolationOutput({ violations, patchByFile, hasFilters, scanType, getRuleDescription, onSectionToggle, scanId, feedbackEnabled }: ViolationOutputProps) {
+export function ViolationOutput({ violations, hasFilters, scanType, getRuleDescription, onSectionToggle, scanId, feedbackEnabled }: ViolationOutputProps) {
   const isRemediate = scanType === 'fix' || scanType === 'remediate';
   const [sectionOpen, setSectionOpen] = useState(true);
   const toggleSection = (open: boolean) => {
@@ -62,7 +59,6 @@ export function ViolationOutput({ violations, patchByFile, hasFilters, scanType,
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [allCollapsed, setAllCollapsed] = useState(false);
   const [selectedViolation, setSelectedViolation] = useState<ViolationRecord | null>(null);
-  const [selectedIsCombined, setSelectedIsCombined] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const groups = useMemo(() => groupByFile(violations), [violations]);
@@ -91,49 +87,13 @@ export function ViolationOutput({ violations, patchByFile, hasFilters, scanType,
 
   const isCollapsed = (file: string) => collapsed[file] === true;
 
-  const selectedDiff = useMemo(() => {
-    if (!selectedViolation) return undefined;
-    if (selectedIsCombined) return patchByFile.get(selectedViolation.file);
-    return undefined;
-  }, [selectedViolation, selectedIsCombined, patchByFile]);
-
   const ruleTitle = (ruleId: string) => getRuleDescription?.(ruleId) || ruleId;
 
-  const buildRows = (groupKey: string, fileViolations: ViolationRecord[]): DisplayRow[] => {
-    if (!isRemediate) {
-      const sorted = [...fileViolations].sort(
-        (a, b) => severityOrder(severityClass(a.level, a.rule_id)) - severityOrder(severityClass(b.level, b.rule_id))
-      );
-      return sorted.map(v => ({ type: 'violation', violation: v }));
-    }
-
-    const fixed = fileViolations.filter(v => v.remediation_class === 1);
-    const rest = fileViolations.filter(v => v.remediation_class !== 1);
-
-    const rows: DisplayRow[] = [];
-
-    if (fixed.length > 0) {
-      const summary: ViolationRecord = {
-        id: -1,
-        rule_id: '',
-        level: 'info',
-        message: `${fixed.length} violation${fixed.length !== 1 ? 's' : ''} fixed`,
-        file: groupKey,
-        line: null,
-        path: '',
-        remediation_class: 1,
-      };
-      rows.push({ type: 'combined-fixed', violation: summary, merged: fixed });
-    }
-
-    const sorted = [...rest].sort(
+  const buildRows = (_groupKey: string, fileViolations: ViolationRecord[]): DisplayRow[] => {
+    const sorted = [...fileViolations].sort(
       (a, b) => severityOrder(severityClass(a.level, a.rule_id)) - severityOrder(severityClass(b.level, b.rule_id))
     );
-    for (const v of sorted) {
-      rows.push({ type: 'violation', violation: v });
-    }
-
-    return rows;
+    return sorted.map(v => ({ type: 'violation', violation: v }));
   };
 
   return (
@@ -233,27 +193,6 @@ export function ViolationOutput({ violations, patchByFile, hasFilters, scanType,
                   )}
 
                   {!isCollapsed(file) && rows.map((row) => {
-                    if (row.type === 'combined-fixed') {
-                      return (
-                        <div
-                          className="apme-output-row apme-output-row-item"
-                          key="combined-fixed"
-                          role="button"
-                          tabIndex={0}
-                          onClick={() => { setSelectedViolation(row.violation); setSelectedIsCombined(true); }}
-                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { setSelectedViolation(row.violation); setSelectedIsCombined(true); } }}
-                        >
-                          <span className="apme-output-gutter apme-output-line-num" />
-                          <span className="apme-output-content apme-output-violation-line">
-                            <span className="apme-badge passed" style={{ fontSize: 10 }}>Fixed</span>
-                            <span className="apme-output-violation-msg">
-                              {row.violation.message}
-                            </span>
-                          </span>
-                        </div>
-                      );
-                    }
-
                     const v = row.violation;
                     return (
                       <div
@@ -261,8 +200,8 @@ export function ViolationOutput({ violations, patchByFile, hasFilters, scanType,
                         key={v.id}
                         role="button"
                         tabIndex={0}
-                        onClick={() => { setSelectedViolation(v); setSelectedIsCombined(false); }}
-                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { setSelectedViolation(v); setSelectedIsCombined(false); } }}
+                        onClick={() => setSelectedViolation(v)}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSelectedViolation(v); }}
                       >
                         <span className="apme-output-gutter apme-output-line-num">
                           {v.line != null ? v.line : ''}
@@ -300,11 +239,10 @@ export function ViolationOutput({ violations, patchByFile, hasFilters, scanType,
       {selectedViolation && (
         <ViolationDetailModal
           isOpen={!!selectedViolation}
-          onClose={() => { setSelectedViolation(null); setSelectedIsCombined(false); }}
+          onClose={() => setSelectedViolation(null)}
           violation={selectedViolation}
-          diff={selectedDiff}
           getRuleDescription={getRuleDescription}
-          mergedViolations={selectedIsCombined ? (groups.get(selectedViolation.file || '(unknown)')?.filter(v => v.remediation_class === 1) ?? []) : undefined}
+          scanType={scanType}
           scanId={scanId}
           feedbackEnabled={feedbackEnabled}
         />
