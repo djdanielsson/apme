@@ -183,7 +183,7 @@ def main() -> None:
         "R110_non_builtin_use",
         "L030",
         "Non-builtin use (L030)",
-        "Prefer ansible.builtin modules when available.",
+        "Non-builtin module used when a builtin equivalent exists.",
         playbook("- name: Copy\n  copy:\n    src: a\n    dest: /tmp/b"),
         playbook("- name: Copy\n  ansible.builtin.copy:\n    src: a\n    dest: /tmp/b"),
     )

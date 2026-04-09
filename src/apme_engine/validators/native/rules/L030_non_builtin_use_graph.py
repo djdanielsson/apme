@@ -51,7 +51,7 @@ class NonBuiltinUseGraphRule(GraphRule):
     """
 
     rule_id: str = "L030"
-    description: str = "Prefer ansible.builtin when a builtin equivalent exists"
+    description: str = "Non-builtin module used when a builtin equivalent exists"
     enabled: bool = True
     name: str = "NonBuiltinUse"
     version: str = "v0.0.3"

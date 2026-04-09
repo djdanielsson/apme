@@ -40,7 +40,7 @@
 | L025 | OPA | low | Task/play name should start with uppercase. | Yes | Yes | Yes | Yes |
 | L026 | Native | low | Tasks should use FQCN for modules. | Yes | Yes | Yes | Yes |
 | L027 | Native | low | Roles should have meta/main.yml with metadata. | Yes | Yes | Yes | — |
-| L030 | Native | low | Prefer ansible.builtin modules when available. | Yes | Yes | Yes | — |
+| L030 | Native | low | Non-builtin module used when a builtin equivalent exists. | Yes | Yes | Yes | — |
 | L031 | Native | medium | File permission may be insecure (annotation-based). | — | — | Yes | — |
 | L032 | Native | low | Variable redefinition may cause confusion. | Yes | — | Yes | — |
 | L033 | Native | low | Overriding vars without conditions. | Yes | — | Yes | — |
@@ -231,7 +231,7 @@
 |---------|----------|-------------|------|--------|-----|-------|
 | L026 | low | Tasks should use FQCN for modules. | Yes | Yes | Yes | Yes |
 | L027 | low | Roles should have meta/main.yml with metadata. | Yes | Yes | Yes | — |
-| L030 | low | Prefer ansible.builtin modules when available. | Yes | Yes | Yes | — |
+| L030 | low | Non-builtin module used when a builtin equivalent exists. | Yes | Yes | Yes | — |
 | L031 | medium | File permission may be insecure (annotation-based). | — | — | Yes | — |
 | L032 | low | Variable redefinition may cause confusion. | Yes | — | Yes | — |
 | L033 | low | Overriding vars without conditions. | Yes | — | Yes | — |
