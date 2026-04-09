@@ -1786,15 +1786,11 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
         )
         all_proposals = proposed_proposals + declined_proposals
 
-        if all_proposals:
+        if proposed_proposals:
             for p in proposed_proposals:
                 session.proposals[p.id] = p
             session.ai_proposals = list(graph_report.ai_proposals) if graph_report.ai_proposals else []
-
-            if proposed_proposals:
-                session.status = 1  # AWAITING_APPROVAL
-            else:
-                session.status = 3  # COMPLETE
+            session.status = 1  # AWAITING_APPROVAL
 
             yield SessionEvent(
                 proposals=ProposalsReady(
@@ -1803,10 +1799,6 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
                     status=session.status,
                 ),
             )
-
-            if session.status == 3:
-                async for event in self._session_build_result(session):
-                    yield event
         else:
             session.status = 3  # COMPLETE
             async for event in self._session_build_result(session):

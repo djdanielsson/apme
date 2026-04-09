@@ -159,6 +159,7 @@ _SCANNABLE_TYPES = frozenset(
 )
 
 _NOQA_RE = re.compile(r"#\s*noqa:\s*([A-Za-z0-9_,\t ]+)")
+_QUOTED_RE = re.compile(r""""[^"\\]*(?:\\.[^"\\]*)*"|'[^']*'""")
 
 
 def parse_noqa(yaml_lines: str) -> frozenset[str]:
@@ -168,6 +169,9 @@ def parse_noqa(yaml_lines: str) -> frozenset[str]:
     (``# noqa: R108, L030``) forms.  Rule IDs are normalized to
     uppercase with whitespace stripped.
 
+    Only matches ``# noqa:`` in actual YAML comments — occurrences
+    inside single- or double-quoted scalars are ignored.
+
     Args:
         yaml_lines: Raw YAML text for a node.
 
@@ -175,11 +179,13 @@ def parse_noqa(yaml_lines: str) -> frozenset[str]:
         Frozen set of suppressed rule IDs (empty if none found).
     """
     suppressed: set[str] = set()
-    for match in _NOQA_RE.finditer(yaml_lines):
-        for rule_id in match.group(1).split(","):
-            rid = rule_id.strip().upper()
-            if rid:
-                suppressed.add(rid)
+    for line in yaml_lines.splitlines():
+        stripped = _QUOTED_RE.sub("", line)
+        for match in _NOQA_RE.finditer(stripped):
+            for rule_id in match.group(1).split(","):
+                rid = rule_id.strip().upper()
+                if rid:
+                    suppressed.add(rid)
     return frozenset(suppressed)
 
 
