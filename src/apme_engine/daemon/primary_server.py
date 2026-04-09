@@ -1715,7 +1715,10 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
         proposed_proposals = self._build_graph_proposals(graph_report.ai_proposals) if graph_report.ai_proposals else []
         proposed_rule_files: set[tuple[str, str]] = set()
         for p in proposed_proposals:
-            proposed_rule_files.add((p.rule_id, p.file))
+            for raw_rid in p.rule_id.split(","):
+                clean_rid = raw_rid.strip()
+                if clean_rid:
+                    proposed_rule_files.add((clean_rid, p.file))
 
         declined_proposals = self._build_declined_proposals(
             remaining,
@@ -1874,7 +1877,15 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
             if (rule_id, file_path) in proposed_rule_files:
                 continue
             raw_line = v.get("line")
-            line_start = int(str(raw_line)) if raw_line is not None else 0
+            line_start = 0
+            if raw_line is not None:
+                try:
+                    if isinstance(raw_line, (list, tuple)):
+                        line_start = int(str(raw_line[0])) if raw_line else 0
+                    else:
+                        line_start = int(str(raw_line))
+                except (TypeError, ValueError, IndexError):
+                    line_start = 0
             declined.append(
                 Proposal(
                     id=f"ai-declined-{idx:04d}",

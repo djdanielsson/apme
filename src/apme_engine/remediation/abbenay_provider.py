@@ -149,16 +149,6 @@ Respond with ONLY this JSON (no markdown fences, no explanation outside JSON):
 - "uncertain" = not enough context to determine confidently
 """
 
-AI_REVIEWABLE_RULES: frozenset[str] = frozenset(
-    {
-        "R108",  # Privilege escalation — often legitimate for service management
-        "R103",  # External command execution — may be necessary
-        "R104",  # Package install in task — may be intentional
-        "R101",  # Become user without become — could be inherited
-        "R105",  # Environment variable manipulation — may be required
-    }
-)
-
 
 def _build_validation_prompt(context: AINodeContext) -> str:
     """Build LLM prompt for validation of a contextual finding.

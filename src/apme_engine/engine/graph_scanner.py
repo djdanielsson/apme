@@ -192,8 +192,7 @@ def _evaluate_node(
     """Run all rules against a single node and append results to ``report``.
 
     Rules suppressed via ``# noqa: <rule_id>`` in the node's YAML are
-    skipped.  Suppressed rules are still counted in diagnostics as
-    "suppressed" rather than "clean".
+    skipped and are not included in the node's recorded rule results.
 
     Args:
         graph: ContentGraph being scanned.
