@@ -438,13 +438,10 @@ class TestNotificationEndpoints:
 
             Args:
                 resp: Streaming response with ``aiter_lines()``.
-
-            Raises:
-                AssertionError: If stream closes without a data event.
             """
             async for line in resp.aiter_lines():  # type: ignore[attr-defined]
                 if line.startswith("data:"):
-                    data = json.loads(line[len("data: "):])
+                    data = json.loads(line[len("data: ") :])
                     assert data["type"] == "scan_complete"
                     assert data["title"] == "Test"
                     return
