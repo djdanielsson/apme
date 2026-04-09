@@ -351,7 +351,7 @@ class TestGraphRemediationEngine:
         assert all(s.source == "deterministic" for s in transformed)
 
     async def test_clean_state_after_rescan(self) -> None:
-        """Dirty nodes confirmed clean after rescan get an empty-violations scanned entry."""
+        """After convergence, ledger shows the violation as fixed."""
         graph = ContentGraph()
         node = _make_node(module="apt")
         graph.add_node(node)
@@ -361,12 +361,10 @@ class TestGraphRemediationEngine:
         engine = GraphRemediationEngine(registry, graph, rules)
         await engine.remediate()
 
-        scanned_states = [ns for ns in node.progression if ns.phase == "scanned"]
-        assert len(scanned_states) >= 2
-        # First scanned state has the violation
-        assert "M001" in scanned_states[0].violations
-        # Final scanned state confirms clean (empty violations)
-        assert scanned_states[-1].violations == ()
+        fixed = graph.query_violations(status="fixed")
+        assert len(fixed) >= 1
+        assert any(v["rule_id"] == "M001" for v in fixed)
+        assert graph.collect_violations() == []
 
     async def test_progress_callback(self) -> None:
         """Progress callback is invoked during remediation."""
@@ -591,8 +589,8 @@ class TestGraphRemediationEngine:
         assert report.fixed == 1
         assert len(rescan_calls) >= 1
 
-    async def test_violation_dicts_stored_on_nodestate(self) -> None:
-        """Full ViolationDicts are stored on NodeState.violation_dicts during convergence."""
+    async def test_violations_stored_in_ledger(self) -> None:
+        """Violations are registered in the node's violation_ledger during convergence."""
         graph = ContentGraph()
         node = _make_node(module="apt")
         graph.add_node(node)
@@ -603,9 +601,9 @@ class TestGraphRemediationEngine:
         report = await engine.remediate()
 
         assert report.fixed == 0
-        assert node.state is not None
-        assert len(node.state.violation_dicts) >= 1
-        assert node.state.violation_dicts[0]["rule_id"] == "M001"
+        open_violations = graph.query_violations(status="open")
+        assert len(open_violations) >= 1
+        assert any(v["rule_id"] == "M001" for v in open_violations)
 
     async def test_remaining_violations_from_graph(self) -> None:
         """remaining_violations in the report come from graph.collect_violations()."""
@@ -743,8 +741,8 @@ class TestGraphRemediationEngine:
         assert len(report.ai_proposals) >= 1
         assert report.ai_proposals[0].rule_ids == ["M001"]
 
-    async def test_ai_resolved_violations_counted_in_fixed(self) -> None:
-        """Violations resolved by AI transforms are included in report.fixed and fixed_violations."""
+    async def test_ai_resolved_violations_pending_until_approved(self) -> None:
+        """AI-resolved violations are 'proposed', not 'fixed', until approved."""
         from unittest.mock import AsyncMock
 
         from apme_engine.remediation.ai_provider import AINodeFix
@@ -787,10 +785,13 @@ class TestGraphRemediationEngine:
         )
         report = await engine.remediate(initial_violations=violations)
 
-        assert report.fixed == 1, f"expected 1 AI-resolved violation in fixed, got {report.fixed}"
-        assert len(report.fixed_violations) == 1
-        assert report.fixed_violations[0]["rule_id"] == "M001"
+        # AI fixes are "proposed" — not counted as fixed until user approves
+        assert report.fixed == 0, f"expected 0 fixed (AI pending), got {report.fixed}"
+        assert len(report.fixed_violations) == 0
+        # "proposed" is a distinct status; open violations should be empty
         assert len(report.remaining_violations) == 0
+        proposed = graph.query_violations(status="proposed")
+        assert len(proposed) == 1, "violation is in proposed state"
         assert len(report.ai_proposals) >= 1
 
     async def test_tier1_stall_no_false_convergence(self) -> None:
@@ -909,8 +910,9 @@ class TestSpliceModifications:
         )
         graph.add_node(node)
 
-        # Record initial state, transform, record transformed state
-        node.record_state(0, "scanned", ("M001",))
+        node.record_state(0, "scanned")
+        v: ViolationDict = {"rule_id": "M001", "path": node.node_id}
+        graph.register_violations([v], 0)
         node.update_from_yaml(_TASK_YAML_FQCN)
         node.record_state(1, "transformed")
         graph.approve_pending()
@@ -948,12 +950,15 @@ class TestSpliceModifications:
         graph.add_node(n1)
         graph.add_node(n2)
 
-        # Mark both as modified
-        n1.record_state(0, "scanned", ("M001",))
+        n1.record_state(0, "scanned")
+        v1: ViolationDict = {"rule_id": "M001", "path": n1.node_id}
+        graph.register_violations([v1], 0)
         n1.update_from_yaml(_TASK_YAML_FQCN)
         n1.record_state(1, "transformed")
 
-        n2.record_state(0, "scanned", ("M001",))
+        n2.record_state(0, "scanned")
+        v2: ViolationDict = {"rule_id": "M001", "path": n2.node_id}
+        graph.register_violations([v2], 0)
         n2.update_from_yaml("- name: Copy file\n  ansible.builtin.copy:\n    src: a.txt\n    dest: /tmp/a.txt\n")
         n2.record_state(1, "transformed")
         graph.approve_pending()
@@ -985,8 +990,7 @@ class TestSpliceModifications:
         node = _make_node(module="apt")
         graph.add_node(node)
 
-        # Record state twice but don't change content
-        node.record_state(0, "scanned", ("M001",))
+        node.record_state(0, "scanned")
         node.record_state(1, "scanned")
 
         patches = splice_modifications(graph, {"/workspace/site.yml": self._ORIGINAL})
@@ -1003,7 +1007,7 @@ class TestSpliceModifications:
         )
         graph.add_node(node)
 
-        node.record_state(0, "scanned", ("M001",))
+        node.record_state(0, "scanned")
         node.update_from_yaml(_TASK_YAML_FQCN)
         node.record_state(1, "transformed", source="deterministic")
         # Do NOT approve — entries remain pending
@@ -1027,7 +1031,7 @@ class TestSpliceModifications:
         graph.add_node(node)
 
         # Original → deterministic fix → AI fix
-        node.record_state(0, "scanned", ("M001",))
+        node.record_state(0, "scanned")
         node.update_from_yaml(_TASK_YAML_FQCN)
         node.record_state(1, "transformed", source="deterministic")
 
@@ -1058,7 +1062,7 @@ class TestSpliceModifications:
         )
         graph.add_node(node)
 
-        node.record_state(0, "scanned", ("M001",))
+        node.record_state(0, "scanned")
         node.update_from_yaml(_TASK_YAML_FQCN)
         node.record_state(1, "transformed", source="deterministic")
         # No approve_pending — entries are still pending

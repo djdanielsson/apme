@@ -184,12 +184,14 @@ class NodeIdentity:
 
 @dataclass(frozen=True, slots=True)
 class NodeState:
-    """Immutable snapshot of a node's content at a specific pipeline phase.
+    """Immutable snapshot of a node's YAML content at a pipeline phase.
 
     Recorded at scan and transform boundaries during the convergence loop.
     Each ``ContentNode`` accumulates an ordered ``progression`` of these
-    snapshots, enabling snippet accuracy, remediation attribution, and
-    full node history.
+    snapshots, enabling snippet accuracy and remediation attribution.
+
+    Violation tracking is **not** stored here — it lives in the
+    ``ContentNode.violation_ledger`` (see ``ViolationRecord``).
 
     Attributes:
         id: Unique identifier for this progression entry
@@ -201,10 +203,6 @@ class NodeState:
             ``"transformed"``, ``"ai_transformed"``).
         yaml_lines: Raw YAML text for this node at this point in time.
         content_hash: SHA-256 hex digest of ``yaml_lines``.
-        violations: Rule IDs of violations active at this state.
-        violation_dicts: Full violation details at this state.  The
-            graph is authoritative: after convergence these are the
-            remaining violations, not a re-scan result.
         timestamp: ISO 8601 UTC timestamp when the snapshot was taken.
         approved: Whether this entry has been approved.  All entries
             start pending (``False``).  Deterministic transforms are
@@ -220,11 +218,78 @@ class NodeState:
     phase: str
     yaml_lines: str
     content_hash: str
-    violations: tuple[str, ...]
-    violation_dicts: tuple[ViolationDict, ...]
     timestamp: str
     approved: bool = False
     source: str = ""
+
+
+# ---------------------------------------------------------------------------
+# ViolationRecord — mutable violation lifecycle (ADR-044 violation ledger)
+# ---------------------------------------------------------------------------
+
+ViolationKey = tuple[str, str]
+"""Identity key for a violation: ``(node_id, normalized_rule_id)``."""
+
+
+@dataclass
+class ViolationRecord:
+    """Mutable record tracking a single violation's lifecycle on a node.
+
+    The violation ledger on each ``ContentNode`` is the single source
+    of truth for violation status.
+
+    Status transitions::
+
+        open ──→ fixed      (deterministic transform, auto-approved)
+          │
+          └──→ proposed     (AI fix applied, pending human review)
+                  │
+                  ├──→ fixed    (user approved)
+                  │
+                  └──→ declined (user rejected, violation restored)
+
+    Attributes:
+        key: ``(node_id, normalized_rule_id)`` identity.
+        violation: Original violation dict from the validator.
+        status: ``"open"``, ``"fixed"``, ``"proposed"``, or ``"declined"``.
+        fixed_by: How the violation was resolved
+            (``"deterministic"``, ``"ai"``, or ``None``).
+        fixed_in_pass: Convergence pass that resolved the violation.
+        discovered_in_pass: Convergence pass that first detected it.
+    """
+
+    key: ViolationKey
+    violation: ViolationDict
+    status: str = "open"
+    fixed_by: str | None = None
+    fixed_in_pass: int | None = None
+    discovered_in_pass: int = 0
+
+
+def _normalize_rule_id(rule_id: str) -> str:
+    """Strip legacy ``native:`` prefix from a rule ID.
+
+    Args:
+        rule_id: Raw rule ID, possibly prefixed.
+
+    Returns:
+        Bare rule ID suitable for ledger keys.
+    """
+    if rule_id.startswith("native:"):
+        return rule_id[len("native:") :]
+    return rule_id
+
+
+def _violation_key(v: ViolationDict) -> ViolationKey:
+    """Derive a ``ViolationKey`` from a violation dict.
+
+    Args:
+        v: Violation dict with ``path`` and ``rule_id`` entries.
+
+    Returns:
+        ``(path, normalized_rule_id)`` tuple.
+    """
+    return (str(v.get("path", "")), _normalize_rule_id(str(v.get("rule_id", ""))))
 
 
 def _content_hash(text: str) -> str:
@@ -339,6 +404,9 @@ class ContentNode:
         scope: Owned vs referenced content classification.
         state: Current ``NodeState`` snapshot (most recent entry in progression).
         progression: Ordered list of ``NodeState`` snapshots across pipeline phases.
+        violation_ledger: Mutable violation lifecycle records keyed by
+            ``(node_id, rule_id)``.  Single source of truth for violation
+            status and attribution.
         MAX_PROGRESSION: Upper bound on progression length per node (class-level).
     """
 
@@ -401,9 +469,12 @@ class ContentNode:
     # Scope
     scope: NodeScope = NodeScope.OWNED
 
-    # Progression (ADR-044 Phase 3) — temporal state tracking
+    # Progression (ADR-044 Phase 3) — temporal YAML state tracking
     state: NodeState | None = None
     progression: list[NodeState] = field(default_factory=list)
+
+    # Violation ledger — single source of truth for violation lifecycle
+    violation_ledger: dict[ViolationKey, ViolationRecord] = field(default_factory=dict)
 
     @property
     def node_type(self) -> NodeType:
@@ -421,14 +492,15 @@ class ContentNode:
         self,
         pass_number: int,
         phase: str,
-        violations: tuple[str, ...] = (),
-        violation_dicts: tuple[ViolationDict, ...] = (),
         source: str = "",
     ) -> NodeState:
         """Record a progression snapshot at the current pipeline phase.
 
         Creates a ``NodeState`` from the node's current ``yaml_lines``,
         appends it to ``progression``, and sets ``state`` to the new entry.
+
+        Violation tracking is handled separately via the
+        ``violation_ledger`` — this method only captures YAML content.
 
         If progression already contains ``MAX_PROGRESSION`` entries the
         oldest entry is dropped to prevent unbounded growth from bugs in
@@ -438,8 +510,6 @@ class ContentNode:
             pass_number: Convergence pass (0 = initial scan).
             phase: Pipeline phase (``"original"``, ``"scanned"``,
                 ``"transformed"``, ``"ai_transformed"``).
-            violations: Rule IDs of violations active at this state.
-            violation_dicts: Full violation details at this state.
             source: How the transform was produced (e.g.
                 ``"deterministic"``, ``"ai"``).  UI metadata only.
 
@@ -453,8 +523,6 @@ class ContentNode:
             phase=phase,
             yaml_lines=self.yaml_lines,
             content_hash=_content_hash(self.yaml_lines),
-            violations=violations,
-            violation_dicts=violation_dicts,
             timestamp=datetime.now(timezone.utc).isoformat(),
             source=source,
         )
@@ -652,37 +720,29 @@ class ContentGraph:
         self._dirty_nodes.clear()
 
     def collect_violations(self) -> list[ViolationDict]:
-        """Collect all remaining violations from the graph.
+        """Collect all remaining (open) violations from the graph.
 
-        Iterates every node and gathers ``violation_dicts`` from each
-        node's latest ``state``.  After convergence, this is the
-        authoritative violation picture — no re-scan needed.
+        Delegates to ``query_violations(status="open")``.
 
         Returns:
             Combined list of ``ViolationDict`` from all nodes.
         """
-        result: list[ViolationDict] = []
-        for node in self.nodes():
-            if node.state and node.state.violation_dicts:
-                result.extend(node.state.violation_dicts)
-        return result
+        return self.query_violations(status="open")
 
     def collect_step_diffs(self) -> list[dict[str, object]]:
-        """Collect per-step diffs from every node's progression.
+        """Collect per-step content diffs from every node's progression.
 
         Walks each node's progression and produces a diff record for
-        each consecutive pair where ``content_hash`` changed.  Each
-        record captures what the transform did and which violations
-        appeared/disappeared.
+        each consecutive pair where ``content_hash`` changed.
 
-        Violation deltas use the nearest subsequent ``scanned`` snapshot
-        (post-rescan) rather than the ``transformed`` snapshot, which is
-        recorded before the rescan and typically has empty violations.
+        Violation tracking lives in the ``violation_ledger``, not in
+        progression snapshots.  The ``violations_removed`` and
+        ``violations_added`` fields are omitted — use
+        ``query_violations()`` for authoritative violation accounting.
 
         Returns:
             List of step-diff records, each with ``node_id``,
-            ``pass_number``, ``phase``, ``diff``, ``violations_added``,
-            ``violations_removed``, and ``source``.
+            ``pass_number``, ``phase``, ``diff``, and ``source``.
         """
         steps: list[dict[str, object]] = []
         for node in self.nodes():
@@ -699,13 +759,6 @@ class ContentGraph:
                         tofile=f"pass{curr.pass_number}/{node.node_id}",
                     )
                 )
-                prev_rules = set(prev.violations)
-                post_rules = set(curr.violations)
-                if not post_rules and curr.phase == "transformed":
-                    for j in range(i + 1, len(prog)):
-                        if prog[j].phase == "scanned":
-                            post_rules = set(prog[j].violations)
-                            break
                 steps.append(
                     {
                         "node_id": node.node_id,
@@ -713,11 +766,163 @@ class ContentGraph:
                         "phase": curr.phase,
                         "source": curr.source,
                         "diff": diff,
-                        "violations_removed": sorted(prev_rules - post_rules),
-                        "violations_added": sorted(post_rules - prev_rules),
                     }
                 )
         return steps
+
+    # -- Violation ledger API --------------------------------------------------
+
+    def register_violations(
+        self,
+        violations: list[ViolationDict],
+        pass_number: int,
+    ) -> None:
+        """Register violations into the ledger of their respective nodes.
+
+        New violations are inserted with ``status="open"``.  Already-open
+        violations are no-ops (re-confirmed).  Previously-fixed violations
+        that reappear are reopened (regression).
+
+        Args:
+            violations: Violation dicts (``path`` must be a graph node ID).
+            pass_number: Convergence pass that produced these violations.
+        """
+        for v in violations:
+            node_id = str(v.get("path", ""))
+            node = self.get_node(node_id)
+            if node is None:
+                continue
+            key = _violation_key(v)
+            existing = node.violation_ledger.get(key)
+            if existing is None:
+                node.violation_ledger[key] = ViolationRecord(
+                    key=key,
+                    violation=v,
+                    status="open",
+                    discovered_in_pass=pass_number,
+                )
+            elif existing.status in ("fixed", "proposed", "declined"):
+                existing.status = "open"
+                existing.violation = v
+                existing.fixed_by = None
+                existing.fixed_in_pass = None
+            else:
+                existing.violation = v
+
+    def resolve_violations(
+        self,
+        node_id: str,
+        remaining_rule_ids: set[str],
+        *,
+        fixed_by: str,
+        pass_number: int,
+        status: str = "fixed",
+    ) -> int:
+        """Transition open violations when absent from a rescan.
+
+        For the given node, any open ledger entry whose rule_id is
+        **not** in ``remaining_rule_ids`` transitions to *status*.
+
+        Use ``status="fixed"`` for deterministic transforms (auto-approved)
+        and ``status="proposed"`` for AI transforms (pending human review).
+
+        Args:
+            node_id: Graph node whose ledger to update.
+            remaining_rule_ids: Normalized rule IDs still present
+                after the rescan.
+            fixed_by: Attribution (``"deterministic"`` or ``"ai"``).
+            pass_number: Convergence pass of the resolution.
+            status: Target status (``"fixed"`` or ``"proposed"``).
+
+        Returns:
+            Number of violations transitioned.
+        """
+        node = self.get_node(node_id)
+        if node is None:
+            return 0
+        count = 0
+        for record in node.violation_ledger.values():
+            if record.status != "open":
+                continue
+            _, rule_id = record.key
+            if rule_id not in remaining_rule_ids:
+                record.status = status
+                record.fixed_by = fixed_by
+                record.fixed_in_pass = pass_number
+                count += 1
+        return count
+
+    def approve_proposed(self, node_id: str) -> int:
+        """Promote ``proposed`` violations to ``fixed`` on a node.
+
+        Called when the user approves an AI proposal.
+
+        Args:
+            node_id: Graph node whose proposals to approve.
+
+        Returns:
+            Number of violations promoted.
+        """
+        node = self.get_node(node_id)
+        if node is None:
+            return 0
+        count = 0
+        for record in node.violation_ledger.values():
+            if record.status == "proposed":
+                record.status = "fixed"
+                count += 1
+        return count
+
+    def decline_proposed(self, node_id: str) -> int:
+        """Transition ``proposed`` violations to ``declined`` on a node.
+
+        Called when the user rejects an AI proposal.  The node's YAML
+        should already be rolled back via ``reject_node()`` before
+        calling this.
+
+        Args:
+            node_id: Graph node whose proposals to decline.
+
+        Returns:
+            Number of violations declined.
+        """
+        node = self.get_node(node_id)
+        if node is None:
+            return 0
+        count = 0
+        for record in node.violation_ledger.values():
+            if record.status == "proposed":
+                record.status = "declined"
+                record.fixed_by = None
+                record.fixed_in_pass = None
+                count += 1
+        return count
+
+    def query_violations(
+        self,
+        *,
+        status: str | None = None,
+        fixed_by: str | None = None,
+    ) -> list[ViolationDict]:
+        """Query violations across all nodes with optional filters.
+
+        Args:
+            status: Filter by status: ``"open"``, ``"fixed"``,
+                ``"proposed"``, or ``"declined"`` (``None`` = all).
+            fixed_by: Filter by attribution (``None`` = all).
+
+        Returns:
+            Flat list of ``ViolationDict`` from matching records.
+        """
+        result: list[ViolationDict] = []
+        for node in self.nodes():
+            for record in node.violation_ledger.values():
+                if status is not None and record.status != status:
+                    continue
+                if fixed_by is not None and record.fixed_by != fixed_by:
+                    continue
+                result.append(record.violation)
+        return result
 
     # -- Approval tracking (ADR-044 Phase 3) --------------------------------
 
@@ -762,7 +967,11 @@ class ContentGraph:
                 node.progression[i] = replace(entry, approved=True)
                 count += 1
             if node.progression:
-                node.state = node.progression[-1]
+                last_approved = next(
+                    (s for s in reversed(node.progression) if s.approved),
+                    node.progression[-1],
+                )
+                node.state = last_approved
         return count
 
     def approve_node(self, node_id: str) -> bool:
@@ -1216,20 +1425,16 @@ def _node_state_to_dict(ns: NodeState) -> dict[str, object]:
     Returns:
         Plain dict with all NodeState fields.
     """
-    d: dict[str, object] = {
+    return {
         "id": ns.id,
         "pass_number": ns.pass_number,
         "phase": ns.phase,
         "yaml_lines": ns.yaml_lines,
         "content_hash": ns.content_hash,
-        "violations": list(ns.violations),
         "timestamp": ns.timestamp,
         "approved": ns.approved,
         "source": ns.source,
     }
-    if ns.violation_dicts:
-        d["violation_dicts"] = list(ns.violation_dicts)
-    return d
 
 
 def _node_state_from_dict(d: dict[str, object]) -> NodeState:
@@ -1241,21 +1446,64 @@ def _node_state_from_dict(d: dict[str, object]) -> NodeState:
     Returns:
         Reconstructed frozen NodeState.
     """
-    violations_raw = d.get("violations", ())
-    violations = tuple(str(v) for v in violations_raw) if isinstance(violations_raw, (list, tuple)) else ()
-    vdicts_raw = d.get("violation_dicts", ())
-    vdicts = tuple(vdicts_raw) if isinstance(vdicts_raw, (list, tuple)) else ()
     return NodeState(
         id=str(d.get("id", "")),
         pass_number=int(cast(int, d.get("pass_number", 0))),
         phase=str(d.get("phase", "")),
         yaml_lines=str(d.get("yaml_lines", "")),
         content_hash=str(d.get("content_hash", "")),
-        violations=violations,
-        violation_dicts=vdicts,
         timestamp=str(d.get("timestamp", "")),
         approved=bool(d.get("approved", False)),
         source=str(d.get("source", "")),
+    )
+
+
+def _violation_record_to_dict(rec: ViolationRecord) -> dict[str, object]:
+    """Serialize a ViolationRecord to a JSON-compatible dict.
+
+    Args:
+        rec: Violation record to serialize.
+
+    Returns:
+        Plain dict with all ViolationRecord fields.
+    """
+    d: dict[str, object] = {
+        "key": list(rec.key),
+        "violation": dict(rec.violation),
+        "status": rec.status,
+        "discovered_in_pass": rec.discovered_in_pass,
+    }
+    if rec.fixed_by is not None:
+        d["fixed_by"] = rec.fixed_by
+    if rec.fixed_in_pass is not None:
+        d["fixed_in_pass"] = rec.fixed_in_pass
+    return d
+
+
+def _violation_record_from_dict(d: dict[str, object]) -> ViolationRecord:
+    """Reconstruct a ViolationRecord from a serialized dict.
+
+    Args:
+        d: Dict produced by ``_violation_record_to_dict``.
+
+    Returns:
+        Reconstructed ViolationRecord.
+    """
+    raw_key = d.get("key", ("", ""))
+    if isinstance(raw_key, (list, tuple)) and len(raw_key) >= 2:
+        key: ViolationKey = (str(raw_key[0]), str(raw_key[1]))
+    else:
+        key = ("", "")
+    raw_violation = d.get("violation", {})
+    violation: ViolationDict = dict(raw_violation) if isinstance(raw_violation, dict) else {}
+    fixed_in_raw = d.get("fixed_in_pass")
+    return ViolationRecord(
+        key=key,
+        violation=violation,
+        status=str(d.get("status", "open")),
+        fixed_by=str(d["fixed_by"]) if "fixed_by" in d else None,
+        fixed_in_pass=int(cast(int, fixed_in_raw)) if fixed_in_raw is not None else None,
+        discovered_in_pass=int(cast(int, d.get("discovered_in_pass", 0))),
     )
 
 
@@ -1287,6 +1535,8 @@ def _node_to_dict(node: ContentNode, *, slim: bool = False) -> dict[str, object]
             d["state"] = _node_state_to_dict(node.state)
         if node.progression:
             d["progression"] = [_node_state_to_dict(ns) for ns in node.progression]
+        if node.violation_ledger:
+            d["violation_ledger"] = [_violation_record_to_dict(rec) for rec in node.violation_ledger.values()]
 
     return d
 
@@ -1331,7 +1581,6 @@ def _node_from_dict(d: dict[str, object]) -> ContentNode:
 
     # Reconcile: progression is source of truth; state == progression[-1].
     if deserialized_progression:
-        # Backfill empty IDs from older serialized graphs.
         nid = str(identity.path)
         for i, entry in enumerate(deserialized_progression):
             if not entry.id:
@@ -1340,6 +1589,14 @@ def _node_from_dict(d: dict[str, object]) -> ContentNode:
         node.state = deserialized_progression[-1]
     elif deserialized_state is not None:
         node.state = deserialized_state
+
+    # Restore violation ledger.
+    raw_ledger = d.get("violation_ledger")
+    if isinstance(raw_ledger, list):
+        for entry in raw_ledger:
+            if isinstance(entry, dict):
+                rec = _violation_record_from_dict(cast(dict[str, object], entry))
+                node.violation_ledger[rec.key] = rec
 
     return node
 

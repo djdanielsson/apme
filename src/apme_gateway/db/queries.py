@@ -920,10 +920,6 @@ async def update_ai_counts(
     scan.ai_proposed = ai_proposed
     scan.ai_declined = ai_declined
     scan.ai_accepted = ai_accepted
-    if scan.scan_type == "remediate":
-        scan.fixed_count = scan.auto_fixable + ai_accepted
-    else:
-        scan.fixed_count = 0
     await db.commit()
 
 

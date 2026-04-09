@@ -351,6 +351,78 @@ class GraphFixReport:
     ai_proposals: list[AINodeProposal] = field(default_factory=list)
 ```
 
+## Violation Ledger
+
+### Why a Ledger, Not Derived Accounting
+
+Earlier designs stored violations on `NodeState` snapshots and derived "fixed" counts by diffing successive snapshots. This was fragile:
+
+- Double/triple-counting when multiple passes touched the same node
+- AI fixes had no distinct accounting until user approval
+- Co-fix attribution required set-difference heuristics
+
+The **violation ledger** replaces all of this with a single source of truth: each violation has an explicit lifecycle tracked as a mutable `ViolationRecord` on the node.
+
+### Data Model
+
+```python
+ViolationKey = tuple[str, str]  # (node_id, normalized_rule_id)
+
+@dataclass
+class ViolationRecord:
+    key: ViolationKey
+    violation: ViolationDict      # original validator payload
+    status: str = "open"          # "open" | "fixed" | "proposed" | "declined"
+    fixed_by: str | None = None   # "deterministic" | "ai"
+    fixed_in_pass: int | None = None
+    discovered_in_pass: int = 0
+```
+
+Each `ContentNode` has a `violation_ledger: dict[ViolationKey, ViolationRecord]`.
+
+### Lifecycle States
+
+```
+open ──→ fixed      (deterministic transform, auto-approved)
+  │
+  └──→ proposed     (AI fix applied, pending human review)
+          │
+          ├──→ fixed    (user approved)
+          │
+          └──→ declined (user rejected, violation restored)
+```
+
+| State | Meaning | In `collect_violations()`? |
+|-------|---------|---------------------------|
+| `open` | Unresolved, present in file | Yes |
+| `fixed` | Resolved (deterministic or approved AI) | No |
+| `proposed` | AI fix applied but awaiting human review | No |
+| `declined` | User rejected AI proposal, violation restored | No (queryable separately) |
+
+### Graph API
+
+| Method | Purpose |
+|--------|---------|
+| `register_violations(violations, pass_number)` | Insert new violations as `open`; re-confirm existing; reopen previously fixed |
+| `resolve_violations(node_id, remaining_ids, *, fixed_by, pass_number, status)` | Transition open violations to `fixed` or `proposed` |
+| `approve_proposed(node_id)` | Promote `proposed` → `fixed` |
+| `decline_proposed(node_id)` | Transition `proposed` → `declined` (clears attribution) |
+| `query_violations(*, status, fixed_by)` | Filter ledger entries across all nodes |
+| `collect_violations()` | Shorthand for `query_violations(status="open")` |
+
+### How It Integrates
+
+1. **Initial scan** — `_record_violations()` calls `graph.register_violations()` (all violations enter as `open`)
+2. **Tier 1 rescan** — `_rescan_and_record()` with `resolve_fixed_by="deterministic"` transitions absent violations to `fixed`
+3. **AI rescan** — `_rescan_and_record()` with `resolve_fixed_by="ai", resolve_status="proposed"` transitions absent violations to `proposed`
+4. **User approval** — `graph.approve_proposed(node_id)` promotes `proposed` → `fixed`
+5. **User rejection** — `graph.decline_proposed(node_id)` transitions `proposed` → `declined`
+6. **Report** — `GraphFixReport` counts come from `query_violations(status=...)` — no diffing
+
+### NodeState Simplification
+
+`NodeState` no longer carries `violations` or `violation_dicts`. It is a pure content snapshot (YAML text + content hash + metadata). Violation tracking is entirely the ledger's responsibility.
+
 ## Progress Streaming
 
 `GraphRemediationEngine.remediate()` is an `async def` coroutine that runs as an `asyncio.create_task` alongside a queue drain loop. Without explicit progress plumbing, the gRPC stream (and downstream WebSocket) goes silent for the entire remediation duration — often minutes for large projects with AI escalation.
