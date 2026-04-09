@@ -158,7 +158,7 @@ _SCANNABLE_TYPES = frozenset(
     }
 )
 
-_NOQA_RE = re.compile(r"#\s*noqa:\s*([A-Za-z0-9_,\t ]+)")
+_NOQA_RE = re.compile(r"(?:^|\s)#\s*noqa:\s*([A-Za-z0-9_,\t ]+)")
 _QUOTED_RE = re.compile(r""""[^"\\]*(?:\\.[^"\\]*)*"|'[^']*'""")
 
 

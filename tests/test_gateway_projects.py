@@ -140,17 +140,18 @@ async def test_list_projects_empty(client: AsyncClient) -> None:
 
 
 async def test_list_projects(client: AsyncClient) -> None:
-    """Seeded project appears in list.
+    """Seeded project appears in list with correct total_violations.
 
     Args:
         client: Async HTTPX test client.
     """
-    await _seed_project()
+    await _seed_project(add_scan=True, scan_violations=5)
     resp = await client.get("/api/v1/projects")
     assert resp.status_code == 200
     body = resp.json()
     assert body["total"] == 1
     assert body["items"][0]["name"] == "Test Project"
+    assert body["items"][0]["total_violations"] == 5
 
 
 async def test_get_project_detail(client: AsyncClient) -> None:
