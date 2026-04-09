@@ -2086,17 +2086,26 @@ async def notification_stream() -> StreamingResponse:
 
     async def _stream() -> AsyncIterator[str]:
         stream = sse_event_stream(queue)
+        pending_chunk: asyncio.Task[str] | None = None
         try:
             while True:
-                try:
-                    chunk = await asyncio.wait_for(anext(stream), timeout=15.0)
-                except TimeoutError:
+                if pending_chunk is None:
+                    pending_chunk = asyncio.ensure_future(anext(stream))  # type: ignore[arg-type]
+                done, _ = await asyncio.wait({pending_chunk}, timeout=15.0)
+                if pending_chunk not in done:
                     yield ": keep-alive\n\n"
                     continue
+                try:
+                    chunk = pending_chunk.result()
                 except StopAsyncIteration:
                     break
+                pending_chunk = None
                 yield chunk
         finally:
+            if pending_chunk is not None:
+                pending_chunk.cancel()
+                with contextlib.suppress(asyncio.CancelledError, StopAsyncIteration):
+                    await pending_chunk
             with contextlib.suppress(AttributeError):
                 await stream.aclose()
             unsubscribe(queue)

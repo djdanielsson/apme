@@ -2032,7 +2032,7 @@ async def list_notifications(
     count_stmt = select(func.count()).select_from(base.subquery())
     total = cast(int, (await db.execute(count_stmt)).scalar_one())
 
-    stmt = base.order_by(Notification.created_at.desc()).limit(limit).offset(offset)
+    stmt = base.order_by(Notification.created_at.desc(), Notification.id.desc()).limit(limit).offset(offset)
     result = await db.execute(stmt)
     return list(result.scalars().all()), total
 
