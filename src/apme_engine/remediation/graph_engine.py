@@ -14,6 +14,7 @@ See :doc:`/sdlc/research/ai-as-graph-transform` for the design rationale.
 
 from __future__ import annotations
 
+import asyncio
 import difflib
 import logging
 from collections import defaultdict
@@ -68,18 +69,21 @@ class GraphFixReport:
     Callers produce patches by passing the post-convergence graph to
     :func:`splice_modifications`, then store the result here.
 
+    All violation counts are sourced from the ``ContentGraph`` violation
+    ledger — ``fixed`` and ``fixed_violations`` come from
+    ``query_violations(status="fixed")``, ``remaining_violations`` from
+    ``query_violations(status="open")``.  No snapshot diffs.
+
     Attributes:
         passes: Number of convergence passes executed.
-        fixed: Count of violations fixed by Tier 1 transforms.
+        fixed: Count of violations resolved during convergence.
         applied_patches: File patches produced by ``splice_modifications``
             (populated by the caller, not by ``remediate``).
-        remaining_violations: Violations still present after convergence,
-            collected directly from the ContentGraph (authoritative).
-        fixed_violations: Violations resolved by transforms.
+        remaining_violations: Violations still open after convergence.
+        fixed_violations: Violations resolved during convergence.
         oscillation_detected: True if the loop bailed due to oscillation.
         nodes_modified: Number of ContentNodes modified.
-        step_diffs: Per-progression-step diffs showing what each
-            transform did and which violations appeared/disappeared.
+        step_diffs: Per-progression-step content diffs.
         ai_proposals: AI-proposed node fixes pending human approval.
     """
 
@@ -141,6 +145,7 @@ class GraphRemediationEngine:
         *,
         max_passes: int = 5,
         max_ai_attempts: int = 2,
+        max_ai_concurrency: int = 4,
         progress_callback: ProgressCallback | None = None,
         rescan_fn: RescanFn | None = None,
         ai_provider: AIProvider | None = None,
@@ -153,6 +158,9 @@ class GraphRemediationEngine:
             rules: Pre-loaded GraphRule instances for re-scanning.
             max_passes: Maximum convergence passes (default 5).
             max_ai_attempts: Maximum AI resubmission rounds (default 2).
+            max_ai_concurrency: Maximum concurrent AI proposal calls
+                (default 4).  Bounds the number of simultaneous LLM
+                round-trips per AI pass.
             progress_callback: Optional ``(phase, message, fraction, level)``
                 callback for streaming progress.
             rescan_fn: Optional callback that replaces the built-in
@@ -168,6 +176,7 @@ class GraphRemediationEngine:
         self._rules = rules
         self._max_passes = max_passes
         self._max_ai_attempts = max_ai_attempts
+        self._max_ai_concurrency = max(1, max_ai_concurrency)
         self._progress_cb = progress_callback
         self._rescan_fn = rescan_fn
         self._ai_provider = ai_provider
@@ -222,7 +231,6 @@ class GraphRemediationEngine:
 
         prev_count: float = float("inf")
         passes = 0
-        all_fixed: list[ViolationDict] = []
         ai_proposals: list[AINodeProposal] = []
         oscillation = False
         ai_attempts = 0
@@ -250,7 +258,6 @@ class GraphRemediationEngine:
                     graph,
                     registry,
                     tier1,
-                    all_fixed,
                     pass_num,
                 )
                 logger.debug(
@@ -261,8 +268,6 @@ class GraphRemediationEngine:
                 )
 
                 if applied_this_pass == 0:
-                    # Tier 1 stalled: transforms exist but none succeeded.
-                    # Promote stalled violations to Tier 2 so AI can attempt them.
                     tier1_stalled = True
                     tier2.extend(tier1)
                     logger.debug(
@@ -272,10 +277,12 @@ class GraphRemediationEngine:
                         len(tier2),
                     )
                 else:
-                    dirty_ids = graph.dirty_nodes
-                    rescan_violations = await self._rescan_and_record(graph, pass_num)
-                    non_dirty = [v for v in violations if str(v.get("path", "")) not in dirty_ids]
-                    violations = rescan_violations + non_dirty
+                    await self._rescan_and_record(
+                        graph,
+                        pass_num,
+                        resolve_fixed_by="deterministic",
+                    )
+                    violations = graph.collect_violations()
                     new_tier1, new_tier2, _ = partition_violations(violations, registry)
                     new_fixable = len(new_tier1)
 
@@ -317,21 +324,13 @@ class GraphRemediationEngine:
                 ai_proposals.extend(new_ai_proposals)
 
                 if graph.dirty_nodes:
-                    dirty_ids = graph.dirty_nodes
-                    rescan_violations = await self._rescan_and_record(graph, pass_num)
-
-                    rescan_keys = {
-                        (str(v.get("path", "")), normalize_rule_id(str(v.get("rule_id", ""))))
-                        for v in rescan_violations
-                    }
-                    for v in violations:
-                        if str(v.get("path", "")) in dirty_ids:
-                            key = (str(v.get("path", "")), normalize_rule_id(str(v.get("rule_id", ""))))
-                            if key not in rescan_keys:
-                                all_fixed.append(dict(v))
-
-                    non_dirty = [v for v in violations if str(v.get("path", "")) not in dirty_ids]
-                    violations = rescan_violations + non_dirty
+                    await self._rescan_and_record(
+                        graph,
+                        pass_num,
+                        resolve_fixed_by="ai",
+                        resolve_status="proposed",
+                    )
+                    violations = graph.collect_violations()
 
                     # Phase C: Post-AI Tier 1 cleanup
                     new_tier1, new_tier2, _ = partition_violations(violations, registry)
@@ -344,16 +343,16 @@ class GraphRemediationEngine:
                             graph,
                             registry,
                             new_tier1,
-                            all_fixed,
                             pass_num,
                         )
-                        dirty_ids = graph.dirty_nodes
-                        rescan_violations = await self._rescan_and_record(graph, pass_num)
-                        non_dirty = [v for v in violations if str(v.get("path", "")) not in dirty_ids]
-                        violations = rescan_violations + non_dirty
+                        await self._rescan_and_record(
+                            graph,
+                            pass_num,
+                            resolve_fixed_by="deterministic",
+                        )
+                        violations = graph.collect_violations()
                         _, new_tier2, _ = partition_violations(violations, registry)
 
-                    # Build feedback for AI resubmission
                     if new_tier2:
                         ai_feedback_by_node = _build_ai_feedback(new_tier2)
                         continue
@@ -377,14 +376,15 @@ class GraphRemediationEngine:
 
         graph.approve_pending(source_filter="deterministic")
 
-        remaining = graph.collect_violations()
+        remaining = graph.query_violations(status="open")
+        fixed_violations = graph.query_violations(status="fixed")
         step_diffs = graph.collect_step_diffs()
 
         return GraphFixReport(
             passes=passes,
-            fixed=len(all_fixed),
+            fixed=len(fixed_violations),
             remaining_violations=remaining,
-            fixed_violations=all_fixed,
+            fixed_violations=fixed_violations,
             oscillation_detected=oscillation,
             nodes_modified=_count_modified_nodes(graph),
             step_diffs=step_diffs,
@@ -396,7 +396,6 @@ class GraphRemediationEngine:
         graph: ContentGraph,
         registry: TransformRegistry,
         tier1: list[ViolationDict],
-        all_fixed: list[ViolationDict],
         pass_num: int,
     ) -> int:
         """Apply Tier 1 deterministic transforms for one pass.
@@ -405,7 +404,6 @@ class GraphRemediationEngine:
             graph: ContentGraph to transform.
             registry: Transform registry.
             tier1: Tier 1 fixable violations.
-            all_fixed: Accumulator for fixed violations.
             pass_num: Current convergence pass number.
 
         Returns:
@@ -431,7 +429,6 @@ class GraphRemediationEngine:
             applied = await graph.apply_transform(node_id, transform_fn, v)
             if applied:
                 applied_this_pass += 1
-                all_fixed.append(dict(v))
             else:
                 skipped_no_apply += 1
                 logger.debug("Tier1 transform %s on %r: not applied", rule_id, node_id)
@@ -464,6 +461,10 @@ class GraphRemediationEngine:
     ) -> list[AINodeProposal]:
         """Apply AI transforms for Tier 2 violations.
 
+        Proposals are fetched concurrently (bounded by
+        ``max_ai_concurrency``), then applied serially because
+        ``ContentGraph`` is not thread-safe.
+
         Args:
             graph: ContentGraph to transform.
             tier2: AI-candidate violations.
@@ -474,6 +475,7 @@ class GraphRemediationEngine:
             List of AI proposals applied.
         """
         from apme_engine.remediation.ai_context import build_ai_node_context
+        from apme_engine.remediation.ai_provider import AINodeFix
 
         by_node: dict[str, list[ViolationDict]] = defaultdict(list)
         for v in tier2:
@@ -487,44 +489,87 @@ class GraphRemediationEngine:
             len(by_node),
         )
 
-        proposals: list[AINodeProposal] = []
         assert self._ai_provider is not None  # noqa: S101
+        sem = asyncio.Semaphore(self._max_ai_concurrency)
 
-        for node_id, node_violations in by_node.items():
+        async def _propose_one(
+            node_id: str,
+            node_violations: list[ViolationDict],
+        ) -> tuple[str, AINodeFix, str] | None:
+            """Fetch a single AI proposal under the concurrency semaphore.
+
+            Args:
+                node_id: Graph node identifier.
+                node_violations: Violations for this node.
+
+            Returns:
+                ``(node_id, fix, before_yaml)`` on success, ``None`` if
+                the node was skipped or the AI returned no change.
+            """
+            async with sem:
+                node = graph.get_node(node_id)
+                if node is None:
+                    logger.warning("AI: node %r not found in graph — skipping", node_id)
+                    return None
+                before_yaml = node.yaml_lines
+
+                feedback = feedback_by_node.get(node_id, "")
+                context = build_ai_node_context(
+                    graph,
+                    node_id,
+                    node_violations,
+                    feedback=feedback,
+                )
+                if context is None:
+                    logger.warning("AI: context is None for node %s — skipping", node_id)
+                    return None
+
+                logger.debug(
+                    "AI: calling propose_node_fix for %s (%d violations)",
+                    node_id,
+                    len(node_violations),
+                )
+                fix = await self._ai_provider.propose_node_fix(context)  # type: ignore[union-attr]
+                logger.debug(
+                    "AI: propose_node_fix returned for %s: fix=%s",
+                    node_id,
+                    fix is not None,
+                )
+
+                if fix is None or not fix.fixed_snippet:
+                    logger.debug("AI returned no usable fix for node %s", node_id)
+                    return None
+
+                if fix.fixed_snippet.strip() == before_yaml.strip():
+                    logger.debug(
+                        "AI returned identical content for node %s (no change)",
+                        node_id,
+                    )
+                    return None
+
+                return (node_id, fix, before_yaml)
+
+        # Fan out proposals concurrently
+        results = await asyncio.gather(
+            *[_propose_one(nid, nvs) for nid, nvs in by_node.items()],
+            return_exceptions=True,
+        )
+
+        # Apply accepted fixes serially (graph mutations are not thread-safe)
+        proposals: list[AINodeProposal] = []
+        for r in results:
+            if isinstance(r, BaseException):
+                logger.error(
+                    "AI proposal failed",
+                    exc_info=(type(r), r, r.__traceback__),
+                )
+                continue
+            if r is None:
+                continue
+            node_id, fix, before_yaml = r
+
             node = graph.get_node(node_id)
             if node is None:
-                logger.warning("AI: node %r not found in graph — skipping", node_id)
-                continue
-            before_yaml = node.yaml_lines
-
-            feedback = feedback_by_node.get(node_id, "")
-            context = build_ai_node_context(
-                graph,
-                node_id,
-                node_violations,
-                feedback=feedback,
-            )
-            if context is None:
-                logger.warning("AI: context is None for node %s — skipping", node_id)
-                continue
-
-            try:
-                logger.debug("AI: calling propose_node_fix for %s (%d violations)", node_id, len(node_violations))
-                fix = await self._ai_provider.propose_node_fix(context)
-                logger.debug("AI: propose_node_fix returned for %s: fix=%s", node_id, fix is not None)
-            except Exception:
-                logger.exception("AI provider failed for node %s", node_id)
-                continue
-
-            if fix is None or not fix.fixed_snippet:
-                logger.debug("AI returned no usable fix for node %s", node_id)
-                continue
-
-            if fix.fixed_snippet.strip() == before_yaml.strip():
-                logger.debug(
-                    "AI returned identical content for node %s (no change)",
-                    node_id,
-                )
                 continue
 
             node.update_from_yaml(fix.fixed_snippet)
@@ -561,12 +606,19 @@ class GraphRemediationEngine:
         self,
         graph: ContentGraph,
         pass_num: int,
+        resolve_fixed_by: str | None = None,
+        resolve_status: str = "fixed",
     ) -> list[ViolationDict]:
-        """Rescan dirty nodes and record violations.
+        """Rescan dirty nodes, register violations, and optionally resolve.
 
         Args:
             graph: ContentGraph with dirty nodes to rescan.
             pass_num: Current convergence pass number.
+            resolve_fixed_by: When set, transitions violations that
+                disappeared on dirty nodes.  Leave ``None`` to skip
+                resolution (register only).
+            resolve_status: Target status for resolved violations
+                (``"fixed"`` for deterministic, ``"proposed"`` for AI).
 
         Returns:
             Fresh violations from the rescan.
@@ -585,6 +637,17 @@ class GraphRemediationEngine:
             phase="scanned",
             dirty_node_ids=dirty,
         )
+
+        if resolve_fixed_by is not None:
+            _resolve_dirty_violations(
+                graph,
+                new_violations,
+                dirty,
+                fixed_by=resolve_fixed_by,
+                pass_number=pass_num,
+                status=resolve_status,
+            )
+
         graph.clear_dirty()
         return new_violations
 
@@ -639,7 +702,7 @@ def splice_modifications(
         if original_hash == effective.content_hash:
             continue
 
-        node_rule_ids = list(node.progression[0].violations) if node.progression[0].violations else []
+        node_rule_ids = [rec.key[1] for rec in node.violation_ledger.values()]
 
         modified_by_file[node.file_path].append(
             (node.line_start, node.line_end, effective.yaml_lines, node_rule_ids),
@@ -700,15 +763,14 @@ def _record_violations(
     phase: str,
     dirty_node_ids: frozenset[str] | None = None,
 ) -> None:
-    """Record a NodeState snapshot for nodes with violations.
+    """Record NodeState snapshots and register violations in the ledger.
 
-    Violations are grouped by ``path`` (which must already be resolved
-    to a graph ``node_id`` — validators return ``path = node_id``
-    natively via node-native serialization strategies).
+    Records a ``NodeState`` (content-only) for each node that has
+    violations, then registers all violations into the graph's
+    violation ledger.
 
     When ``dirty_node_ids`` is provided, also records a clean snapshot
-    (empty violations) for dirty nodes that are *absent* from
-    ``violations``.
+    for dirty nodes that have no violations in this batch.
 
     Args:
         graph: ContentGraph with nodes to update.
@@ -716,7 +778,7 @@ def _record_violations(
         pass_number: Convergence pass number.
         phase: Pipeline phase (``"scanned"``, ``"transformed"``).
         dirty_node_ids: When set, dirty nodes absent from violations
-            get a clean ``(phase, violations=())`` entry.
+            get a snapshot entry recorded.
     """
     by_node: dict[str, list[ViolationDict]] = defaultdict(list)
     for v in violations:
@@ -724,22 +786,60 @@ def _record_violations(
         if node_id:
             by_node[node_id].append(v)
 
-    for node_id, vdicts in by_node.items():
+    for node_id in by_node:
         node = graph.get_node(node_id)
         if node is not None:
-            rule_ids = tuple(sorted(rid for v in vdicts if (rid := str(v.get("rule_id", "")))))
-            node.record_state(
-                pass_number,
-                phase,
-                violations=rule_ids,
-                violation_dicts=tuple(vdicts),
-            )
+            node.record_state(pass_number, phase)
 
     if dirty_node_ids is not None:
         for nid in dirty_node_ids - set(by_node):
             node = graph.get_node(nid)
             if node is not None:
-                node.record_state(pass_number, phase, violations=())
+                node.record_state(pass_number, phase)
+
+    graph.register_violations(violations, pass_number)
+
+
+def _resolve_dirty_violations(
+    graph: ContentGraph,
+    rescan_violations: list[ViolationDict],
+    dirty_ids: frozenset[str],
+    *,
+    fixed_by: str,
+    pass_number: int,
+    status: str = "fixed",
+) -> None:
+    """Resolve violations on dirty nodes based on rescan results.
+
+    For each dirty node, computes which rule IDs are still present
+    and calls ``graph.resolve_violations`` so that absent violations
+    transition to *status* with the given attribution.
+
+    Args:
+        graph: ContentGraph whose ledger to update.
+        rescan_violations: Violations returned by the rescan.
+        dirty_ids: Node IDs that were rescanned.
+        fixed_by: Attribution (``"deterministic"`` or ``"ai"``).
+        pass_number: Current convergence pass number.
+        status: Target status (``"fixed"`` or ``"proposed"``).
+    """
+    remaining_by_node: dict[str, set[str]] = defaultdict(set)
+    for v in rescan_violations:
+        node_id = str(v.get("path", ""))
+        if node_id:
+            remaining_by_node[node_id].add(
+                normalize_rule_id(str(v.get("rule_id", ""))),
+            )
+
+    for nid in dirty_ids:
+        remaining = remaining_by_node.get(nid, set())
+        graph.resolve_violations(
+            nid,
+            remaining,
+            fixed_by=fixed_by,
+            pass_number=pass_number,
+            status=status,
+        )
 
 
 def _build_ai_feedback(tier2: list[ViolationDict]) -> dict[str, str]:

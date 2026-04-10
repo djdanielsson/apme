@@ -17,6 +17,7 @@ from apme_engine.engine.content_graph import (
     _node_from_dict,
     _node_to_dict,
     _reindent,
+    _violation_key,
 )
 from apme_engine.engine.models import ViolationDict
 
@@ -93,8 +94,6 @@ class TestNodeState:
             phase="scanned",
             yaml_lines="- name: foo\n",
             content_hash=_content_hash("- name: foo\n"),
-            violations=("L007",),
-            violation_dicts=(),
             timestamp="2026-03-30T00:00:00+00:00",
         )
         with pytest.raises(AttributeError):
@@ -109,40 +108,6 @@ class TestNodeState:
         """Different text must produce different hashes."""
         assert _content_hash("a") != _content_hash("b")
 
-    def test_violation_dicts_default(self) -> None:
-        """Default violation_dicts is an empty tuple."""
-        ns = NodeState(
-            id="test@0",
-            pass_number=0,
-            phase="scanned",
-            yaml_lines="- name: foo\n",
-            content_hash=_content_hash("- name: foo\n"),
-            violations=(),
-            violation_dicts=(),
-            timestamp="2026-03-30T00:00:00+00:00",
-        )
-        assert ns.violation_dicts == ()
-
-    def test_violation_dicts_stored(self) -> None:
-        """Full violation dicts are stored alongside rule IDs."""
-        vdict: ViolationDict = {
-            "rule_id": "L007",
-            "path": "site.yml/plays[0]/tasks[0]",
-            "message": "test",
-        }
-        ns = NodeState(
-            id="test@0",
-            pass_number=0,
-            phase="scanned",
-            yaml_lines="- name: foo\n",
-            content_hash=_content_hash("- name: foo\n"),
-            violations=("L007",),
-            violation_dicts=(vdict,),
-            timestamp="2026-03-30T00:00:00+00:00",
-        )
-        assert len(ns.violation_dicts) == 1
-        assert ns.violation_dicts[0]["rule_id"] == "L007"
-
 
 # ---------------------------------------------------------------------------
 # record_state
@@ -155,14 +120,13 @@ class TestRecordState:
     def test_basic_record(self) -> None:
         """Recording a state appends to progression and updates state."""
         node = _make_task()
-        ns = node.record_state(0, "scanned", ("R108",))
+        ns = node.record_state(0, "scanned")
 
         assert ns is node.state
         assert len(node.progression) == 1
         assert node.progression[0] is ns
         assert ns.pass_number == 0
         assert ns.phase == "scanned"
-        assert ns.violations == ("R108",)
         assert ns.yaml_lines == node.yaml_lines
         assert ns.content_hash == _content_hash(node.yaml_lines)
         assert ns.timestamp  # non-empty
@@ -170,7 +134,7 @@ class TestRecordState:
     def test_multiple_records(self) -> None:
         """Multiple calls accumulate an ordered progression."""
         node = _make_task()
-        ns0 = node.record_state(0, "scanned", ("L007",))
+        ns0 = node.record_state(0, "scanned")
         ns1 = node.record_state(0, "transformed")
         ns2 = node.record_state(1, "scanned")
 
@@ -178,30 +142,10 @@ class TestRecordState:
         assert node.progression == [ns0, ns1, ns2]
         assert node.state is ns2
 
-    def test_empty_violations_default(self) -> None:
-        """Default violations is an empty tuple."""
-        node = _make_task()
-        ns = node.record_state(0, "original")
-        assert ns.violations == ()
-        assert ns.violation_dicts == ()
-
-    def test_violation_dicts_parameter(self) -> None:
-        """record_state stores full violation dicts."""
-        node = _make_task()
-        vdict: ViolationDict = {
-            "rule_id": "M001",
-            "path": node.node_id,
-            "message": "Use FQCN",
-        }
-        ns = node.record_state(0, "scanned", ("M001",), violation_dicts=(vdict,))
-        assert ns.violations == ("M001",)
-        assert len(ns.violation_dicts) == 1
-        assert ns.violation_dicts[0]["rule_id"] == "M001"
-
     def test_state_captures_current_yaml(self) -> None:
         """After update_from_yaml, record_state captures the new content."""
         node = _make_task()
-        node.record_state(0, "scanned", ("M001",))
+        node.record_state(0, "scanned")
 
         node.update_from_yaml(_TASK_YAML_FQCN_FIXED)
         ns = node.record_state(0, "transformed")
@@ -417,7 +361,7 @@ class TestNodeStateSerialization:
     def test_round_trip_with_progression(self) -> None:
         """Nodes with progression entries round-trip cleanly."""
         node = _make_task()
-        node.record_state(0, "scanned", ("R108", "L007"))
+        node.record_state(0, "scanned")
         node.update_from_yaml(_TASK_YAML_FQCN_FIXED)
         node.record_state(0, "transformed")
 
@@ -433,15 +377,13 @@ class TestNodeStateSerialization:
         assert restored.state.phase == "transformed"
         assert restored.state.pass_number == 0
         assert len(restored.progression) == 2
-        assert restored.progression[0].violations == ("R108", "L007")
         assert restored.progression[0].phase == "scanned"
-        assert restored.progression[1].violations == ()
         assert restored.progression[1].phase == "transformed"
 
     def test_json_serializable(self) -> None:
         """Serialized dict must be JSON-encodable."""
         node = _make_task()
-        node.record_state(0, "scanned", ("L045",))
+        node.record_state(0, "scanned")
         d = _node_to_dict(node)
         serialized = json.dumps(d)
         assert isinstance(serialized, str)
@@ -456,7 +398,7 @@ class TestNodeStateSerialization:
     def test_state_reconciled_from_progression(self) -> None:
         """When progression exists, state is reconciled to progression[-1]."""
         node = _make_task()
-        node.record_state(0, "scanned", ("L007",))
+        node.record_state(0, "scanned")
         node.record_state(0, "transformed")
         d = _node_to_dict(node)
 
@@ -468,20 +410,43 @@ class TestNodeStateSerialization:
         assert restored.state.phase == "transformed"
         assert restored.state is restored.progression[-1]
 
-    def test_tuple_violations_accepted(self) -> None:
-        """_node_state_from_dict accepts tuple violations (not just list)."""
-        from apme_engine.engine.content_graph import _node_state_from_dict
+    def test_violation_ledger_round_trip(self) -> None:
+        """Violation ledger survives serialization round-trip."""
+        graph = ContentGraph()
+        node = _make_task()
+        graph.add_node(node)
+        node.record_state(0, "scanned")
 
-        d: dict[str, object] = {
-            "pass_number": 0,
-            "phase": "scanned",
-            "yaml_lines": "",
-            "content_hash": "",
-            "violations": ("L007", "R108"),
-            "timestamp": "",
-        }
-        ns = _node_state_from_dict(d)
-        assert ns.violations == ("L007", "R108")
+        v: ViolationDict = {"rule_id": "M001", "path": node.node_id, "message": "Use FQCN"}
+        graph.register_violations([v], 0)
+
+        d = _node_to_dict(node)
+        assert "violation_ledger" in d
+
+        restored = _node_from_dict(d)
+        key = _violation_key(v)
+        assert key in restored.violation_ledger
+        rec = restored.violation_ledger[key]
+        assert rec.status == "open"
+        assert rec.violation["rule_id"] == "M001"
+
+    def test_violation_ledger_fixed_round_trip(self) -> None:
+        """Fixed violations round-trip with attribution."""
+        graph = ContentGraph()
+        node = _make_task()
+        graph.add_node(node)
+
+        v: ViolationDict = {"rule_id": "M001", "path": node.node_id}
+        graph.register_violations([v], 0)
+        graph.resolve_violations(node.node_id, set(), fixed_by="deterministic", pass_number=1)
+
+        d = _node_to_dict(node)
+        restored = _node_from_dict(d)
+        key = _violation_key(v)
+        rec = restored.violation_ledger[key]
+        assert rec.status == "fixed"
+        assert rec.fixed_by == "deterministic"
+        assert rec.fixed_in_pass == 1
 
 
 # ---------------------------------------------------------------------------
@@ -594,13 +559,12 @@ class TestApplyTransform:
         graph, nid = self._build_graph()
         node = graph.get_node(nid)
         assert node is not None
-        node.record_state(0, "scanned", ("L026",))
+        node.record_state(0, "scanned")
         await graph.apply_transform(nid, add_tag, {})
         node.record_state(0, "transformed")
 
         assert len(node.progression) == 2
         assert node.progression[0].phase == "scanned"
-        assert node.progression[0].violations == ("L026",)
         assert node.progression[1].phase == "transformed"
         assert "added" in node.progression[1].yaml_lines
 
@@ -702,7 +666,7 @@ class TestNodeStateFields:
     def test_record_state_id_unique_within_pass(self) -> None:
         """Multiple entries in the same pass get distinct IDs."""
         node = _make_task()
-        ns0 = node.record_state(0, "scanned", ("M001",))
+        ns0 = node.record_state(0, "scanned")
         ns1 = node.record_state(0, "transformed")
         assert ns0.id != ns1.id
         assert ns0.id.endswith("@0")
@@ -739,7 +703,7 @@ class TestApprovalOperations:
         graph = ContentGraph()
         node = _make_task()
         graph.add_node(node)
-        node.record_state(0, "scanned", ("M001",))
+        node.record_state(0, "scanned")
         node.update_from_yaml(_TASK_YAML_FQCN_FIXED)
         node.record_state(1, "transformed", source="deterministic")
         return graph, node
@@ -772,7 +736,7 @@ class TestApprovalOperations:
             yaml_lines=_TASK_YAML_SHORT,
         )
         graph.add_node(node2)
-        node2.record_state(0, "scanned", ("M001",))
+        node2.record_state(0, "scanned")
 
         graph.approve_pending(node1.node_id)
         assert all(s.approved for s in node1.progression)
@@ -857,31 +821,27 @@ class TestApprovalOperations:
 
 
 class TestCollectViolations:
-    """Tests for ``ContentGraph.collect_violations``."""
+    """Tests for ``ContentGraph.collect_violations`` (via violation ledger)."""
 
     def test_empty_graph(self) -> None:
         """Empty graph returns no violations."""
         graph = ContentGraph()
         assert graph.collect_violations() == []
 
-    def test_no_states_recorded(self) -> None:
-        """Nodes without recorded state contribute no violations."""
+    def test_no_violations_registered(self) -> None:
+        """Nodes without registered violations contribute nothing."""
         graph = ContentGraph()
         graph.add_node(_make_task())
         assert graph.collect_violations() == []
 
-    def test_collects_from_latest_state(self) -> None:
-        """Violations are gathered from each node's latest state."""
+    def test_collects_open_violations(self) -> None:
+        """Open violations are returned by collect_violations."""
         graph = ContentGraph()
         node = _make_task()
         graph.add_node(node)
 
-        vdict: ViolationDict = {
-            "rule_id": "M001",
-            "path": node.node_id,
-            "message": "Use FQCN",
-        }
-        node.record_state(0, "scanned", ("M001",), violation_dicts=(vdict,))
+        v: ViolationDict = {"rule_id": "M001", "path": node.node_id, "message": "Use FQCN"}
+        graph.register_violations([v], 0)
 
         result = graph.collect_violations()
         assert len(result) == 1
@@ -903,26 +863,119 @@ class TestCollectViolations:
 
         v1: ViolationDict = {"rule_id": "M001", "path": node1.node_id}
         v2: ViolationDict = {"rule_id": "L005", "path": node2.node_id}
-        node1.record_state(0, "scanned", ("M001",), violation_dicts=(v1,))
-        node2.record_state(0, "scanned", ("L005",), violation_dicts=(v2,))
+        graph.register_violations([v1, v2], 0)
 
         result = graph.collect_violations()
         assert len(result) == 2
         rule_ids = {v["rule_id"] for v in result}
         assert rule_ids == {"M001", "L005"}
 
-    def test_clean_node_contributes_nothing(self) -> None:
-        """Nodes whose latest state has no violations are excluded."""
+    def test_fixed_not_in_collect(self) -> None:
+        """Fixed violations are excluded from collect_violations."""
         graph = ContentGraph()
         node = _make_task()
         graph.add_node(node)
 
-        vdict: ViolationDict = {"rule_id": "M001", "path": node.node_id}
-        node.record_state(0, "scanned", ("M001",), violation_dicts=(vdict,))
-        node.record_state(1, "scanned")
+        v: ViolationDict = {"rule_id": "M001", "path": node.node_id}
+        graph.register_violations([v], 0)
+        graph.resolve_violations(node.node_id, set(), fixed_by="deterministic", pass_number=1)
 
-        result = graph.collect_violations()
-        assert result == []
+        assert graph.collect_violations() == []
+
+    def test_query_fixed(self) -> None:
+        """query_violations(status='fixed') returns fixed violations."""
+        graph = ContentGraph()
+        node = _make_task()
+        graph.add_node(node)
+
+        v: ViolationDict = {"rule_id": "M001", "path": node.node_id}
+        graph.register_violations([v], 0)
+        graph.resolve_violations(node.node_id, set(), fixed_by="deterministic", pass_number=1)
+
+        fixed = graph.query_violations(status="fixed")
+        assert len(fixed) == 1
+        assert fixed[0]["rule_id"] == "M001"
+
+    def test_query_by_fixed_by(self) -> None:
+        """query_violations filters by fixed_by attribution."""
+        graph = ContentGraph()
+        node = _make_task()
+        graph.add_node(node)
+
+        v1: ViolationDict = {"rule_id": "M001", "path": node.node_id}
+        v2: ViolationDict = {"rule_id": "L005", "path": node.node_id}
+        graph.register_violations([v1, v2], 0)
+        graph.resolve_violations(node.node_id, {"L005"}, fixed_by="deterministic", pass_number=1)
+
+        det = graph.query_violations(status="fixed", fixed_by="deterministic")
+        assert len(det) == 1
+        assert det[0]["rule_id"] == "M001"
+
+    def test_proposed_state(self) -> None:
+        """Proposed violations are neither in collect nor in fixed queries."""
+        graph = ContentGraph()
+        node = _make_task()
+        graph.add_node(node)
+
+        v: ViolationDict = {"rule_id": "M001", "path": node.node_id}
+        graph.register_violations([v], 0)
+        graph.resolve_violations(node.node_id, set(), fixed_by="ai", pass_number=1, status="proposed")
+
+        assert graph.collect_violations() == []
+        assert graph.query_violations(status="fixed") == []
+        proposed = graph.query_violations(status="proposed")
+        assert len(proposed) == 1
+
+    def test_approve_proposed(self) -> None:
+        """approve_proposed transitions proposed to fixed."""
+        graph = ContentGraph()
+        node = _make_task()
+        graph.add_node(node)
+
+        v: ViolationDict = {"rule_id": "M001", "path": node.node_id}
+        graph.register_violations([v], 0)
+        graph.resolve_violations(node.node_id, set(), fixed_by="ai", pass_number=1, status="proposed")
+
+        count = graph.approve_proposed(node.node_id)
+        assert count == 1
+
+        fixed = graph.query_violations(status="fixed")
+        assert len(fixed) == 1
+        assert fixed[0]["rule_id"] == "M001"
+
+    def test_decline_proposed(self) -> None:
+        """decline_proposed transitions proposed to declined."""
+        graph = ContentGraph()
+        node = _make_task()
+        graph.add_node(node)
+
+        v: ViolationDict = {"rule_id": "M001", "path": node.node_id}
+        graph.register_violations([v], 0)
+        graph.resolve_violations(node.node_id, set(), fixed_by="ai", pass_number=1, status="proposed")
+
+        count = graph.decline_proposed(node.node_id)
+        assert count == 1
+
+        declined = graph.query_violations(status="declined")
+        assert len(declined) == 1
+        key = _violation_key(v)
+        rec = node.violation_ledger[key]
+        assert rec.fixed_by is None
+        assert rec.fixed_in_pass is None
+
+    def test_reopen_regression(self) -> None:
+        """A fixed violation that reappears is reopened."""
+        graph = ContentGraph()
+        node = _make_task()
+        graph.add_node(node)
+
+        v: ViolationDict = {"rule_id": "M001", "path": node.node_id}
+        graph.register_violations([v], 0)
+        graph.resolve_violations(node.node_id, set(), fixed_by="deterministic", pass_number=1)
+        assert graph.collect_violations() == []
+
+        graph.register_violations([v], 2)
+        assert len(graph.collect_violations()) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -943,7 +996,7 @@ class TestCollectStepDiffs:
         graph = ContentGraph()
         node = _make_task()
         graph.add_node(node)
-        node.record_state(0, "scanned", ("M001",))
+        node.record_state(0, "scanned")
         node.record_state(1, "scanned")
         assert graph.collect_step_diffs() == []
 
@@ -952,7 +1005,7 @@ class TestCollectStepDiffs:
         graph = ContentGraph()
         node = _make_task()
         graph.add_node(node)
-        node.record_state(0, "scanned", ("M001",))
+        node.record_state(0, "scanned")
         node.update_from_yaml(_TASK_YAML_FQCN_FIXED)
         node.record_state(1, "transformed", source="deterministic")
 
@@ -964,28 +1017,6 @@ class TestCollectStepDiffs:
         assert d["source"] == "deterministic"
         assert isinstance(d["diff"], str)
         assert len(d["diff"]) > 0
-        removed = d["violations_removed"]
-        assert isinstance(removed, list)
-        assert "M001" in removed
-
-    def test_violation_lineage(self) -> None:
-        """Tracks violations added and removed across steps."""
-        graph = ContentGraph()
-        node = _make_task()
-        graph.add_node(node)
-        node.record_state(0, "scanned", ("L005", "M001"))
-        node.update_from_yaml(_TASK_YAML_FQCN_FIXED)
-        node.record_state(1, "scanned", ("L059",))
-
-        diffs = graph.collect_step_diffs()
-        assert len(diffs) == 1
-        d = diffs[0]
-        removed = d["violations_removed"]
-        added = d["violations_added"]
-        assert isinstance(removed, list)
-        assert isinstance(added, list)
-        assert sorted(removed) == ["L005", "M001"]
-        assert added == ["L059"]
 
 
 # ---------------------------------------------------------------------------

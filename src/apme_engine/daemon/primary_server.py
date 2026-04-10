@@ -73,7 +73,7 @@ from apme.v1.validate_pb2 import ValidateRequest
 from apme_engine.daemon.event_emitter import emit_fix_completed, emit_register_rules, start_sinks
 from apme_engine.daemon.session import ResourceExhaustedError, SessionState, SessionStore
 from apme_engine.daemon.violation_convert import violation_dict_to_proto, violation_proto_to_dict
-from apme_engine.engine.models import RemediationClass, ViolationDict
+from apme_engine.engine.models import RemediationClass, RemediationResolution, ViolationDict
 from apme_engine.log_bridge import attach_collector
 from apme_engine.runner import run_scan
 from apme_engine.venv_manager.session import (
@@ -247,12 +247,11 @@ def _enrich_violations_from_graph(
         v["fixed_yaml"] = approved.yaml_lines
 
         this_rule = str(v.get("rule_id", ""))
-        initial = set(node.progression[0].violations)
-        final = set(approved.violations)
-        fixed_on_node = initial - final
-        fixed_on_node.discard(this_rule)
-        if fixed_on_node:
-            v["co_fixes"] = sorted(fixed_on_node)  # type: ignore[arg-type]
+        co_fixes = sorted(
+            rec.key[1] for rec in node.violation_ledger.values() if rec.status == "fixed" and rec.key[1] != this_rule
+        )
+        if co_fixes:
+            v["co_fixes"] = co_fixes  # type: ignore[assignment]
 
 
 def _attach_snippets(violations: list[ViolationDict], files: list[File]) -> None:
@@ -1636,6 +1635,7 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
             graph=graph,
             rules=rules,
             max_passes=max_passes,
+            max_ai_concurrency=max(1, int(os.environ.get("APME_AI_CONCURRENCY", "4"))),
             progress_callback=progress_callback,
             rescan_fn=_rescan_bridge,
             ai_provider=ai_provider,  # type: ignore[arg-type]
@@ -1988,12 +1988,13 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
         has_graph_proposals = graph is not None and any(pid.startswith("ai-") for pid in session.proposals)
 
         if has_graph_proposals and graph is not None and originals is not None:
-            applied = _apply_graph_approvals(
+            applied, rejected_nodes = _apply_graph_approvals(
                 session,
                 graph,
                 originals,
                 approved_ids,
             )
+            _reconcile_after_approval(session, graph, rejected_nodes)
         else:
             applied = _apply_text_approvals(session, approved_ids)
 
@@ -2302,7 +2303,7 @@ def _apply_graph_approvals(
     graph: object,
     originals: dict[str, str],
     approved_ids: set[str],
-) -> int:
+) -> tuple[int, set[str]]:
     """Apply graph-based approvals: approve/reject nodes, re-splice files.
 
     Args:
@@ -2312,7 +2313,7 @@ def _apply_graph_approvals(
         approved_ids: Proposal IDs the user accepted.
 
     Returns:
-        Number of proposals applied.
+        Tuple of (proposals applied, rejected node IDs).
     """
     from apme_engine.engine.content_graph import ContentGraph  # noqa: PLC0415
     from apme_engine.remediation.graph_engine import (  # noqa: PLC0415
@@ -2321,7 +2322,7 @@ def _apply_graph_approvals(
     )
 
     if not isinstance(graph, ContentGraph):
-        return _apply_text_approvals(session, approved_ids)
+        return (_apply_text_approvals(session, approved_ids), set())
 
     ai_proposals: list[AINodeProposal] = [p for p in session.ai_proposals if isinstance(p, AINodeProposal)]
 
@@ -2330,6 +2331,7 @@ def _apply_graph_approvals(
         proposal_node_map[f"ai-{idx:04d}"] = anp.node_id
 
     applied = 0
+    rejected_node_ids: set[str] = set()
     all_proposal_ids = set(session.proposals.keys())
 
     for pid in all_proposal_ids:
@@ -2357,6 +2359,7 @@ def _apply_graph_approvals(
             applied += 1
         else:
             graph.reject_node(node_id)
+            rejected_node_ids.add(node_id)
 
         session.proposals.pop(pid, None)
 
@@ -2364,7 +2367,80 @@ def _apply_graph_approvals(
     for patch in patches:
         session.working_files[patch.path] = patch.patched.encode("utf-8")
 
-    return applied
+    return (applied, rejected_node_ids)
+
+
+def _reconcile_after_approval(
+    session: SessionState,
+    graph: object,
+    rejected_node_ids: set[str],
+) -> None:
+    """Reconcile session accounting after AI proposals are approved/rejected.
+
+    Promotes ``proposed`` violations on approved nodes to ``fixed``,
+    transitions ``proposed`` violations on rejected nodes to ``declined``,
+    then queries the graph ledger for authoritative counts.
+
+    Args:
+        session: Active session to reconcile.
+        graph: ContentGraph after approve/reject mutations.
+        rejected_node_ids: Node IDs whose AI proposals were rejected.
+    """
+    from apme_engine.engine.content_graph import ContentGraph  # noqa: PLC0415
+
+    if not isinstance(graph, ContentGraph):
+        return
+
+    # Promote approved proposals; decline rejected ones.
+    for node in graph.nodes():
+        nid = node.node_id
+        if nid in rejected_node_ids:
+            graph.decline_proposed(nid)
+        else:
+            graph.approve_proposed(nid)
+
+    # Remaining = open + declined (all unresolved violations).
+    # Post-approval, AI has already had its chance — everything remaining
+    # is manual review regardless of what classify_violation would say.
+    open_violations = graph.query_violations(status="open")
+    declined_violations = graph.query_violations(status="declined")
+    remaining = [dict(v) for v in open_violations + declined_violations]
+    for v in remaining:
+        v["remediation_class"] = RemediationClass.MANUAL_REVIEW
+        v["remediation_resolution"] = RemediationResolution.UNRESOLVED
+    _enrich_violations_from_graph(remaining, graph, fixed=False)
+
+    fixed = [dict(v) for v in graph.query_violations(status="fixed")]
+    for v in fixed:
+        v["remediation_class"] = RemediationClass.AUTO_FIXABLE
+    _enrich_violations_from_graph(fixed, graph, fixed=True)
+
+    session.remaining_ai = []
+    session.remaining_manual = list(remaining)
+
+    old_report = session.report or FixReport()
+
+    remaining_protos = [violation_dict_to_proto(v) for v in remaining]
+    fixed_protos = [violation_dict_to_proto(v) for v in fixed]
+
+    session.report = FixReport(
+        passes=old_report.passes,
+        fixed=len(fixed),
+        remaining_ai=0,
+        remaining_manual=len(remaining),
+        oscillation_detected=old_report.oscillation_detected,
+        remaining_violations=remaining_protos,
+        fixed_violations=fixed_protos,
+    )
+
+    logger.info(
+        "Post-approval reconciliation: %d fixed, %d remaining (%d declined), %d rejected nodes (session=%s)",
+        len(fixed),
+        len(remaining),
+        len(declined_violations),
+        len(rejected_node_ids),
+        session.session_id,
+    )
 
 
 def _apply_text_approvals(
