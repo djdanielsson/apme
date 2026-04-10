@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect } from 'react';
+import { type RefObject, useRef, useState, useEffect } from 'react';
 import {
   Button,
   Label,
@@ -59,7 +59,7 @@ export function ViolationOutputToolbar({
   useEffect(() => {
     if (!filterMenuOpen) return;
     const handler = (e: MouseEvent) => {
-      const refs: Record<string, React.RefObject<HTMLDivElement | null>> = { severity: sevRef, scope: scopeRef, fix: fixRef, rule: ruleRef };
+      const refs: Record<string, RefObject<HTMLDivElement | null>> = { severity: sevRef, scope: scopeRef, fix: fixRef, rule: ruleRef };
       const ref = refs[filterMenuOpen];
       if (ref?.current && !ref.current.contains(e.target as Node)) {
         setFilterMenuOpen(null);

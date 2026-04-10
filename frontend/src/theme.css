@@ -129,6 +129,16 @@
 /* ── Severity badges ────────────────────────────────── */
 
 .apme-severity {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 1px 7px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+  line-height: 16px;
   text-transform: uppercase;
   min-width: 54px;
 }
