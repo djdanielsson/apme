@@ -32,7 +32,7 @@ export const SEVERITY_LABELS: Record<string, string> = {
 };
 
 export const SEVERITY_INT_TO_API: Record<number, string> = {
-  6: 'critical', 5: 'error', 4: 'high', 3: 'medium', 2: 'low', 1: 'info',
+  0: 'unspecified', 1: 'info', 2: 'low', 3: 'medium', 4: 'high', 5: 'error', 6: 'critical',
 };
 
 export const SEVERITY_INT_OPTIONS: { value: number; label: string }[] = [
@@ -42,6 +42,7 @@ export const SEVERITY_INT_OPTIONS: { value: number; label: string }[] = [
   { value: 3, label: 'Medium' },
   { value: 2, label: 'Low' },
   { value: 1, label: 'Info' },
+  { value: 0, label: 'Unspecified' },
 ];
 
 const SEVERITY_RANK: Record<string, number> = {

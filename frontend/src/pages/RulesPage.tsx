@@ -57,11 +57,19 @@ export function RulesPage() {
   const [searchText, setSearchText] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
   const [sourceFilter, setSourceFilter] = useState('');
-  const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [updatingIds, setUpdatingIds] = useState<Set<string>>(new Set());
   const [selectedRule, setSelectedRule] = useState<RuleDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [resettingId, setResettingId] = useState<string | null>(null);
   const detailRequestRef = useRef(0);
+
+  const startUpdating = useCallback((id: string) => {
+    setUpdatingIds((prev) => new Set(prev).add(id));
+  }, []);
+
+  const stopUpdating = useCallback((id: string) => {
+    setUpdatingIds((prev) => { const next = new Set(prev); next.delete(id); return next; });
+  }, []);
 
   const fetchRules = useCallback(() => {
     setLoading(true);
@@ -72,6 +80,15 @@ export function RulesPage() {
       .then(setRules)
       .catch(() => setRules([]))
       .finally(() => setLoading(false));
+  }, [categoryFilter, sourceFilter]);
+
+  const refreshRules = useCallback(() => {
+    listRules({
+      category: categoryFilter || undefined,
+      source: sourceFilter || undefined,
+    })
+      .then(setRules)
+      .catch(() => {});
   }, [categoryFilter, sourceFilter]);
 
   useEffect(() => {
@@ -109,7 +126,7 @@ export function RulesPage() {
     setResettingId(ruleId);
     try {
       await deleteRuleConfig(ruleId);
-      fetchRules();
+      refreshRules();
       refreshStats();
       if (selectedRule?.rule_id === ruleId) {
         openRuleDetail(ruleId);
@@ -119,7 +136,7 @@ export function RulesPage() {
     } finally {
       setResettingId(null);
     }
-  }, [selectedRule, fetchRules, refreshStats, openRuleDetail]);
+  }, [selectedRule, refreshRules, refreshStats, openRuleDetail]);
 
   const categoryOptions = useMemo(() => {
     const fromStats = stats ? Object.keys(stats.by_category) : [];
@@ -151,7 +168,7 @@ export function RulesPage() {
       const patch = { enabled, has_override: true };
       setRules((cur) => cur.map((r) => r.rule_id === rule.rule_id ? { ...r, ...patch } : r));
       setSelectedRule((cur) => cur?.rule_id === rule.rule_id ? { ...cur, ...patch } : cur);
-      setUpdatingId(rule.rule_id);
+      startUpdating(rule.rule_id);
       try {
         await updateRuleConfig(rule.rule_id, { enabled_override: enabled });
         refreshStats();
@@ -159,10 +176,10 @@ export function RulesPage() {
         setRules((cur) => cur.map((r) => r.rule_id === rule.rule_id ? { ...r, ...prev } : r));
         setSelectedRule((cur) => cur?.rule_id === rule.rule_id ? { ...cur, ...prev } : cur);
       } finally {
-        setUpdatingId(null);
+        stopUpdating(rule.rule_id);
       }
     },
-    [refreshStats],
+    [refreshStats, startUpdating, stopUpdating],
   );
 
   const handleSeverityChange = useCallback(
@@ -173,42 +190,38 @@ export function RulesPage() {
       const patch = { effective_severity_int: severityInt, effective_severity: nextLabel, has_override: true };
       setRules((cur) => cur.map((r) => r.rule_id === rule.rule_id ? { ...r, ...patch } : r));
       setSelectedRule((cur) => cur?.rule_id === rule.rule_id ? { ...cur, ...patch } : cur);
-      setUpdatingId(rule.rule_id);
+      startUpdating(rule.rule_id);
       try {
         await updateRuleConfig(rule.rule_id, { severity_override: severityInt });
-        fetchRules();
         refreshStats();
       } catch {
         setRules((cur) => cur.map((r) => r.rule_id === rule.rule_id ? { ...r, ...prev } : r));
         setSelectedRule((cur) => cur?.rule_id === rule.rule_id ? { ...cur, ...prev } : cur);
       } finally {
-        setUpdatingId(null);
+        stopUpdating(rule.rule_id);
       }
     },
-    [fetchRules, refreshStats],
+    [refreshStats, startUpdating, stopUpdating],
   );
 
   const handleEnforcedChange = useCallback(
     async (rule: RuleDetail, enforced: boolean) => {
-      setUpdatingId(rule.rule_id);
+      const prev = { enforced: rule.enforced, has_override: rule.has_override };
+      const patch = { enforced, has_override: true };
+      setRules((cur) => cur.map((r) => r.rule_id === rule.rule_id ? { ...r, ...patch } : r));
+      setSelectedRule((cur) => cur?.rule_id === rule.rule_id ? { ...cur, ...patch } : cur);
+      startUpdating(rule.rule_id);
       try {
         await updateRuleConfig(rule.rule_id, { enforced });
-        setRules((prev) =>
-          prev.map((r) =>
-            r.rule_id === rule.rule_id ? { ...r, enforced, has_override: true } : r,
-          ),
-        );
         refreshStats();
-        if (selectedRule?.rule_id === rule.rule_id) {
-          setSelectedRule((prev) => prev ? { ...prev, enforced, has_override: true } : prev);
-        }
       } catch {
-        fetchRules();
+        setRules((cur) => cur.map((r) => r.rule_id === rule.rule_id ? { ...r, ...prev } : r));
+        setSelectedRule((cur) => cur?.rule_id === rule.rule_id ? { ...cur, ...prev } : cur);
       } finally {
-        setUpdatingId(null);
+        stopUpdating(rule.rule_id);
       }
     },
-    [fetchRules, refreshStats, selectedRule],
+    [refreshStats, startUpdating, stopUpdating],
   );
 
   return (
@@ -339,7 +352,7 @@ export function RulesPage() {
                         void handleSeverityChange(rule, Number(v));
                       }}
                       aria-label={`Severity for ${rule.rule_id}`}
-                      isDisabled={updatingId === rule.rule_id}
+                      isDisabled={updatingIds.has(rule.rule_id)}
                       style={{ minWidth: 110, maxWidth: 130 }}
                     >
                       {SEVERITY_OPTIONS.map((opt) => (
@@ -352,7 +365,7 @@ export function RulesPage() {
                       id={`rule-enabled-${rule.rule_id}`}
                       aria-label={`Enable ${rule.rule_id}`}
                       isChecked={rule.enabled}
-                      isDisabled={updatingId === rule.rule_id}
+                      isDisabled={updatingIds.has(rule.rule_id)}
                       onChange={(_event, checked) => {
                         void handleEnabledChange(rule, checked);
                       }}
@@ -363,7 +376,7 @@ export function RulesPage() {
                       id={`rule-enforced-${rule.rule_id}`}
                       aria-label={`Enforce ${rule.rule_id}`}
                       isChecked={rule.enforced}
-                      isDisabled={updatingId === rule.rule_id}
+                      isDisabled={updatingIds.has(rule.rule_id)}
                       onChange={(_event, checked) => {
                         void handleEnforcedChange(rule, checked);
                       }}
@@ -448,7 +461,7 @@ export function RulesPage() {
                             void handleSeverityChange(selectedRule, Number(v));
                           }}
                           aria-label={`Override severity for ${selectedRule.rule_id}`}
-                          isDisabled={updatingId === selectedRule.rule_id}
+                          isDisabled={updatingIds.has(selectedRule.rule_id)}
                           style={{ maxWidth: 160 }}
                         >
                           {SEVERITY_OPTIONS.map((opt) => (
@@ -464,7 +477,7 @@ export function RulesPage() {
                           id="detail-rule-enabled"
                           aria-label={`Enable ${selectedRule.rule_id}`}
                           isChecked={selectedRule.enabled}
-                          isDisabled={updatingId === selectedRule.rule_id}
+                          isDisabled={updatingIds.has(selectedRule.rule_id)}
                           onChange={(_event, checked) => {
                             void handleEnabledChange(selectedRule, checked);
                           }}
@@ -478,7 +491,7 @@ export function RulesPage() {
                           id="detail-rule-enforced"
                           aria-label={`Enforce ${selectedRule.rule_id}`}
                           isChecked={selectedRule.enforced}
-                          isDisabled={updatingId === selectedRule.rule_id}
+                          isDisabled={updatingIds.has(selectedRule.rule_id)}
                           onChange={(_event, checked) => {
                             void handleEnforcedChange(selectedRule, checked);
                           }}
