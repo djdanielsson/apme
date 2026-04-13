@@ -147,42 +147,40 @@ export function RulesPage() {
 
   const handleEnabledChange = useCallback(
     async (rule: RuleDetail, enabled: boolean) => {
+      const prev = { enabled: rule.enabled, has_override: rule.has_override };
+      const patch = { enabled, has_override: true };
+      setRules((cur) => cur.map((r) => r.rule_id === rule.rule_id ? { ...r, ...patch } : r));
+      setSelectedRule((cur) => cur?.rule_id === rule.rule_id ? { ...cur, ...patch } : cur);
       setUpdatingId(rule.rule_id);
       try {
         await updateRuleConfig(rule.rule_id, { enabled_override: enabled });
-        setRules((prev) =>
-          prev.map((r) =>
-            r.rule_id === rule.rule_id ? { ...r, enabled, has_override: true } : r,
-          ),
-        );
         refreshStats();
       } catch {
-        fetchRules();
+        setRules((cur) => cur.map((r) => r.rule_id === rule.rule_id ? { ...r, ...prev } : r));
+        setSelectedRule((cur) => cur?.rule_id === rule.rule_id ? { ...cur, ...prev } : cur);
       } finally {
         setUpdatingId(null);
       }
     },
-    [fetchRules, refreshStats],
+    [refreshStats],
   );
 
   const handleSeverityChange = useCallback(
     async (rule: RuleDetail, severityInt: number) => {
       if (severityInt === rule.effective_severity_int) return;
-      const prevInt = rule.effective_severity_int;
-      const prevLabel = rule.effective_severity;
+      const prev = { effective_severity_int: rule.effective_severity_int, effective_severity: rule.effective_severity, has_override: rule.has_override };
       const nextLabel = SEVERITY_INT_TO_API[severityInt] ?? 'medium';
-      const patch = { effective_severity_int: severityInt, effective_severity: nextLabel, has_override: true as const };
-      setRules((prev) => prev.map((r) => r.rule_id === rule.rule_id ? { ...r, ...patch } : r));
-      setSelectedRule((prev) => prev?.rule_id === rule.rule_id ? { ...prev, ...patch } : prev);
+      const patch = { effective_severity_int: severityInt, effective_severity: nextLabel, has_override: true };
+      setRules((cur) => cur.map((r) => r.rule_id === rule.rule_id ? { ...r, ...patch } : r));
+      setSelectedRule((cur) => cur?.rule_id === rule.rule_id ? { ...cur, ...patch } : cur);
       setUpdatingId(rule.rule_id);
       try {
         await updateRuleConfig(rule.rule_id, { severity_override: severityInt });
         fetchRules();
         refreshStats();
       } catch {
-        const revert = { effective_severity_int: prevInt, effective_severity: prevLabel };
-        setRules((prev) => prev.map((r) => r.rule_id === rule.rule_id ? { ...r, ...revert } : r));
-        setSelectedRule((prev) => prev?.rule_id === rule.rule_id ? { ...prev, ...revert } : prev);
+        setRules((cur) => cur.map((r) => r.rule_id === rule.rule_id ? { ...r, ...prev } : r));
+        setSelectedRule((cur) => cur?.rule_id === rule.rule_id ? { ...cur, ...prev } : cur);
       } finally {
         setUpdatingId(null);
       }
@@ -469,9 +467,6 @@ export function RulesPage() {
                           isDisabled={updatingId === selectedRule.rule_id}
                           onChange={(_event, checked) => {
                             void handleEnabledChange(selectedRule, checked);
-                            setSelectedRule((prev) =>
-                              prev ? { ...prev, enabled: checked, has_override: true } : prev
-                            );
                           }}
                         />
                       </DescriptionListDescription>
