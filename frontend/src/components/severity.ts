@@ -31,6 +31,21 @@ export const SEVERITY_LABELS: Record<string, string> = {
   info: 'Info',
 };
 
+// Proto SEVERITY_UNSPECIFIED (0) is a sentinel, not a user-selectable level;
+// normalize it to 'info' so display and dropdown logic always have a valid slug.
+export const SEVERITY_INT_TO_API: Record<number, string> = {
+  0: 'info', 1: 'info', 2: 'low', 3: 'medium', 4: 'high', 5: 'error', 6: 'critical',
+};
+
+export const SEVERITY_INT_OPTIONS: { value: number; label: string }[] = [
+  { value: 6, label: 'Critical' },
+  { value: 5, label: 'Error' },
+  { value: 4, label: 'High' },
+  { value: 3, label: 'Medium' },
+  { value: 2, label: 'Low' },
+  { value: 1, label: 'Info' },
+];
+
 const SEVERITY_RANK: Record<string, number> = {
   critical: 0, error: 1, high: 2, medium: 3, low: 4, info: 5,
 };

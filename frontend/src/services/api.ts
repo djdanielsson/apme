@@ -323,6 +323,8 @@ function mapRuleApiToDetail(r: RuleApiRow): RuleDetail {
     rule_id: r.rule_id,
     default_severity: r.default_severity_label,
     effective_severity: r.resolved_severity_label,
+    default_severity_int: r.default_severity || 1,
+    effective_severity_int: r.resolved_severity || 1,
     category: r.category,
     source: r.source,
     description: r.description,
