@@ -258,7 +258,9 @@ Violations on non-task nodes (e.g., play-level scope) are marked `MANUAL` for hu
 
 ### Prompt Contract
 
-The LLM receives the node's YAML and violations via `AINodeContext`. It returns an `AINodeFix`:
+The LLM receives the node's YAML and violations via `AINodeContext`. The prompt includes a **Rule-Specific Guidance** section built from optional `ai_prompt` frontmatter in rule doc `.md` files. This allows per-rule customization of how the AI handles specific violations (e.g., instructing it to add `# noqa` for false-positive-prone rules rather than modifying code). Hints are loaded lazily on first prompt build via `_load_ai_prompts()` and cached with `lru_cache` for subsequent calls. Rules without `ai_prompt` frontmatter use the default best-practices guidance.
+
+The LLM returns an `AINodeFix`:
 
 ```json
 {

@@ -3,6 +3,13 @@ rule_id: R104
 validator: native
 description: Download from unauthorized source (annotation-based).
 scope: task
+ai_prompt: |
+  This rule flags downloads from non-HTTPS URLs. If the URL targets
+  localhost, a private network, or an internal mirror that does not support
+  TLS, add "# noqa: R104" — but DO NOT modify the URL itself. Your
+  explanation MUST justify why plain HTTP is acceptable, e.g. "URL targets
+  localhost" or "internal mirror without TLS support." Otherwise, change
+  the URL scheme from http:// to https://.
 ---
 
 ## Unauthorized download (R104)

@@ -7,9 +7,11 @@ Install with: pip install apme-engine[ai]
 from __future__ import annotations
 
 import contextlib
+import functools
 import json
 import logging
 import os
+import re
 from importlib.resources import files as pkg_files
 from pathlib import Path
 
@@ -53,6 +55,8 @@ YAML task/block while following Ansible best practices.
 
 {violation_list}
 
+{rule_guidance_section}
+
 ## YAML to fix
 ```yaml
 {yaml_lines}
@@ -92,10 +96,16 @@ Respond with ONLY this JSON (no markdown fences, no explanation outside JSON):
 }}
 
 Rules:
-- CRITICAL: Fix ONLY the violations listed above. Do NOT make any other changes,
-  improvements, or best-practice adjustments beyond what is required to resolve the
-  listed violations. If a line is not related to a listed violation, preserve it
-  exactly as-is — same quoting, same structure, same values.
+- CRITICAL: Fix ONLY the violations listed above. Every change you make MUST be
+  directly traceable to a specific listed violation. Do not make cosmetic, stylistic,
+  defensive, or "just in case" changes. If a line is not related to a listed
+  violation, preserve it exactly as-is — same quoting, same structure, same values.
+- Do NOT add new YAML keys, variables, blocks, or structural elements that were not
+  in the original snippet. Do NOT add default() filters, vars blocks, or register
+  variables unless a listed violation specifically requires it.
+- Adding "# noqa: <RULE_ID>" is a valid way to address a violation when the flagged
+  behavior is intentional and justified. When using noqa, your explanation MUST state
+  why the suppression is safe. Do not combine noqa with code changes for the same rule.
 - If none of the listed violations can be fixed, return the original snippet unchanged
   in fixed_snippet and put all violations in "skipped".
 - fixed_snippet must contain the COMPLETE corrected YAML, not a partial diff
@@ -118,6 +128,8 @@ expected and legitimate in this context).
 
 Rule: [{rule_id}] {message}
 File: {file_path}
+
+{rule_guidance_section}
 
 ## YAML Under Review
 ```yaml
@@ -163,6 +175,13 @@ def _build_validation_prompt(context: AINodeContext) -> str:
     rule_id = str(v.get("rule_id", ""))
     message = str(v.get("message", ""))
 
+    ai_prompts = _load_ai_prompts()
+    bare_id = rule_id.split(":")[-1] if ":" in rule_id else rule_id
+    hint = ai_prompts.get(bare_id)
+    rule_guidance = ""
+    if hint:
+        rule_guidance = f"## Rule-Specific Guidance\n\n**[{bare_id}]**: {hint}"
+
     parent_section = ""
     if context.parent_context:
         parent_section = f"## Inherited Context (from parent play/block)\n{context.parent_context}"
@@ -179,6 +198,7 @@ def _build_validation_prompt(context: AINodeContext) -> str:
         yaml_lines=context.yaml_lines,
         parent_context_section=parent_section,
         sibling_context_section=sibling_section,
+        rule_guidance_section=rule_guidance,
     )
 
 
@@ -249,6 +269,22 @@ def _build_node_prompt(context: AINodeContext) -> str:
     rule_ids = [str(v.get("rule_id", "")) for v in context.violations]
     best_practices = _get_best_practices_for_rules(rule_ids)
 
+    ai_prompts = _load_ai_prompts()
+    guidance_entries: list[str] = []
+    seen_rules: set[str] = set()
+    for v in context.violations:
+        rid = str(v.get("rule_id", ""))
+        bare = rid.split(":")[-1] if ":" in rid else rid
+        if bare and bare not in seen_rules:
+            hint = ai_prompts.get(bare)
+            if hint:
+                guidance_entries.append(f"**[{bare}]**: {hint}")
+                seen_rules.add(bare)
+
+    rule_guidance = ""
+    if guidance_entries:
+        rule_guidance = "## Rule-Specific Guidance\n\n" + "\n\n".join(guidance_entries)
+
     parent_section = ""
     if context.parent_context:
         parent_section = f"## Inherited Context (from parent play/block)\n{context.parent_context}"
@@ -271,6 +307,7 @@ def _build_node_prompt(context: AINodeContext) -> str:
         sibling_context_section=sibling_section,
         best_practices=best_practices,
         feedback_section=feedback_section,
+        rule_guidance_section=rule_guidance,
     )
 
 
@@ -385,6 +422,53 @@ def _load_best_practices() -> dict[str, list[str]]:
     loaded.pop("_meta", None)
     _BEST_PRACTICES = loaded
     return _BEST_PRACTICES
+
+
+_FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---", re.DOTALL)
+
+_VALIDATORS_ROOT = Path(__file__).resolve().parent.parent / "validators"
+_RULE_DOC_DIRS = [
+    _VALIDATORS_ROOT / "native" / "rules",
+    _VALIDATORS_ROOT / "opa" / "bundle",
+    _VALIDATORS_ROOT / "ansible" / "rules",
+]
+
+
+@functools.lru_cache(maxsize=1)
+def _load_ai_prompts() -> dict[str, str]:
+    """Load ``ai_prompt`` hints from rule doc frontmatter across all validators.
+
+    Walks native/rules, opa/bundle, and ansible/rules directories, parsing
+    YAML frontmatter with ``yaml.safe_load`` to support multiline values.
+    The result is cached for the process lifetime (consistent with
+    ``_load_best_practices``).
+
+    Returns:
+        Mapping of rule_id to ai_prompt text.
+    """
+    prompts: dict[str, str] = {}
+    for rule_dir in _RULE_DOC_DIRS:
+        if not rule_dir.is_dir():
+            continue
+        for md_path in rule_dir.glob("*.md"):
+            text = md_path.read_text(encoding="utf-8")
+            m = _FRONTMATTER_RE.match(text)
+            if not m:
+                continue
+            try:
+                fm = yaml.safe_load(m.group(1))
+            except yaml.YAMLError:
+                logger.warning("Failed to parse YAML frontmatter in %s", md_path)
+                continue
+            if not isinstance(fm, dict):
+                continue
+            rule_id = fm.get("rule_id", "")
+            ai_prompt = fm.get("ai_prompt", "")
+            if rule_id and ai_prompt:
+                prompts[str(rule_id)] = str(ai_prompt).strip()
+
+    logger.debug("Loaded ai_prompt hints for %d rules", len(prompts))
+    return prompts
 
 
 def _get_best_practices_for_rules(rule_ids: list[str]) -> str:

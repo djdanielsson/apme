@@ -6,6 +6,11 @@ category: lint
 validator: native
 tags: []
 since: 1.0.0
+# ai_prompt: |
+#   Optional per-rule guidance injected into the AI remediation prompt.
+#   Use this to tell the AI how to handle this specific rule — e.g.,
+#   when to add "# noqa" instead of fixing the code, or domain-specific
+#   context about when the flagged pattern is legitimate.
 ---
 
 # LXXX: Short Descriptive Title

@@ -3,6 +3,15 @@ rule_id: R105
 validator: native
 description: Outbound transfer (annotation-based).
 scope: task
+ai_prompt: |
+  This rule flags outbound data transfers to parameterized URLs. Evaluate
+  whether the destination is a well-known, trusted endpoint (e.g., an
+  internal API, a monitoring webhook). If the transfer is intentional and
+  the destination is trusted, add "# noqa: R105" — but DO NOT modify the
+  task itself. Your explanation MUST justify why the destination is safe,
+  e.g. "sends to internal monitoring API" or "webhook URL is defined in
+  group_vars." If the destination variable could be attacker-controlled,
+  flag it for the user.
 ---
 
 ## Outbound transfer (R105)

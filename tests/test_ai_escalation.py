@@ -8,11 +8,15 @@ from pathlib import Path
 from unittest.mock import patch
 
 from apme_engine.remediation.abbenay_provider import (
+    _build_node_prompt,
+    _build_validation_prompt,
     _extract_json_object,
     _get_best_practices_for_rules,
+    _load_ai_prompts,
     _load_best_practices,
     discover_abbenay,
 )
+from apme_engine.remediation.ai_context import AINodeContext
 from apme_engine.remediation.ai_provider import (
     AISkipped,
 )
@@ -233,3 +237,157 @@ class TestBestPractices:
         """Returns combined practices for multiple rule categories."""
         result = _get_best_practices_for_rules(["M001", "L011"])
         assert "FQCN" in result
+
+
+# ---------------------------------------------------------------------------
+# Per-rule AI prompt hint tests
+# ---------------------------------------------------------------------------
+
+
+class TestLoadAiPrompts:
+    """Tests for _load_ai_prompts() frontmatter parsing and prompt injection."""
+
+    def test_loads_from_real_rule_docs(self) -> None:
+        """Loads ai_prompt hints from seeded rule docs."""
+        _load_ai_prompts.cache_clear()
+        prompts = _load_ai_prompts()
+        assert "R108" in prompts
+        assert "privilege" in prompts["R108"].lower()
+        assert "R101" in prompts
+        assert "M006" in prompts
+        _load_ai_prompts.cache_clear()
+
+    def test_loads_from_temp_dir(self, tmp_path: Path) -> None:
+        """Parses ai_prompt from a synthetic rule doc in a temp directory.
+
+        Args:
+            tmp_path: Pytest temporary directory fixture.
+        """
+        rule_md = tmp_path / "T999_test.md"
+        rule_md.write_text(
+            "---\nrule_id: T999\nai_prompt: |\n  Test hint for T999.\n---\n# T999\n",
+            encoding="utf-8",
+        )
+        _load_ai_prompts.cache_clear()
+        with patch(
+            "apme_engine.remediation.abbenay_provider._RULE_DOC_DIRS",
+            [tmp_path],
+        ):
+            prompts = _load_ai_prompts()
+        assert prompts == {"T999": "Test hint for T999."}
+        _load_ai_prompts.cache_clear()
+
+    def test_skips_missing_ai_prompt(self, tmp_path: Path) -> None:
+        """Rules without ai_prompt are not included in the map.
+
+        Args:
+            tmp_path: Pytest temporary directory fixture.
+        """
+        rule_md = tmp_path / "L999.md"
+        rule_md.write_text(
+            "---\nrule_id: L999\ndescription: no hint\n---\n",
+            encoding="utf-8",
+        )
+        _load_ai_prompts.cache_clear()
+        with patch(
+            "apme_engine.remediation.abbenay_provider._RULE_DOC_DIRS",
+            [tmp_path],
+        ):
+            prompts = _load_ai_prompts()
+        assert "L999" not in prompts
+        _load_ai_prompts.cache_clear()
+
+    def test_bad_yaml_logged_and_skipped(self, tmp_path: Path) -> None:
+        """Malformed frontmatter is warned and skipped.
+
+        Args:
+            tmp_path: Pytest temporary directory fixture.
+        """
+        rule_md = tmp_path / "BAD.md"
+        rule_md.write_text("---\n: : :\n---\n", encoding="utf-8")
+        _load_ai_prompts.cache_clear()
+        with patch(
+            "apme_engine.remediation.abbenay_provider._RULE_DOC_DIRS",
+            [tmp_path],
+        ):
+            prompts = _load_ai_prompts()
+        assert prompts == {}
+        _load_ai_prompts.cache_clear()
+
+    def test_node_prompt_includes_guidance(self, tmp_path: Path) -> None:
+        """Rule guidance section appears in the node prompt when ai_prompt exists.
+
+        Args:
+            tmp_path: Pytest temporary directory fixture.
+        """
+        rule_md = tmp_path / "R999.md"
+        rule_md.write_text(
+            "---\nrule_id: R999\nai_prompt: |\n  Custom guidance.\n---\n",
+            encoding="utf-8",
+        )
+        _load_ai_prompts.cache_clear()
+        with patch(
+            "apme_engine.remediation.abbenay_provider._RULE_DOC_DIRS",
+            [tmp_path],
+        ):
+            ctx = AINodeContext(
+                node_id="task-1",
+                node_type="task",
+                file_path="test.yml",
+                yaml_lines="- name: test\n  ansible.builtin.debug:\n    msg: hi",
+                violations=[{"rule_id": "R999", "message": "test violation"}],
+            )
+            prompt = _build_node_prompt(ctx)
+        assert "Rule-Specific Guidance" in prompt
+        assert "Custom guidance." in prompt
+        _load_ai_prompts.cache_clear()
+
+    def test_validation_prompt_includes_guidance(self, tmp_path: Path) -> None:
+        """Rule guidance section appears in the validation prompt.
+
+        Args:
+            tmp_path: Pytest temporary directory fixture.
+        """
+        rule_md = tmp_path / "R888.md"
+        rule_md.write_text(
+            "---\nrule_id: R888\nai_prompt: |\n  Validate carefully.\n---\n",
+            encoding="utf-8",
+        )
+        _load_ai_prompts.cache_clear()
+        with patch(
+            "apme_engine.remediation.abbenay_provider._RULE_DOC_DIRS",
+            [tmp_path],
+        ):
+            ctx = AINodeContext(
+                node_id="task-2",
+                node_type="task",
+                file_path="test.yml",
+                yaml_lines="- name: test\n  ansible.builtin.command: whoami",
+                violations=[{"rule_id": "R888", "message": "test finding"}],
+            )
+            prompt = _build_validation_prompt(ctx)
+        assert "Rule-Specific Guidance" in prompt
+        assert "Validate carefully." in prompt
+        _load_ai_prompts.cache_clear()
+
+    def test_no_guidance_when_no_hints(self, tmp_path: Path) -> None:
+        """No guidance section when no rules have ai_prompt.
+
+        Args:
+            tmp_path: Pytest temporary directory fixture.
+        """
+        _load_ai_prompts.cache_clear()
+        with patch(
+            "apme_engine.remediation.abbenay_provider._RULE_DOC_DIRS",
+            [tmp_path],
+        ):
+            ctx = AINodeContext(
+                node_id="task-3",
+                node_type="task",
+                file_path="test.yml",
+                yaml_lines="- name: test\n  ansible.builtin.debug:\n    msg: hi",
+                violations=[{"rule_id": "ZZZZ", "message": "unknown rule"}],
+            )
+            prompt = _build_node_prompt(ctx)
+        assert "Rule-Specific Guidance" not in prompt
+        _load_ai_prompts.cache_clear()
