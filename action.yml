@@ -116,16 +116,21 @@ runs:
           [ -s apme-stderr.log ] && cat apme-stderr.log >&2
 
           if [ "$needs_sarif" = "true" ] && [ -s apme-results.json ]; then
-            python3 -c "
+            if python3 -c "
 import json
 from apme_engine.cli.sarif import violations_to_sarif
 from apme_engine.engine._version import __version__
 data = json.load(open('apme-results.json'))
 sarif = violations_to_sarif(data.get('violations', []), tool_version=__version__)
 print(json.dumps(sarif))
-" > apme.sarif
-            if [ -s apme.sarif ]; then
-              echo "sarif-path=apme.sarif" >> "$GITHUB_OUTPUT"
+" > apme.sarif 2>apme-sarif-stderr.log; then
+              if [ -s apme.sarif ]; then
+                echo "sarif-path=apme.sarif" >> "$GITHUB_OUTPUT"
+              fi
+            else
+              echo "Warning: failed to derive SARIF from apme-results.json; continuing without SARIF." >&2
+              [ -s apme-sarif-stderr.log ] && cat apme-sarif-stderr.log >&2
+              rm -f apme.sarif
             fi
           fi
         elif [ "$needs_sarif" = "true" ]; then
@@ -172,7 +177,7 @@ print(json.dumps(sarif))
         retention-days: 30
 
     - name: Post PR summary comment
-      if: inputs.comment == 'true' && github.event_name == 'pull_request' && hashFiles('apme-results.json') != ''
+      if: inputs.comment == 'true' && github.event_name == 'pull_request' && hashFiles('apme-results.json') != '' && steps.scan.outputs.exit-code != '2'
       uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7
       with:
         script: |

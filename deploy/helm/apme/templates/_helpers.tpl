@@ -60,8 +60,9 @@ Service account name.
 {{- end }}
 
 {{/*
-Image reference helper.
+Image reference helper. Falls back to .fallbackTag when .tag is empty.
 */}}
 {{- define "apme.image" -}}
-{{- printf "%s/apme-%s:%s" .registry .name .tag }}
+{{- $tag := default .fallbackTag .tag }}
+{{- printf "%s/apme-%s:%s" .registry .name $tag }}
 {{- end }}

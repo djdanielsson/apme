@@ -33,7 +33,7 @@ spec:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
         - name: gateway
-          image: {{ include "apme.image" (dict "registry" .Values.image.registry "name" "gateway" "tag" .Values.image.tag) }}
+          image: {{ include "apme.image" (dict "registry" .Values.image.registry "name" "gateway" "tag" .Values.image.tag "fallbackTag" .Chart.AppVersion) }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}

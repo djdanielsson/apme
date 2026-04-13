@@ -5,7 +5,7 @@
 
 image:
   registry: ghcr.io/ansible
-  tag: latest
+  tag: ""
   pullPolicy: IfNotPresent
 
 imagePullSecrets: []

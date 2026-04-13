@@ -28,6 +28,7 @@ spec:
       containers:
         - name: abbenay
           image: {{ .Values.abbenay.image }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           args: ["daemon", "--grpc-host", "0.0.0.0", "--grpc-port", "50057"]

@@ -31,7 +31,7 @@ spec:
       containers:
         # -- Primary orchestrator
         - name: primary
-          image: {{ include "apme.image" (dict "registry" .Values.image.registry "name" "primary" "tag" .Values.image.tag) }}
+          image: {{ include "apme.image" (dict "registry" .Values.image.registry "name" "primary" "tag" .Values.image.tag "fallbackTag" .Chart.AppVersion) }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
@@ -85,7 +85,7 @@ spec:
 
         # -- Native validator
         - name: native
-          image: {{ include "apme.image" (dict "registry" .Values.image.registry "name" "native" "tag" .Values.image.tag) }}
+          image: {{ include "apme.image" (dict "registry" .Values.image.registry "name" "native" "tag" .Values.image.tag "fallbackTag" .Chart.AppVersion) }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
@@ -97,7 +97,7 @@ spec:
 
         # -- OPA validator
         - name: opa
-          image: {{ include "apme.image" (dict "registry" .Values.image.registry "name" "opa" "tag" .Values.image.tag) }}
+          image: {{ include "apme.image" (dict "registry" .Values.image.registry "name" "opa" "tag" .Values.image.tag "fallbackTag" .Chart.AppVersion) }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
@@ -109,7 +109,7 @@ spec:
 
         # -- Ansible validator
         - name: ansible
-          image: {{ include "apme.image" (dict "registry" .Values.image.registry "name" "ansible" "tag" .Values.image.tag) }}
+          image: {{ include "apme.image" (dict "registry" .Values.image.registry "name" "ansible" "tag" .Values.image.tag "fallbackTag" .Chart.AppVersion) }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
@@ -128,7 +128,7 @@ spec:
         {{- if .Values.gitleaks.enabled }}
         # -- Gitleaks validator (optional)
         - name: gitleaks
-          image: {{ include "apme.image" (dict "registry" .Values.image.registry "name" "gitleaks" "tag" .Values.image.tag) }}
+          image: {{ include "apme.image" (dict "registry" .Values.image.registry "name" "gitleaks" "tag" .Values.image.tag "fallbackTag" .Chart.AppVersion) }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
@@ -142,7 +142,7 @@ spec:
         {{- if .Values.collectionHealth.enabled }}
         # -- Collection Health validator
         - name: collection-health
-          image: {{ include "apme.image" (dict "registry" .Values.image.registry "name" "collection-health" "tag" .Values.image.tag) }}
+          image: {{ include "apme.image" (dict "registry" .Values.image.registry "name" "collection-health" "tag" .Values.image.tag "fallbackTag" .Chart.AppVersion) }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
@@ -160,7 +160,7 @@ spec:
         {{- if .Values.depAudit.enabled }}
         # -- Dependency Audit validator
         - name: dep-audit
-          image: {{ include "apme.image" (dict "registry" .Values.image.registry "name" "dep-audit" "tag" .Values.image.tag) }}
+          image: {{ include "apme.image" (dict "registry" .Values.image.registry "name" "dep-audit" "tag" .Values.image.tag "fallbackTag" .Chart.AppVersion) }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
@@ -177,7 +177,7 @@ spec:
 
         # -- Galaxy Proxy (PEP 503)
         - name: galaxy-proxy
-          image: {{ include "apme.image" (dict "registry" .Values.image.registry "name" "galaxy-proxy" "tag" .Values.image.tag) }}
+          image: {{ include "apme.image" (dict "registry" .Values.image.registry "name" "galaxy-proxy" "tag" .Values.image.tag "fallbackTag" .Chart.AppVersion) }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
