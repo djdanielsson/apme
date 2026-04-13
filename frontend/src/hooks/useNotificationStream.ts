@@ -129,11 +129,6 @@ export function useNotificationStream(): void {
         const resp = await listNotifications(100, 0);
         if (!mountedRef.current) return;
 
-        // Switch to live mode before draining the buffer so any events
-        // arriving from this point forward go through handleSseItem
-        // instead of accumulating in the buffer.
-        restLoaded = true;
-
         const restIds = new Set(resp.items.map((n) => n.id));
         const merged = [...resp.items];
         const pending = buffer.splice(0);
@@ -143,7 +138,25 @@ export function useNotificationStream(): void {
           }
         }
 
-        setNotificationGroups(() => buildGroups(merged));
+        // Set the initial groups first, then flip restLoaded so any SSE
+        // event arriving after this point merges into an already-populated
+        // store instead of racing with the replace.
+        setNotificationGroups((prev) => {
+          const base = buildGroups(merged);
+          for (const [key, group] of Object.entries(prev)) {
+            if (!base[key]) {
+              base[key] = group;
+            } else {
+              for (const n of group.notifications) {
+                if (!base[key].notifications.some((existing) => existing.id === n.id)) {
+                  base[key].notifications.unshift(n);
+                }
+              }
+            }
+          }
+          return base;
+        });
+        restLoaded = true;
 
         for (const buffered of pending) {
           if (!restIds.has(buffered.id)) {
@@ -160,12 +173,17 @@ export function useNotificationStream(): void {
           }
         }
       } catch {
-        restLoaded = true;
         if (!mountedRef.current) return;
 
         const pending = buffer.splice(0);
         if (pending.length > 0) {
-          setNotificationGroups(() => buildGroups(pending));
+          setNotificationGroups((prev) => {
+            let next = { ...prev };
+            for (const item of pending) {
+              next = mergeNotification(next, item);
+            }
+            return next;
+          });
           for (const buffered of pending) {
             const timeout = NO_DISMISS_TYPES.has(buffered.type) ? undefined : 8000;
             alertToaster.addAlert({
@@ -179,6 +197,7 @@ export function useNotificationStream(): void {
             markNotificationRead(buffered.id).catch(() => {});
           }
         }
+        restLoaded = true;
       }
     };
 
