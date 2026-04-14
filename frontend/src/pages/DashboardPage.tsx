@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PageLayout } from '@ansible/ansible-ui-framework';
 import {
@@ -8,9 +8,11 @@ import {
   CardHeader,
   Flex,
   Label,
+  Spinner,
   Title,
 } from '@patternfly/react-core';
-import { getDashboardSummary, getDashboardRankings } from '../services/api';
+import { getDashboardSummary, getDashboardRankings, getActiveOperations } from '../services/api';
+import type { ActiveOperation } from '../services/api';
 import type { DashboardSummary, ProjectRanking } from '../types/api';
 import { timeAgo } from '../services/format';
 import { healthLabelColor } from '../components/severity';
@@ -40,6 +42,15 @@ function HealthBadge({ score }: { score: number }) {
   return <Label color={healthLabelColor(score)} isCompact>{score}</Label>;
 }
 
+const STATUS_LABELS: Record<string, { label: string; color: 'blue' | 'orange' | 'green' | 'red' | 'grey' }> = {
+  queued: { label: 'Queued', color: 'grey' },
+  cloning: { label: 'Cloning', color: 'blue' },
+  scanning: { label: 'Scanning', color: 'blue' },
+  awaiting_approval: { label: 'Action Required', color: 'orange' },
+  applying: { label: 'Applying', color: 'blue' },
+  submitting_pr: { label: 'Creating PR', color: 'blue' },
+};
+
 export function DashboardPage() {
   const navigate = useNavigate();
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
@@ -47,7 +58,13 @@ export function DashboardPage() {
   const [dirtiest, setDirtiest] = useState<ProjectRanking[]>([]);
   const [stale, setStale] = useState<ProjectRanking[]>([]);
   const [mostScanned, setMostScanned] = useState<ProjectRanking[]>([]);
+  const [activeOps, setActiveOps] = useState<ActiveOperation[]>([]);
   const [loading, setLoading] = useState(true);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const fetchActiveOps = useCallback(() => {
+    getActiveOperations().then(setActiveOps).catch(() => {});
+  }, []);
 
   useEffect(() => {
     Promise.all([
@@ -56,17 +73,24 @@ export function DashboardPage() {
       getDashboardRankings('health_score', 'asc', 10),
       getDashboardRankings('last_scanned_at', 'desc', 10),
       getDashboardRankings('scan_count', 'desc', 10),
+      getActiveOperations(),
     ])
-      .then(([sum, clean, dirty, staleProjects, scanned]) => {
+      .then(([sum, clean, dirty, staleProjects, scanned, ops]) => {
         setSummary(sum);
         setCleanest(clean);
         setDirtiest(dirty);
         setStale(staleProjects);
         setMostScanned(scanned);
+        setActiveOps(ops);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+
+    pollRef.current = setInterval(fetchActiveOps, 5000);
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, [fetchActiveOps]);
 
   return (
     <PageLayout>
@@ -83,6 +107,12 @@ export function DashboardPage() {
           <MetricCard title="Total Violations" count={summary?.total_violations ?? 0} />
           <MetricCard title="Total Remediated" count={summary?.total_fixed ?? 0} color="var(--apme-green)" />
         </div>
+
+        {activeOps.length > 0 && (
+          <div style={{ padding: '16px 16px 0 24px' }}>
+            <InProgressCard operations={activeOps} navigate={navigate} />
+          </div>
+        )}
 
         <div className="apme-dashboard-rankings">
           <RankingCard title="Top 10 Cleanest" loading={loading} rankings={cleanest} navigate={navigate} />
@@ -157,6 +187,67 @@ function RankingCard({
             </tbody>
           </table>
         )}
+      </CardBody>
+    </Card>
+  );
+}
+
+function InProgressCard({
+  operations,
+  navigate,
+}: {
+  operations: ActiveOperation[];
+  navigate: ReturnType<typeof useNavigate>;
+}) {
+  return (
+    <Card style={{ borderLeft: '4px solid var(--pf-t--global--color--status--info--default)' }}>
+      <CardHeader>
+        <Flex alignItems={{ default: 'alignItemsCenter' }} gap={{ default: 'gapSm' }}>
+          <Spinner size="md" />
+          <Title headingLevel="h3" size="lg">
+            In Progress ({operations.length})
+          </Title>
+        </Flex>
+      </CardHeader>
+      <CardBody style={{ paddingInline: 0 }}>
+        <table className="pf-v6-c-table pf-m-compact pf-m-grid-md" role="grid" style={{ tableLayout: 'auto' }}>
+          <thead>
+            <tr role="row">
+              <th role="columnheader" style={{ paddingLeft: 24 }}>Project</th>
+              <th role="columnheader">Type</th>
+              <th role="columnheader">Status</th>
+              <th role="columnheader" style={{ paddingRight: 24 }}>Started</th>
+            </tr>
+          </thead>
+          <tbody>
+            {operations.map((op) => {
+              const info = STATUS_LABELS[op.status] ?? { label: op.status, color: 'grey' as const };
+              return (
+                <tr
+                  key={op.operation_id}
+                  role="row"
+                  tabIndex={0}
+                  onClick={() => navigate(`/projects/${op.project_id}`)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') navigate(`/projects/${op.project_id}`); }}
+                  style={{ cursor: 'pointer' }}
+                >
+                  <td role="cell" style={{ fontWeight: 600, paddingLeft: 24 }}>
+                    {op.project_name || op.project_id.slice(0, 12)}
+                  </td>
+                  <td role="cell">
+                    <Label isCompact>{op.scan_type === 'remediate' ? 'Remediate' : 'Check'}</Label>
+                  </td>
+                  <td role="cell">
+                    <Label color={info.color} isCompact>{info.label}</Label>
+                  </td>
+                  <td role="cell" style={{ opacity: 0.7, paddingRight: 24 }}>
+                    {timeAgo(op.started_at)}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </CardBody>
     </Card>
   );

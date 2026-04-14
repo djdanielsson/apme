@@ -1,16 +1,15 @@
-"""REST and WebSocket API endpoints for the gateway (ADR-029, ADR-037).
+"""REST and WebSocket API endpoints for the gateway (ADR-029, ADR-037, ADR-052).
 
 Read endpoints serve persisted check/remediate activity.  Write operations happen via the
 gRPC Reporting servicer (engine push model, ADR-020).  The ``WS /ws/session``
 endpoint bridges the browser to Primary's FixSession gRPC stream for the
-playground check + remediate lifecycle (ADR-029).  Project operations use the new
-``WS /projects/{id}/ws/operate`` endpoint (ADR-037).
+playground check + remediate lifecycle (ADR-029).  Project operations use the
+REST + SSE endpoints in ``operation_router.py`` (ADR-052).
 """
 
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 import os
 import uuid
@@ -20,10 +19,10 @@ from typing import cast
 from fastapi import APIRouter, HTTPException, Query, WebSocket
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
-from starlette.websockets import WebSocketDisconnect  # type: ignore[import-not-found]
 
 from apme_engine.severity_defaults import severity_from_proto, severity_to_label
 from apme_gateway.api.schemas import (
+    ActiveOperationSummary,
     ActivityDetail,
     ActivitySummary,
     AiAcceptanceEntry,
@@ -463,6 +462,11 @@ async def list_projects(
     Returns:
         Paginated list of project summaries.
     """
+    from apme_gateway.operation_registry import get_operation_registry
+    from apme_gateway.operation_types import TERMINAL_STATUSES
+
+    registry = get_operation_registry()
+
     async with get_session() as db:
         projects = await q.list_projects(
             db,
@@ -479,6 +483,17 @@ async def list_projects(
             last_scan_at = trend_scans[-1].created_at if trend_scans else None
             vt = _compute_violation_trend(trend_scans)
             violation_count = await q.project_violation_count(db, proj.id)
+
+            active_op_summary = None
+            op = registry.get_by_project(proj.id)
+            if op is not None and op.status not in TERMINAL_STATUSES:
+                active_op_summary = ActiveOperationSummary(
+                    operation_id=op.operation_id,
+                    status=op.status.value,
+                    scan_type=op.scan_type,
+                    started_at=op.started_at.isoformat(),
+                )
+
             items.append(
                 ProjectSummary(
                     id=proj.id,
@@ -494,6 +509,7 @@ async def list_projects(
                     scm_provider=proj.scm_provider,
                     has_scm_token=bool(proj.scm_token),
                     last_scanned_commit=proj.last_scanned_commit,
+                    active_operation=active_op_summary,
                 )
             )
     return PaginatedResponse(total=total, limit=limit, offset=offset, items=items)
@@ -556,6 +572,22 @@ async def get_project_detail(project_id: str) -> ProjectDetail:
         if remote_sha and remote_sha != proj.last_scanned_commit:
             has_new = True
 
+    active_op_summary = None
+    try:
+        from apme_gateway.operation_registry import get_operation_registry
+        from apme_gateway.operation_types import TERMINAL_STATUSES
+
+        op = get_operation_registry().get_by_project(proj.id)
+        if op is not None and op.status not in TERMINAL_STATUSES:
+            active_op_summary = ActiveOperationSummary(
+                operation_id=op.operation_id,
+                status=op.status.value,
+                scan_type=op.scan_type,
+                started_at=op.started_at.isoformat(),
+            )
+    except (ImportError, AttributeError, KeyError):
+        logger.debug("Could not resolve active operation for project %s", project_id, exc_info=True)
+
     return ProjectDetail(
         id=proj.id,
         name=proj.name,
@@ -573,6 +605,7 @@ async def get_project_detail(project_id: str) -> ProjectDetail:
         has_new_commits=has_new,
         latest_scan=latest_summary,
         severity_breakdown=severity,
+        active_operation=active_op_summary,
     )
 
 
@@ -1139,6 +1172,48 @@ async def project_dep_health_summary(project_id: str) -> DepHealthSummary:
             for r in cve_rows
         ],
     )
+
+
+# ── Active operations (ADR-052) ──────────────────────────────────────
+
+
+@router.get("/operations/active")  # type: ignore[untyped-decorator]
+async def list_active_operations() -> list[dict[str, object]]:
+    """Return all currently active (non-terminal) operations.
+
+    Returns:
+        List of active operation summaries with project metadata.
+    """
+    from apme_gateway.operation_registry import get_operation_registry
+
+    registry = get_operation_registry()
+    ops = registry.list_active()
+    if not ops:
+        return []
+
+    project_ids = [op.project_id for op in ops]
+    name_map: dict[str, str] = {}
+    try:
+        async with get_session() as db:
+            for pid in project_ids:
+                proj = await q.get_project(db, pid)
+                if proj:
+                    name_map[pid] = proj.name
+    except (ImportError, AttributeError, KeyError):
+        logger.debug("Could not resolve project names for active operations", exc_info=True)
+
+    return [
+        {
+            "operation_id": op.operation_id,
+            "project_id": op.project_id,
+            "project_name": name_map.get(op.project_id, ""),
+            "scan_id": op.scan_id,
+            "status": op.status.value,
+            "scan_type": op.scan_type,
+            "started_at": op.started_at.isoformat(),
+        }
+        for op in ops
+    ]
 
 
 # ── Dashboard (ADR-037) ─────────────────────────────────────────────
@@ -1980,278 +2055,7 @@ async def delete_rule_config(rule_id: str) -> None:
         raise HTTPException(status_code=404, detail="No override configured for this rule")
 
 
-# ── Project WebSocket (ADR-037) ──────────────────────────────────────
-
-
-@router.websocket("/projects/{project_id}/ws/operate")  # type: ignore[untyped-decorator]
-async def project_operate_ws(
-    websocket: WebSocket,
-    project_id: str,
-) -> None:
-    """Bidirectional WebSocket for project check/remediate operations (ADR-037, ADR-039).
-
-    The client sends ``{"action": "check"|"remediate", "options": {...}}`` (or
-    ``{"remediate": true}``) to start an operation.  The gateway clones the repo,
-    drives Primary ``FixSession`` via gRPC, and streams progress back over the WebSocket.
-
-    Args:
-        websocket: Incoming WebSocket connection.
-        project_id: Target project UUID.
-    """
-    from apme_gateway._galaxy_inject import load_galaxy_server_defs
-    from apme_gateway.config import load_config
-    from apme_gateway.scan.driver import fetch_remote_head, run_project_operation
-
-    await websocket.accept()
-
-    try:
-        msg = await websocket.receive_json()
-        is_remediate = bool(msg.get("remediate", False)) or msg.get("action") == "remediate"
-        options: dict[str, object] = msg.get("options", {})
-
-        async with get_session() as db:
-            proj = await q.resolve_project(db, project_id)
-        if not proj:
-            await websocket.send_json({"type": "error", "message": "Project not found"})
-            return
-
-        remote_sha = await fetch_remote_head(proj.repo_url, proj.branch)
-        if remote_sha and proj.last_scanned_commit and remote_sha != proj.last_scanned_commit:
-            await websocket.send_json(
-                {
-                    "type": "new_commits",
-                    "remote_head": remote_sha[:12],
-                    "last_scanned": proj.last_scanned_commit[:12],
-                    "message": "New commits detected since last scan",
-                }
-            )
-
-        cfg = load_config()
-        galaxy_servers = await load_galaxy_server_defs()
-
-        op_scan_id = uuid.uuid4().hex
-        started_sent = False
-        completed_scan_id: str | None = None
-        captured_patches: list[dict[str, str]] = []
-        ai_proposed_count = 0
-        ai_declined_count = 0
-        ai_accepted_count = 0
-
-        async def _progress_cb(event: object) -> None:
-            """Translate FixSession ``SessionEvent`` protobufs into WebSocket messages.
-
-            Args:
-                event: gRPC SessionEvent protobuf.
-            """
-            nonlocal started_sent, ai_proposed_count, ai_declined_count, ai_accepted_count
-
-            kind = None
-            with contextlib.suppress(Exception):
-                kind = event.WhichOneof("event")  # type: ignore[attr-defined]
-
-            async def _ensure_started() -> None:
-                nonlocal started_sent
-                if not started_sent:
-                    started_sent = True
-                    await websocket.send_json({"type": "started", "scan_id": op_scan_id})
-
-            if kind == "progress":
-                await _ensure_started()
-                prog = event.progress  # type: ignore[attr-defined]
-                await websocket.send_json(
-                    {
-                        "type": "progress",
-                        "phase": prog.phase or "processing",
-                        "message": prog.message or "",
-                        "progress": prog.progress,
-                        "level": prog.level,
-                    }
-                )
-            elif kind == "proposals":
-                await _ensure_started()
-                props = event.proposals  # type: ignore[attr-defined]
-                items = [
-                    {
-                        "id": p.id,
-                        "rule_id": p.rule_id,
-                        "file": p.file,
-                        "tier": p.tier,
-                        "confidence": p.confidence,
-                        "explanation": p.explanation,
-                        "diff_hunk": p.diff_hunk,
-                        "status": p.status or "proposed",
-                        "suggestion": p.suggestion,
-                        "line_start": p.line_start,
-                    }
-                    for p in props.proposals
-                ]
-                ai_proposed_count = sum(1 for i in items if i.get("status") != "declined")
-                ai_declined_count = sum(1 for i in items if i.get("status") == "declined")
-                await websocket.send_json({"type": "proposals", "proposals": items})
-            elif kind == "approval_ack":
-                ack = event.approval_ack  # type: ignore[attr-defined]
-                ai_accepted_count = getattr(ack, "applied_count", 0)
-                await websocket.send_json(
-                    {
-                        "type": "approval_ack",
-                        "applied_count": ai_accepted_count,
-                    }
-                )
-            elif kind == "result":
-                await _ensure_started()
-                res = event.result  # type: ignore[attr-defined]
-                report = getattr(res, "report", None)
-                remaining = getattr(res, "remaining_violations", [])
-                fixed_viols = getattr(res, "fixed_violations", [])
-                fixed = report.fixed if report else 0
-                total = len(remaining) + fixed
-
-                def _extract_line(v: object) -> int | None:
-                    if v.HasField("line"):  # type: ignore[attr-defined]
-                        return v.line  # type: ignore[attr-defined, no-any-return]
-                    if v.HasField("line_range"):  # type: ignore[attr-defined]
-                        return v.line_range.start  # type: ignore[attr-defined, no-any-return]
-                    return None
-
-                fixed_violations_json = [
-                    {
-                        "rule_id": v.rule_id,
-                        "severity": severity_to_label(severity_from_proto(v.severity)),
-                        "message": v.message,
-                        "file": v.file,
-                        "line": _extract_line(v),
-                        "path": v.path,
-                    }
-                    for v in fixed_viols
-                ]
-
-                result_patches = getattr(res, "patches", [])
-                patches_json = [{"file": p.path, "diff": p.diff} for p in result_patches if p.diff]
-                captured_patches.extend(patches_json)
-
-                remediated = fixed if is_remediate else 0
-                remaining_count = len(remaining)
-                await websocket.send_json(
-                    {
-                        "type": "result",
-                        "total_violations": total,
-                        "fixable": fixed,
-                        "ai_proposed": ai_proposed_count,
-                        "ai_declined": ai_declined_count,
-                        "ai_accepted": ai_accepted_count,
-                        "manual_review": remaining_count
-                        if is_remediate
-                        else (report.remaining_manual if report else 0),
-                        "remediated_count": remediated,
-                        "fixed_violations": fixed_violations_json,
-                        "patches": patches_json,
-                    }
-                )
-
-        raw_specs = options.get("collection_specs", [])
-        specs = [str(s) for s in raw_specs] if isinstance(raw_specs, list) else []
-
-        await websocket.send_json({"type": "cloning"})
-
-        clone_commit = ""
-        if is_remediate:
-            approval_queue: asyncio.Queue[list[str]] = asyncio.Queue()
-            op_result: tuple[str, object, str] | None = None
-
-            async def _run_op() -> tuple[str, object, str]:
-                return await run_project_operation(
-                    project_id=proj.id,
-                    repo_url=proj.repo_url,
-                    branch=proj.branch,
-                    primary_address=cfg.primary_address,
-                    remediate=True,
-                    ansible_version=str(options.get("ansible_version", "")),
-                    collection_specs=specs,
-                    enable_ai=bool(options.get("enable_ai", True)),
-                    ai_model=str(options.get("ai_model", "")),
-                    progress_callback=_progress_cb,
-                    approval_queue=approval_queue,
-                    scan_id=op_scan_id,
-                    galaxy_servers=galaxy_servers or None,
-                )
-
-            op_task = asyncio.create_task(_run_op())
-            try:
-                while not op_task.done():
-                    try:
-                        client_msg = await asyncio.wait_for(
-                            websocket.receive_json(),
-                            timeout=1.0,
-                        )
-                    except TimeoutError:
-                        continue
-
-                    msg_type = client_msg.get("type", "")
-                    if msg_type == "approve":
-                        ids = client_msg.get("approved_ids", [])
-                        approved = [str(i) for i in ids] if isinstance(ids, list) else []
-                        await approval_queue.put(approved)
-                    elif msg_type == "cancel":
-                        op_task.cancel()
-                        break
-            finally:
-                if not op_task.done():
-                    op_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    op_result = await op_task
-
-            if op_result is not None:
-                completed_scan_id = op_result[0]
-                clone_commit = op_result[2]
-        else:
-            scan_id, _result, clone_commit = await run_project_operation(
-                project_id=proj.id,
-                repo_url=proj.repo_url,
-                branch=proj.branch,
-                primary_address=cfg.primary_address,
-                remediate=False,
-                ansible_version=str(options.get("ansible_version", "")),
-                collection_specs=specs,
-                progress_callback=_progress_cb,
-                scan_id=op_scan_id,
-                galaxy_servers=galaxy_servers or None,
-            )
-            completed_scan_id = scan_id
-
-        if completed_scan_id:
-            op_scan_type = "remediate" if is_remediate else "check"
-            async with get_session() as db:
-                if clone_commit:
-                    await q.update_project_commit(db, proj.id, clone_commit)
-                await q.link_scan_to_project(
-                    db,
-                    completed_scan_id,
-                    proj.id,
-                    trigger="ui",
-                    scan_type=op_scan_type,
-                    source="gateway",
-                )
-                await q.update_ai_counts(
-                    db,
-                    completed_scan_id,
-                    ai_proposed=ai_proposed_count,
-                    ai_declined=ai_declined_count,
-                    ai_accepted=ai_accepted_count,
-                )
-                if captured_patches:
-                    await q.store_patches(db, completed_scan_id, captured_patches)
-                await q.update_project_health(db, proj.id)
-
-        await websocket.send_json({"type": "closed"})
-    except WebSocketDisconnect:
-        logger.info("WebSocket disconnected for project %s", project_id)
-    except Exception as exc:
-        logger.exception("Error during project operation for %s", project_id)
-        with contextlib.suppress(Exception):
-            await websocket.send_json({"type": "error", "message": f"Operation failed ({type(exc).__name__})"})
-    finally:
-        with contextlib.suppress(Exception):
-            await websocket.close()
+# ── Project operation endpoints moved to operation_router.py (ADR-052) ──
 
 
 # ── Playground WebSocket (ADR-028 / ADR-029) ─────────────────────────

@@ -184,6 +184,20 @@ export function getDashboardSummary(): Promise<DashboardSummary> {
   return request("/dashboard/summary");
 }
 
+export interface ActiveOperation {
+  operation_id: string;
+  project_id: string;
+  project_name: string;
+  scan_id: string;
+  status: string;
+  scan_type: string;
+  started_at: string;
+}
+
+export function getActiveOperations(): Promise<ActiveOperation[]> {
+  return request("/operations/active");
+}
+
 export function getDashboardRankings(
   sortBy = "health_score",
   order = "desc",

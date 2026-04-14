@@ -339,7 +339,23 @@ class HealthStatus(BaseModel):  # type: ignore[misc]
     components: list[ComponentHealth] = Field(default_factory=list)
 
 
-# ── Project schemas (ADR-037) ────────────────────────────────────────
+# ── Project schemas (ADR-037, ADR-052) ────────────────────────────────
+
+
+class ActiveOperationSummary(BaseModel):  # type: ignore[misc]
+    """Summary of an in-flight operation for a project.
+
+    Attributes:
+        operation_id: Unique operation identifier.
+        status: Current lifecycle state.
+        scan_type: ``check`` or ``remediate``.
+        started_at: ISO-8601 start time.
+    """
+
+    operation_id: str
+    status: str
+    scan_type: str
+    started_at: str
 
 
 class ProjectSummary(BaseModel):  # type: ignore[misc]
@@ -360,6 +376,7 @@ class ProjectSummary(BaseModel):  # type: ignore[misc]
         has_scm_token: Whether a project-level SCM token is configured (ADR-050).
         last_scanned_commit: Git SHA of the commit used in the most recent scan.
         has_new_commits: True when the remote branch HEAD is ahead of last_scanned_commit.
+        active_operation: Summary of any in-flight operation (ADR-052), or null.
     """
 
     id: str
@@ -376,6 +393,7 @@ class ProjectSummary(BaseModel):  # type: ignore[misc]
     has_scm_token: bool = False
     last_scanned_commit: str = ""
     has_new_commits: bool = False
+    active_operation: ActiveOperationSummary | None = None
 
 
 class ProjectDetail(ProjectSummary):

@@ -1,0 +1,633 @@
+"""REST + SSE endpoints for project operations (ADR-052).
+
+Provides ``POST``, ``GET``, ``POST /approve``, ``POST /cancel``,
+``POST /create-pr``, and ``GET /events`` under
+``/api/v1/projects/{project_id}/operation``.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import json
+import logging
+import uuid
+from typing import Any
+
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
+
+from apme_engine.severity_defaults import severity_from_proto, severity_to_label
+from apme_gateway.db import get_session
+from apme_gateway.db import queries as q
+from apme_gateway.operation_registry import _now_iso, get_operation_registry
+from apme_gateway.operation_types import (
+    TERMINAL_STATUSES,
+    OperationResult,
+    OperationStatus,
+    ProgressEntry,
+    Proposal,
+)
+
+logger = logging.getLogger(__name__)
+
+operation_router = APIRouter(prefix="/api/v1/projects/{project_id}/operation")
+
+
+# ── Request / Response schemas ────────────────────────────────────────
+
+
+class OperateRequest(BaseModel):  # type: ignore[misc]
+    """Body for ``POST /operate``.
+
+    Attributes:
+        action: ``check`` or ``remediate``.
+        options: Additional operation options.
+    """
+
+    action: str = Field(..., pattern="^(check|remediate)$")
+    options: dict[str, Any] = Field(default_factory=dict)
+
+
+class OperateResponse(BaseModel):  # type: ignore[misc]
+    """Response for ``POST /operate``.
+
+    Attributes:
+        operation_id: The new operation's unique identifier.
+    """
+
+    operation_id: str
+
+
+class ApproveRequest(BaseModel):  # type: ignore[misc]
+    """Body for ``POST /approve``.
+
+    Attributes:
+        approved_ids: List of proposal IDs the user accepted.
+    """
+
+    approved_ids: list[str] = Field(default_factory=list)
+
+
+# ── REST endpoints ────────────────────────────────────────────────────
+
+
+@operation_router.post("", status_code=201)  # type: ignore[untyped-decorator]
+async def initiate_operation(project_id: str, body: OperateRequest) -> OperateResponse:
+    """Initiate a new check or remediate operation for a project.
+
+    Rejects with 409 if the project already has an active operation.
+
+    Args:
+        project_id: Target project UUID.
+        body: Action and options payload.
+
+    Returns:
+        The new operation identifier.
+
+    Raises:
+        HTTPException: 404 if project not found, 409 if operation active.
+    """
+    from apme_gateway._galaxy_inject import load_galaxy_server_defs
+    from apme_gateway.config import load_config
+
+    async with get_session() as db:
+        proj = await q.resolve_project(db, project_id)
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    registry = get_operation_registry()
+    operation_id = uuid.uuid4().hex
+    scan_id = uuid.uuid4().hex
+    scan_type = body.action
+
+    try:
+        state = registry.create(
+            operation_id=operation_id,
+            project_id=proj.id,
+            scan_id=scan_id,
+            scan_type=scan_type,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    cfg = load_config()
+    galaxy_servers = await load_galaxy_server_defs()
+
+    task = asyncio.create_task(
+        _drive_operation(
+            operation_id=operation_id,
+            project_id=proj.id,
+            repo_url=proj.repo_url,
+            branch=proj.branch,
+            primary_address=cfg.primary_address,
+            remediate=scan_type == "remediate",
+            options=body.options,
+            scan_id=scan_id,
+            galaxy_servers=galaxy_servers,
+        )
+    )
+    state.grpc_task = task
+    registry.start_reaper()
+
+    return OperateResponse(operation_id=operation_id)
+
+
+@operation_router.get("")  # type: ignore[untyped-decorator]
+async def get_operation_state(project_id: str) -> dict[str, Any]:
+    """Return the current operation state snapshot for a project.
+
+    Args:
+        project_id: Target project UUID.
+
+    Returns:
+        Full serialised ``OperationState``.
+
+    Raises:
+        HTTPException: 404 if no operation exists for this project.
+    """
+    registry = get_operation_registry()
+    state = registry.get_by_project(project_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="No operation for this project")
+    return state.to_snapshot()
+
+
+@operation_router.post("/approve")  # type: ignore[untyped-decorator]
+async def approve_proposals(project_id: str, body: ApproveRequest) -> dict[str, str]:
+    """Submit approval decisions for AI proposals.
+
+    Resolves the operation's ``approval_future`` so the background gRPC
+    task can send the approval to Primary.
+
+    Args:
+        project_id: Target project UUID.
+        body: Approved proposal IDs.
+
+    Returns:
+        Confirmation message.
+
+    Raises:
+        HTTPException: 404 if no operation, 409 if not in awaiting_approval.
+    """
+    registry = get_operation_registry()
+    state = registry.get_by_project(project_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="No operation for this project")
+    if state.status != OperationStatus.AWAITING_APPROVAL:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Operation is in '{state.status.value}', not 'awaiting_approval'",
+        )
+    if state.approval_future is None or state.approval_future.done():
+        raise HTTPException(status_code=409, detail="Approval already submitted")
+
+    state.approval_future.set_result(body.approved_ids)
+    return {"status": "approved"}
+
+
+@operation_router.post("/cancel")  # type: ignore[untyped-decorator]
+async def cancel_operation(project_id: str) -> dict[str, str]:
+    """Cancel an in-flight operation.
+
+    Args:
+        project_id: Target project UUID.
+
+    Returns:
+        Confirmation message.
+
+    Raises:
+        HTTPException: 404 if no operation, 409 if already terminal.
+    """
+    registry = get_operation_registry()
+    state = registry.get_by_project(project_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="No operation for this project")
+    if state.status in TERMINAL_STATUSES:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Operation already in terminal state '{state.status.value}'",
+        )
+    if state.grpc_task and not state.grpc_task.done():
+        state.grpc_task.cancel()
+    if state.approval_future and not state.approval_future.done():
+        state.approval_future.set_result([])
+    registry.transition(state.operation_id, OperationStatus.CANCELLED)
+    return {"status": "cancelled"}
+
+
+@operation_router.post("/create-pr")  # type: ignore[untyped-decorator]
+async def create_pr_from_operation(project_id: str) -> dict[str, Any]:
+    """Create a pull request from a completed remediation.
+
+    Delegates to the existing ``/activity/{id}/pull-request`` logic
+    internally — the scan must be persisted already.
+
+    Args:
+        project_id: Target project UUID.
+
+    Returns:
+        PR URL and metadata.
+
+    Raises:
+        HTTPException: 404/409/422 depending on state.
+    """
+    from apme_gateway.config import load_config
+    from apme_gateway.scm import detect_provider, get_provider
+
+    registry = get_operation_registry()
+    state = registry.get_by_project(project_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="No operation for this project")
+    if state.status != OperationStatus.COMPLETED:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot create PR: operation is '{state.status.value}', not 'completed'",
+        )
+    if state.scan_type != "remediate":
+        raise HTTPException(status_code=409, detail="PR creation requires a remediate operation")
+    if not state.result or not state.result.patches:
+        raise HTTPException(status_code=409, detail="No patches available for PR creation")
+
+    registry.transition(state.operation_id, OperationStatus.SUBMITTING_PR)
+
+    cfg = load_config()
+
+    async with get_session() as db:
+        scan = await q.get_scan(db, state.scan_id)
+        if scan is None:
+            registry.transition(state.operation_id, OperationStatus.COMPLETED)
+            raise HTTPException(status_code=404, detail="Scan not persisted yet")
+        if scan.pr_url:
+            registry.set_pr_url(state.operation_id, scan.pr_url)
+            return {"pr_url": scan.pr_url, "status": "already_created"}
+
+        project = await q.get_project(db, state.project_id)
+        if project is None:
+            registry.transition(state.operation_id, OperationStatus.COMPLETED)
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        patched = await q.get_patched_files(db, state.scan_id)
+        if not patched:
+            registry.transition(state.operation_id, OperationStatus.COMPLETED)
+            raise HTTPException(status_code=404, detail="No patched files found")
+
+    token = project.scm_token or cfg.scm_token
+    if not token:
+        registry.transition(state.operation_id, OperationStatus.COMPLETED)
+        raise HTTPException(status_code=422, detail="No SCM token configured")
+
+    provider_type = project.scm_provider or detect_provider(project.repo_url)
+    if not provider_type:
+        registry.transition(state.operation_id, OperationStatus.COMPLETED)
+        raise HTTPException(status_code=422, detail=f"Cannot detect SCM provider from URL: {project.repo_url}")
+
+    api_base = cfg.github_api_url if provider_type == "github" else None
+    try:
+        provider = get_provider(provider_type, api_base_url=api_base)
+    except ValueError as exc:
+        registry.transition(state.operation_id, OperationStatus.COMPLETED)
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    short_id = state.scan_id[:8]
+    branch_name = f"apme/remediate-{short_id}"
+    pr_title = f"fix: APME remediation — {scan.fixed_count} findings resolved"
+
+    try:
+        await provider.create_branch(project.repo_url, project.branch, branch_name, token)
+        files = {pf.path: pf.content for pf in patched}
+        await provider.push_files(project.repo_url, branch_name, files, pr_title, token)
+        result = await provider.create_pull_request(
+            project.repo_url,
+            project.branch,
+            branch_name,
+            pr_title,
+            f"Automated remediation by APME — {scan.fixed_count} findings fixed.",
+            token,
+        )
+    except Exception as exc:
+        logger.exception("SCM provider error creating PR for operation %s", state.operation_id)
+        registry.transition(state.operation_id, OperationStatus.COMPLETED, error=str(exc))
+        raise HTTPException(status_code=502, detail="SCM provider error") from exc
+
+    async with get_session() as db:
+        await q.set_scan_pr_url(db, state.scan_id, result.pr_url)
+
+    registry.set_pr_url(state.operation_id, result.pr_url)
+    return {"pr_url": result.pr_url, "branch_name": result.branch_name, "provider": result.provider}
+
+
+# ── SSE endpoint ──────────────────────────────────────────────────────
+
+
+@operation_router.get("/events")  # type: ignore[untyped-decorator]
+async def operation_events(project_id: str, request: Request) -> StreamingResponse:
+    """Server-Sent Events stream for real-time operation state.
+
+    On connect, sends a ``snapshot`` event with the full current state.
+    Then streams delta events (``status_changed``, ``progress``,
+    ``proposals``, ``result``, ``pr_created``) until the operation
+    reaches a terminal state or the client disconnects.
+
+    Args:
+        project_id: Target project UUID.
+        request: The incoming HTTP request (for disconnect detection).
+
+    Returns:
+        SSE streaming response.
+
+    Raises:
+        HTTPException: 404 if no operation exists for this project.
+    """
+    registry = get_operation_registry()
+    state = registry.get_by_project(project_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="No operation for this project")
+
+    queue = registry.subscribe(state.operation_id)
+    if queue is None:
+        raise HTTPException(status_code=404, detail="Operation not found")
+
+    async def _event_stream() -> Any:
+        try:
+            snapshot = state.to_snapshot()
+            yield _sse_format("snapshot", snapshot)
+
+            if state.status in TERMINAL_STATUSES:
+                return
+
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    msg = await asyncio.wait_for(queue.get(), timeout=30.0)
+                except TimeoutError:
+                    yield ": keepalive\n\n"
+                    continue
+
+                if msg.get("_close"):
+                    break
+
+                event_type = msg.get("event", "message")
+                data = msg.get("data", {})
+                yield _sse_format(event_type, data)
+
+                if data.get("status") in {s.value for s in TERMINAL_STATUSES}:
+                    break
+        finally:
+            registry.unsubscribe(state.operation_id, queue)
+
+    return StreamingResponse(
+        _event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+def _sse_format(event: str, data: dict[str, Any]) -> str:
+    """Format a single SSE message.
+
+    Args:
+        event: SSE event type.
+        data: JSON-serialisable payload.
+
+    Returns:
+        Formatted SSE string with ``event:`` and ``data:`` lines.
+    """
+    payload = json.dumps(data, default=str)
+    return f"event: {event}\ndata: {payload}\n\n"
+
+
+# ── Operation driver (replaces WebSocket tunnel logic) ────────────────
+
+
+async def _drive_operation(
+    *,
+    operation_id: str,
+    project_id: str,
+    repo_url: str,
+    branch: str,
+    primary_address: str,
+    remediate: bool,
+    options: dict[str, Any],
+    scan_id: str,
+    galaxy_servers: Any = None,
+) -> None:
+    """Background task that clones the repo and drives Primary's FixSession.
+
+    Updates the ``OperationRegistry`` state throughout. Runs independently
+    of any browser connection.
+
+    Args:
+        operation_id: Registry operation identifier.
+        project_id: Owning project UUID.
+        repo_url: SCM clone URL.
+        branch: Branch to clone.
+        primary_address: ``host:port`` for Primary gRPC.
+        remediate: Whether this is a remediation.
+        options: Client-supplied options.
+        scan_id: Engine scan identifier.
+        galaxy_servers: Galaxy server defs.
+    """
+    from apme_gateway.scan.driver import fetch_remote_head, run_project_operation
+
+    registry = get_operation_registry()
+
+    try:
+        await fetch_remote_head(repo_url, branch)
+
+        registry.transition(operation_id, OperationStatus.CLONING)
+
+        ai_proposed_count = 0
+        ai_declined_count = 0
+        ai_accepted_count = 0
+        captured_patches: list[dict[str, str]] = []
+
+        async def _progress_cb(event: object) -> None:
+            """Translate gRPC SessionEvent into registry updates.
+
+            Args:
+                event: gRPC SessionEvent protobuf.
+            """
+            nonlocal ai_proposed_count, ai_declined_count, ai_accepted_count
+
+            kind = None
+            with contextlib.suppress(Exception):
+                kind = event.WhichOneof("event")  # type: ignore[attr-defined]
+
+            if kind == "progress":
+                prog = event.progress  # type: ignore[attr-defined]
+                entry = ProgressEntry(
+                    phase=prog.phase or "processing",
+                    message=prog.message or "",
+                    timestamp=_now_iso(),
+                    progress=prog.progress if prog.progress is not None else None,
+                    level=prog.level if prog.level is not None else None,
+                )
+                if registry.get(operation_id) and registry.get(operation_id).status == OperationStatus.CLONING:  # type: ignore[union-attr]
+                    registry.transition(operation_id, OperationStatus.SCANNING)
+                registry.add_progress(operation_id, entry)
+
+            elif kind == "proposals":
+                props = event.proposals  # type: ignore[attr-defined]
+                items = [
+                    Proposal(
+                        id=p.id,
+                        rule_id=p.rule_id,
+                        file=p.file,
+                        tier=p.tier,
+                        confidence=p.confidence,
+                        explanation=p.explanation,
+                        diff_hunk=p.diff_hunk,
+                        status=p.status or "proposed",
+                        suggestion=p.suggestion,
+                        line_start=p.line_start,
+                    )
+                    for p in props.proposals
+                ]
+                ai_proposed_count = sum(1 for i in items if i.status != "declined")
+                ai_declined_count = sum(1 for i in items if i.status == "declined")
+                registry.set_proposals(operation_id, items)
+
+            elif kind == "approval_ack":
+                ack = event.approval_ack  # type: ignore[attr-defined]
+                ai_accepted_count = getattr(ack, "applied_count", 0)
+                registry.transition(operation_id, OperationStatus.APPLYING)
+
+            elif kind == "result":
+                res = event.result  # type: ignore[attr-defined]
+                report = getattr(res, "report", None)
+                remaining = getattr(res, "remaining_violations", [])
+                fixed_viols = getattr(res, "fixed_violations", [])
+                fixed = report.fixed if report else 0
+                total = len(remaining) + fixed
+
+                def _extract_line(v: object) -> int | None:
+                    if v.HasField("line"):  # type: ignore[attr-defined]
+                        return v.line  # type: ignore[attr-defined, no-any-return]
+                    if v.HasField("line_range"):  # type: ignore[attr-defined]
+                        return v.line_range.start  # type: ignore[attr-defined, no-any-return]
+                    return None
+
+                fixed_violations_json = [
+                    {
+                        "rule_id": v.rule_id,
+                        "severity": severity_to_label(severity_from_proto(v.severity)),
+                        "message": v.message,
+                        "file": v.file,
+                        "line": _extract_line(v),
+                        "path": v.path,
+                    }
+                    for v in fixed_viols
+                ]
+
+                result_patches = getattr(res, "patches", [])
+                patches_json = [{"file": p.path, "diff": p.diff} for p in result_patches if p.diff]
+                captured_patches.extend(patches_json)
+
+                remediated = fixed if remediate else 0
+                remaining_count = len(remaining)
+
+                op_result = OperationResult(
+                    total_violations=total,
+                    fixable=fixed,
+                    ai_proposed=ai_proposed_count,
+                    ai_declined=ai_declined_count,
+                    ai_accepted=ai_accepted_count,
+                    manual_review=remaining_count if remediate else (report.remaining_manual if report else 0),
+                    remediated_count=remediated,
+                    fixed_violations=fixed_violations_json,
+                    patches=patches_json,
+                )
+                registry.set_result(operation_id, op_result)
+
+        raw_specs = options.get("collection_specs", [])
+        specs = [str(s) for s in raw_specs] if isinstance(raw_specs, list) else []
+
+        approval_queue: asyncio.Queue[list[str]] | None = None
+        bridge_task: asyncio.Task[None] | None = None
+
+        if remediate:
+            approval_queue = asyncio.Queue()
+
+            async def _approval_bridge() -> None:
+                """Bridge registry approval_future to the driver's approval_queue."""
+                while True:
+                    op = registry.get(operation_id)
+                    if op is None or op.status in TERMINAL_STATUSES:
+                        break
+                    if op.status == OperationStatus.AWAITING_APPROVAL and op.approval_future is not None:
+                        try:
+                            ids = await op.approval_future
+                            if approval_queue is not None:
+                                await approval_queue.put(ids)
+                            op.approval_future = None
+                        except asyncio.CancelledError:
+                            break
+                    else:
+                        await asyncio.sleep(0.1)
+
+            bridge_task = asyncio.create_task(_approval_bridge())
+
+        _, result, clone_commit = await run_project_operation(
+            project_id=project_id,
+            repo_url=repo_url,
+            branch=branch,
+            primary_address=primary_address,
+            remediate=remediate,
+            ansible_version=str(options.get("ansible_version", "")),
+            collection_specs=specs,
+            enable_ai=bool(options.get("enable_ai", True)),
+            ai_model=str(options.get("ai_model", "")),
+            progress_callback=_progress_cb,
+            approval_queue=approval_queue,
+            scan_id=scan_id,
+            galaxy_servers=galaxy_servers or None,
+        )
+
+        if bridge_task is not None:
+            bridge_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await bridge_task
+
+        op = registry.get(operation_id)
+        if op is not None:
+            op.clone_commit = clone_commit
+
+        scan_type_str = "remediate" if remediate else "check"
+        async with get_session() as db:
+            if clone_commit:
+                await q.update_project_commit(db, project_id, clone_commit)
+            await q.link_scan_to_project(
+                db,
+                scan_id,
+                project_id,
+                trigger="ui",
+                scan_type=scan_type_str,
+                source="gateway",
+            )
+            await q.update_ai_counts(
+                db,
+                scan_id,
+                ai_proposed=ai_proposed_count,
+                ai_declined=ai_declined_count,
+                ai_accepted=ai_accepted_count,
+            )
+            if captured_patches:
+                await q.store_patches(db, scan_id, captured_patches)
+            await q.update_project_health(db, project_id)
+
+        op = registry.get(operation_id)
+        if op is not None and op.status not in TERMINAL_STATUSES:
+            registry.transition(operation_id, OperationStatus.COMPLETED)
+
+    except asyncio.CancelledError:
+        registry.transition(operation_id, OperationStatus.CANCELLED)
+    except Exception as exc:
+        logger.exception("Operation %s failed", operation_id[:12])
+        registry.transition(operation_id, OperationStatus.FAILED, error=str(exc))

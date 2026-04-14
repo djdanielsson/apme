@@ -9,7 +9,9 @@ from fastapi import FastAPI
 
 from apme_gateway._galaxy_proxy_sync import schedule_push
 from apme_gateway.api.feedback import router as feedback_router
+from apme_gateway.api.operation_router import operation_router
 from apme_gateway.api.router import router
+from apme_gateway.operation_registry import get_operation_registry
 
 
 @asynccontextmanager
@@ -17,8 +19,8 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: ARG001
     """Gateway startup/shutdown lifecycle.
 
     On startup, schedule a background push of Galaxy server configs from
-    the DB to the Galaxy Proxy.  The push is fire-and-forget so it never
-    delays application startup even if the proxy is unreachable.
+    the DB to the Galaxy Proxy and start the operation registry reaper.
+    On shutdown, clean up in-flight operations.
 
     Args:
         app: The FastAPI application instance (unused, required by lifespan protocol).
@@ -27,7 +29,9 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: ARG001
         None: Control to the application.
     """
     schedule_push()
+    get_operation_registry().start_reaper()
     yield
+    await get_operation_registry().shutdown()
 
 
 def create_app() -> FastAPI:
@@ -44,4 +48,5 @@ def create_app() -> FastAPI:
     )
     app.include_router(router)
     app.include_router(feedback_router)
+    app.include_router(operation_router)
     return app

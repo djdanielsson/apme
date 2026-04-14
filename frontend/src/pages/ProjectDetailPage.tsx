@@ -23,25 +23,19 @@ import {
   ExclamationTriangleIcon,
   ShieldAltIcon,
 } from '@patternfly/react-icons';
-import { createPullRequest, deleteProject, getProject, getProjectDependencies, getProjectDepHealth, getProjectGraph, getProjectSbom, getProjectTrend, listProjectActivity, listProjectViolations, updateProject } from '../services/api';
+import { deleteProject, getProject, getProjectDependencies, getProjectDepHealth, getProjectGraph, getProjectSbom, getProjectTrend, listProjectActivity, listProjectViolations, updateProject } from '../services/api';
 import type { GraphData } from '../services/api';
 import type { ActivitySummary, DepHealthSummary, ProjectDependencies, ProjectDetail, TrendPoint, ViolationDetail } from '../types/api';
 import { GraphVisualization } from '../components/GraphVisualization';
-import type { OperationStatus, OperationProgress, OperationProposal, OperationResult } from '../types/operation';
 import { StatusBadge } from '../components/StatusBadge';
 import { CheckOptionsForm } from '../components/CheckOptionsForm';
-import { OperationProgressPanel } from '../components/OperationProgressPanel';
-import { ProposalReviewPanel } from '../components/ProposalReviewPanel';
-import { OperationResultCard } from '../components/OperationResultCard';
+import { OperationPanel } from '../components/OperationPanel';
 import { TrendChart } from '../components/TrendChart';
 import { timeAgo } from '../services/format';
 import { useFeedbackEnabled } from '../hooks/useFeedbackEnabled';
-import { useProjectOperation, type ProjectOperationOptions } from '../hooks/useProjectOperation';
+import { useProjectOperationState } from '../hooks/useProjectOperationState';
+import { useProjectOperationActions } from '../hooks/useProjectOperationActions';
 import { AI_MODEL_STORAGE_KEY } from './SettingsPage';
-
-function mapProjectStatus(s: string): OperationStatus {
-  return s as OperationStatus;
-}
 
 export function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>();
@@ -66,50 +60,11 @@ export function ProjectDetailPage() {
   const [enableAi, setEnableAi] = useState(true);
 
   const feedbackEnabled = useFeedbackEnabled();
-  const {
-    status: rawStatus,
-    progress: rawProgress,
-    scanId: opScanId,
-    proposals: rawProposals,
-    result: rawResult,
-    error: opError,
-    isRemediate: opIsRemediate,
-    startOperation,
-    approve: opApprove,
-    cancel: opCancel,
-    reset: opReset,
-  } = useProjectOperation(projectId || '');
+  const { state: opState, refresh: refreshOp, clear: clearOp } = useProjectOperationState(projectId || '');
+  const { start: startOp, approve: approveOp, cancel: cancelOp, createPR: createPROp } = useProjectOperationActions(projectId || '');
 
-  const opStatus = mapProjectStatus(rawStatus);
-  const opProgress: OperationProgress[] = rawProgress.map((p) => ({
-    phase: p.phase,
-    message: p.message,
-    timestamp: p.timestamp,
-    progress: p.progress,
-    level: p.level,
-  }));
-  const opProposals: OperationProposal[] = rawProposals.map((p) => ({
-    id: p.id,
-    rule_id: p.rule_id,
-    file: p.file,
-    tier: p.tier,
-    confidence: p.confidence,
-    explanation: p.explanation,
-    diff_hunk: p.diff_hunk,
-    status: p.status,
-    suggestion: p.suggestion,
-    line_start: p.line_start,
-  }));
-  const opResult: OperationResult | null = rawResult ? {
-    total_violations: rawResult.total_violations,
-    fixable: rawResult.fixable,
-    ai_candidate: rawResult.ai_candidate,
-    ai_proposed: rawResult.ai_proposed ?? 0,
-    ai_declined: rawResult.ai_declined ?? 0,
-    ai_accepted: rawResult.ai_accepted ?? 0,
-    manual_review: rawResult.manual_review,
-    remediated_count: rawResult.remediated_count,
-  } : null;
+  const isRunning = opState != null && ['queued', 'cloning', 'scanning', 'applying'].includes(opState.status);
+  const operationActive = opState != null && opState.status !== 'cancelled';
 
   const fetchData = useCallback(async () => {
     if (!projectId) return;
@@ -144,8 +99,10 @@ export function ProjectDetailPage() {
   useEffect(() => { fetchData(); }, [fetchData]);
 
   useEffect(() => {
-    if (opStatus === 'complete') fetchData();
-  }, [opStatus, fetchData]);
+    if (opState?.status === 'completed' || opState?.status === 'pr_submitted') {
+      fetchData();
+    }
+  }, [opState?.status, fetchData]);
 
   useEffect(() => {
     if (activeTab === 4 && projectId && !graphData && !graphLoading) {
@@ -154,25 +111,29 @@ export function ProjectDetailPage() {
     }
   }, [activeTab, projectId, graphData, graphLoading]);
 
-  const handleScan = useCallback((remediate: boolean) => {
+  const handleScan = useCallback(async (remediate: boolean) => {
     const colls = collections.split(',').map((c) => c.trim()).filter(Boolean);
-    const opts: ProjectOperationOptions = {
-      remediate,
-      ansible_version: ansibleVersion || undefined,
-      collection_specs: colls.length ? colls : undefined,
-      enable_ai: enableAi,
-      ai_model: enableAi ? (localStorage.getItem(AI_MODEL_STORAGE_KEY) ?? undefined) : undefined,
-    };
+    const action = remediate ? 'remediate' : 'check';
     setActiveTab(0);
-    startOperation(opts);
-  }, [ansibleVersion, collections, enableAi, startOperation]);
+    try {
+      await startOp(action as 'check' | 'remediate', {
+        ansible_version: ansibleVersion || undefined,
+        collection_specs: colls.length ? colls : undefined,
+        enable_ai: enableAi,
+        ai_model: enableAi ? (localStorage.getItem(AI_MODEL_STORAGE_KEY) ?? undefined) : undefined,
+      });
+      refreshOp();
+    } catch (err) {
+      console.error('Failed to start operation:', err);
+    }
+  }, [ansibleVersion, collections, enableAi, startOp, refreshOp]);
 
   useEffect(() => {
-    if ((searchParams.get('action') === 'check' || searchParams.get('action') === 'scan') && project && rawStatus === 'idle') {
+    if ((searchParams.get('action') === 'check' || searchParams.get('action') === 'scan') && project && !opState) {
       setSearchParams({}, { replace: true });
       handleScan(false);
     }
-  }, [searchParams, project, rawStatus, setSearchParams, handleScan]);
+  }, [searchParams, project, opState, setSearchParams, handleScan]);
 
   const handleDelete = useCallback(async () => {
     if (!projectId) return;
@@ -187,9 +148,6 @@ export function ProjectDetailPage() {
   const [editScmToken, setEditScmToken] = useState('');
   const [scmTokenDirty, setScmTokenDirty] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [prCreating, setPrCreating] = useState(false);
-  const [prUrl, setPrUrl] = useState<string | null>(null);
-  const [prError, setPrError] = useState<string | null>(null);
 
   useEffect(() => {
     if (project) {
@@ -219,19 +177,9 @@ export function ProjectDetailPage() {
     }
   }, [projectId, project, editName, editUrl, editBranch, editScmToken, scmTokenDirty, fetchData]);
 
-  const handleCreatePR = useCallback(async () => {
-    if (!opScanId) return;
-    setPrCreating(true);
-    setPrError(null);
-    try {
-      const result = await createPullRequest(opScanId);
-      setPrUrl(result.pr_url);
-    } catch (err) {
-      setPrError(err instanceof Error ? err.message : 'Failed to create pull request');
-    } finally {
-      setPrCreating(false);
-    }
-  }, [opScanId]);
+  const handleDismiss = useCallback(() => {
+    clearOp();
+  }, [clearOp]);
 
   if (loading && !project) {
     return (
@@ -256,9 +204,6 @@ export function ProjectDetailPage() {
     );
   }
 
-  const isRunning = opStatus === 'connecting' || opStatus === 'preparing' || opStatus === 'checking' || opStatus === 'applying';
-  const operationActive = isRunning || opStatus === 'awaiting_approval' || (opStatus === 'complete' && opResult != null) || opStatus === 'error';
-
   return (
     <PageLayout>
       <PageHeader
@@ -278,38 +223,14 @@ export function ProjectDetailPage() {
           <Tab eventKey={0} title={<TabTitleText>Overview</TabTitleText>}>
             <div style={{ marginTop: 16 }}>
               {operationActive ? (
-                <>
-                  {isRunning && (
-                    <OperationProgressPanel status={opStatus} progress={opProgress} onCancel={opCancel} />
-                  )}
-
-                  {opStatus === 'awaiting_approval' && opProposals.length > 0 && (
-                    <ProposalReviewPanel proposals={opProposals} onApprove={opApprove} feedbackEnabled={feedbackEnabled} scanId={opScanId ?? undefined} />
-                  )}
-
-                  {opStatus === 'complete' && opResult && (
-                    <OperationResultCard
-                      result={opResult}
-                      isRemediate={opIsRemediate}
-                      onDismiss={() => { opReset(); setPrUrl(null); setPrError(null); }}
-                      onCreatePR={opIsRemediate && opScanId ? handleCreatePR : undefined}
-                      prCreating={prCreating}
-                      prUrl={prUrl}
-                      prError={prError}
-                      scanId={opScanId ?? undefined}
-                    />
-                  )}
-
-                  {opStatus === 'error' && (
-                    <Card style={{ marginBottom: 16, borderLeft: '4px solid var(--pf-t--global--color--status--danger--default)' }}>
-                      <CardBody>
-                        <h3 style={{ color: 'var(--pf-t--global--color--status--danger--default)' }}>Error</h3>
-                        <p>{opError}</p>
-                        <Button variant="link" onClick={opReset}>Dismiss</Button>
-                      </CardBody>
-                    </Card>
-                  )}
-                </>
+                <OperationPanel
+                  state={opState}
+                  onApprove={approveOp}
+                  onCancel={cancelOp}
+                  onCreatePR={createPROp}
+                  onDismiss={handleDismiss}
+                  feedbackEnabled={feedbackEnabled}
+                />
               ) : project.scan_count === 0 ? (
                 <Card style={{ marginBottom: 16 }}>
                   <CardBody style={{ textAlign: 'center', padding: '48px 24px' }}>
@@ -415,7 +336,7 @@ export function ProjectDetailPage() {
                   <Flex gap={{ default: 'gapSm' }} style={{ marginTop: 12 }}>
                     <Button variant="primary" isDisabled={isRunning} onClick={() => handleScan(false)}>Check</Button>
                     <Button variant="secondary" isDisabled={isRunning} onClick={() => handleScan(true)}>Remediate</Button>
-                    {isRunning && <Button variant="link" onClick={opCancel}>Cancel</Button>}
+                    {isRunning && <Button variant="link" onClick={() => cancelOp()}>Cancel</Button>}
                   </Flex>
                 </CardBody>
               </Card>
