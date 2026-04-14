@@ -36,6 +36,12 @@ _GRAPH_RULE_KNOWN_FAILURES: dict[str, str] = {
     "L096": "collection metadata rule; example shows meta/runtime.yml, not playbook YAML",
     "L105": "collection metadata rule; example shows galaxy.yml, not playbook YAML",
     "M030": "ARI engine does not propagate when: to graph node when_expr",
+    "L051": "example uses play-level YAML but L051 checks task-level Jinja spacing",
+    "M019": "example uses !!omap/!!pairs YAML tags that ruamel normalizes away before graph",
+    "M027": "example uses inline k=v syntax that ARI engine normalizes into module_options",
+    "M017": "example uses action: mapping form that ARI engine normalizes into module key",
+    "M021": "example uses empty args: that ARI engine strips before graph",
+    "M023": "example uses lookup plugin syntax not evaluated by graph rules",
 }
 
 

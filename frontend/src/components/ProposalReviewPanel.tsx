@@ -8,6 +8,7 @@ import {
   Split,
   SplitItem,
 } from '@patternfly/react-core';
+import { RuleId } from './RuleId';
 import type { OperationProposal } from '../types/operation';
 import { DiffView } from './DiffView';
 import { FeedbackModal, type FeedbackPayload } from './FeedbackModal';
@@ -119,7 +120,7 @@ export function ProposalReviewPanel({
                     className="apme-proposal-checkbox"
                   />
                   <div className="apme-proposal-meta">
-                    <span className="apme-rule-id">{p.rule_id}</span>
+                    <RuleId ruleId={p.rule_id} />
                     <span className="apme-proposal-file">{p.file}</span>
                     <Label isCompact variant="outline">Tier {p.tier}</Label>
                   </div>
@@ -198,7 +199,7 @@ export function ProposalReviewPanel({
                         onClick={() => toggleExpand(p.id)}
                       >
                         <div className="apme-proposal-meta">
-                          <span className="apme-rule-id">{p.rule_id}</span>
+                          <RuleId ruleId={p.rule_id} />
                           <span className="apme-proposal-file">{p.file}</span>
                           {p.line_start != null && p.line_start > 0 && (
                             <span style={{ fontSize: 12, opacity: 0.6 }}>Line {p.line_start}</span>

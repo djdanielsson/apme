@@ -6,7 +6,8 @@ import {
   AngleDoubleUpIcon,
   AngleDoubleDownIcon,
 } from '@patternfly/react-icons';
-import { severityClass, severityLabel, severityOrder, bareRuleId, SEVERITY_ORDER } from './severity';
+import { severityClass, severityLabel, severityOrder, SEVERITY_ORDER } from './severity';
+import { RuleId } from './RuleId';
 import type { ViolationDetail } from '../types/api';
 
 const DEP_HEALTH_SOURCES = new Set(['collection_health', 'dep_audit']);
@@ -224,9 +225,10 @@ export function DependencyHealthOutput({ violations }: DependencyHealthOutputPro
                         <span className={`apme-severity ${severityClass(v.level, v.rule_id)}`}>
                           {severityLabel(v.level, v.rule_id)}
                         </span>
-                        <span className="apme-rule-id">
-                          {cveMatch ? cveMatch[0] : bareRuleId(v.rule_id)}
-                        </span>
+                        {cveMatch
+                          ? <span className="apme-rule-id">{cveMatch[0]}</span>
+                          : <RuleId ruleId={v.rule_id} />
+                        }
                         <span className="apme-output-violation-msg">
                           {v.message}
                         </span>

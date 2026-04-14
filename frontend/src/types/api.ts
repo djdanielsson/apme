@@ -131,7 +131,14 @@ export interface AiModelInfo {
   name: string;
 }
 
-// ── Project types (ADR-037) ──────────────────────────────────────────
+// ── Project types (ADR-037, ADR-052) ─────────────────────────────────
+
+export interface ActiveOperationSummary {
+  operation_id: string;
+  status: string;
+  scan_type: string;
+  started_at: string;
+}
 
 export interface ProjectSummary {
   id: string;
@@ -148,11 +155,13 @@ export interface ProjectSummary {
   has_scm_token: boolean;
   last_scanned_commit: string;
   has_new_commits: boolean;
+  active_operation: ActiveOperationSummary | null;
 }
 
 export interface ProjectDetail extends ProjectSummary {
   latest_scan: ActivitySummary | null;
   severity_breakdown: Record<string, number>;
+  active_operation: ActiveOperationSummary | null;
 }
 
 export interface CreateProjectRequest {

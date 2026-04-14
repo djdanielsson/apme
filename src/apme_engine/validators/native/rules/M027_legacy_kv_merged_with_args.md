@@ -1,7 +1,7 @@
 ---
 rule_id: M027
 validator: native
-description: Mixing inline k=v arguments with args: mapping is deprecated (2.23)
+description: "Mixing inline k=v arguments with args: mapping is deprecated (2.23)"
 scope: task
 ---
 

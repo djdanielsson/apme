@@ -21,7 +21,7 @@ import { ExternalLinkAltIcon } from '@patternfly/react-icons';
 import { createPullRequest, deleteActivity, getActivity } from '../services/api';
 import { useFeedbackEnabled } from '../hooks/useFeedbackEnabled';
 import type { ActivityDetail } from '../types/api';
-import { getRuleDescription } from '../data/ruleDescriptions';
+
 
 function displayType(scanType: string): string {
   if (scanType === 'scan') return 'check';
@@ -260,7 +260,6 @@ export function ActivityDetailPage() {
             violations={filtered}
             hasFilters={hasFilters}
             scanType={detail.scan_type}
-            getRuleDescription={getRuleDescription}
             onSectionToggle={setResultsOpen}
             scanId={activityId}
             feedbackEnabled={feedbackEnabled}

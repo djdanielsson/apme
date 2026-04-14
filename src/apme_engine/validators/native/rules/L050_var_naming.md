@@ -1,7 +1,7 @@
 ---
 rule_id: L050
 validator: native
-description: Variable names: lowercase, underscores.
+description: "Variable names: lowercase, underscores."
 scope: task
 ---
 

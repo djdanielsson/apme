@@ -91,6 +91,7 @@ Six app containers, one pod. All inter-service communication is gRPC. The Galaxy
 - **Unified gRPC contract** — every validator implements the same `Validator` service (`validate.proto`); adding a new validator means implementing one RPC.
 - **100+ rules** across four backends: OPA Rego (L003–L025, L061–L072, M006/M008/M009/M011, R118), native Python (L026–L105, M005/M010, R101–R501), Ansible runtime (L057–L059, M001–M004), Gitleaks (SEC:* — 800+ secret patterns).
 - **Secret scanning** — Gitleaks binary wrapped in gRPC; scans all project files for hardcoded credentials, API keys, private keys. Vault-encrypted files and Jinja2 expressions are automatically filtered.
+- **Dependency health scanning** — Two optional validators assess supply-chain risk inline during `apme check`: the Collection Health Validator scans installed Ansible collections for quality issues (deprecated modules, missing argument specs, FQCN violations), and the Python Dependency Auditor checks packages against CVE databases via pip-audit. Findings are grouped separately from project violations, and collection scans are cached by FQCN+version for fast subsequent runs.
 - **Multi ansible-core version support** — the Primary orchestrator builds session-scoped venvs per ansible-core version (UV-cached); argspec and deprecation checks run against the requested version. Venvs are shared read-only with validators via a `/sessions` volume.
 - **Structured diagnostics** — every validator reports per-rule timing data via the gRPC contract; use `-v` for summaries or `-vv` for full per-rule breakdowns.
 - **Galaxy Proxy** — converts Ansible Galaxy collection tarballs into pip-installable Python wheels (PEP 503/427); collections are `uv pip install`'d into session venvs, leveraging standard Python caching and dependency resolution.
@@ -116,6 +117,15 @@ apme check -v .
 
 # Diagnostics: full per-rule breakdown
 apme check -vv .
+
+# Skip all dependency scanning (collection health + Python CVE)
+apme check --skip-dep-scan .
+
+# Skip only collection health scanning
+apme check --skip-collection-scan .
+
+# Skip only Python CVE audit
+apme check --skip-python-audit .
 
 # Format YAML files (show diff)
 apme format /path/to/project

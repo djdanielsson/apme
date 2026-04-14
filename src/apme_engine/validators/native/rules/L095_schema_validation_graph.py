@@ -13,8 +13,24 @@ from apme_engine.validators.native.rules.graph_rule_base import GraphRule, Graph
 
 _VALID_PLAY_KEYWORDS: frozenset[str] = frozenset(
     {
-        # Host & connection
+        # Play structure — these are consumed by the model loader but may
+        # reappear in node.options after update_from_yaml rebuilds options
+        # from raw YAML (e.g. post-remediation re-parse).
+        "name",
         "hosts",
+        "tasks",
+        "pre_tasks",
+        "post_tasks",
+        "handlers",
+        "roles",
+        "vars",
+        "vars_files",
+        "vars_prompt",
+        "module_defaults",
+        "collections",
+        "import_playbook",
+        "include",
+        # Host & connection
         "connection",
         "port",
         "remote_user",
@@ -49,8 +65,6 @@ _VALID_PLAY_KEYWORDS: frozenset[str] = frozenset(
         "no_log",
         "tags",
         "when",
-        # Play structure (not consumed by load_play, lands in options)
-        "vars_prompt",
     }
 )
 

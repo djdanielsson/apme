@@ -22,6 +22,7 @@ import { OperationProgressPanel } from '../components/OperationProgressPanel';
 import { ProposalReviewPanel } from '../components/ProposalReviewPanel';
 import { Tier1ResultsPanel } from '../components/Tier1ResultsPanel';
 import { OperationResultCard } from '../components/OperationResultCard';
+import { RuleId } from '../components/RuleId';
 import { useFeedbackEnabled } from '../hooks/useFeedbackEnabled';
 import type { OperationStatus, OperationProgress, OperationProposal, OperationResult } from '../types/operation';
 
@@ -375,7 +376,7 @@ function SessionComplete({
               <div className="apme-remaining-list">
                 {result.remaining_violations.map((v, i) => (
                   <div key={i} className="apme-remaining-item">
-                    <span className="apme-rule-id">{v.rule_id}</span>
+                    <RuleId ruleId={v.rule_id} />
                     <span className="apme-file-name">{v.file}</span>
                     <span>{v.message}</span>
                   </div>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PageLayout, PageHeader } from '@ansible/ansible-ui-framework';
 import {
@@ -49,7 +49,7 @@ function StatusLabel({ lastScanned }: { lastScanned: string | null }) {
   if (!lastScanned) return <Label color="red" variant="outline" isCompact>Never checked</Label>;
   const daysSince = Math.floor((Date.now() - new Date(lastScanned).getTime()) / 86_400_000);
   if (daysSince > 30) return <Label color="orange" isCompact>Stale</Label>;
-  return <Label color="green" isCompact>Active</Label>;
+  return <Label color="green" isCompact>Idle</Label>;
 }
 
 export function ProjectsPage() {
@@ -94,15 +94,21 @@ export function ProjectsPage() {
     setNameManuallyEdited(true);
   }, []);
 
-  const fetchProjects = useCallback(() => {
-    setLoading(true);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const fetchProjects = useCallback((silent = false) => {
+    if (!silent) setLoading(true);
     listProjects(50, 0)
       .then((data) => setProjects(data.items))
       .catch(() => {})
-      .finally(() => setLoading(false));
+      .finally(() => { if (!silent) setLoading(false); });
   }, []);
 
-  useEffect(() => { fetchProjects(); }, [fetchProjects]);
+  useEffect(() => {
+    fetchProjects();
+    pollRef.current = setInterval(() => fetchProjects(true), 5000);
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, [fetchProjects]);
 
   const handleCreate = useCallback(async () => {
     if (!createName.trim() || !createUrl.trim()) return;
@@ -274,7 +280,19 @@ export function ProjectsPage() {
                       {proj.repo_url} ({proj.branch})
                     </div>
                   </td>
-                  <td role="cell"><StatusLabel lastScanned={proj.last_scanned_at} /></td>
+                  <td role="cell">
+                    {proj.active_operation ? (
+                      proj.active_operation.status === 'awaiting_approval' ? (
+                        <Label color="orange" isCompact>Action Required</Label>
+                      ) : (
+                        <Label color="blue" isCompact>
+                          {proj.active_operation.scan_type === 'remediate' ? 'Remediating' : 'Checking'}
+                        </Label>
+                      )
+                    ) : (
+                      <StatusLabel lastScanned={proj.last_scanned_at} />
+                    )}
+                  </td>
                   <td role="cell"><HealthBadge score={proj.health_score} /></td>
                   <td role="cell">{proj.total_violations}</td>
                   <td role="cell"><TrendBadge trend={proj.violation_trend} /></td>

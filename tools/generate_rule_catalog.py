@@ -73,7 +73,8 @@ def _parse_frontmatter(path: Path) -> dict[str, str]:
     m = _FRONTMATTER.match(text)
     if not m:
         return {}
-    return dict(_KV.findall(m.group(1)))
+    pairs = _KV.findall(m.group(1))
+    return {k: v.strip("\"'") for k, v in pairs}
 
 
 def _get_severity(rule_id: str) -> str:

@@ -50,6 +50,7 @@ try:
 
             def mock_init(self, *args, **kwargs):
                 captured["argument_spec"] = kwargs.get("argument_spec", {})
+                captured["add_file_common_args"] = kwargs.get("add_file_common_args", False)
                 captured["required_together"] = kwargs.get("required_together", [])
                 captured["mutually_exclusive"] = kwargs.get("mutually_exclusive", [])
                 captured["required_one_of"] = kwargs.get("required_one_of", [])
@@ -73,6 +74,7 @@ try:
             if captured.get("argument_spec"):
                 entry = {
                     "argument_spec": captured["argument_spec"],
+                    "add_file_common_args": captured.get("add_file_common_args", False),
                     "required_together": captured.get("required_together", []),
                     "mutually_exclusive": captured.get("mutually_exclusive", []),
                     "required_one_of": captured.get("required_one_of", []),
@@ -93,6 +95,7 @@ json.dump(specs, sys.stdout)
 _ANSIBLE_INTERNAL_PARAMS = frozenset(
     {
         "_raw_params",
+        "_raw",
         "_ansible_check_mode",
         "_ansible_debug",
         "_ansible_diff",
@@ -106,6 +109,27 @@ _ANSIBLE_INTERNAL_PARAMS = frozenset(
         "_ansible_tmpdir",
         "_ansible_verbosity",
         "_ansible_version",
+    }
+)
+
+# FILE_COMMON_ARGUMENTS are merged into argspec inside AnsibleModule.__init__,
+# AFTER our mock intercepts the call.  The mock captures the spec as passed to
+# the constructor, so these well-known file params are never in the captured
+# dict.  We allowlist them to avoid false positives on any module that accepts
+# file attributes (copy, file, template, lineinfile, unarchive, etc.).
+_FILE_COMMON_ARGUMENTS = frozenset(
+    {
+        "mode",
+        "owner",
+        "group",
+        "seuser",
+        "serole",
+        "setype",
+        "selevel",
+        "follow",
+        "unsafe_writes",
+        "attributes",
+        "attr",
     }
 )
 
@@ -147,6 +171,8 @@ def _check_tasks_against_specs(
 
         valid_params: set[str] = set(arg_spec.keys())
         valid_params.update(_ANSIBLE_INTERNAL_PARAMS)
+        if spec.get("add_file_common_args"):
+            valid_params.update(_FILE_COMMON_ARGUMENTS)
         for _pname, pdef in arg_spec.items():
             if isinstance(pdef, dict):
                 for alias in pdef.get("aliases") or []:

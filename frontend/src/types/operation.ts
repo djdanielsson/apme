@@ -1,6 +1,6 @@
 /**
- * Common types for check/remediate operations shared by both the Playground
- * (useSessionStream) and Project (useProjectOperation) hooks.
+ * Common types for check/remediate operations shared by the Playground
+ * (useSessionStream) and project operation components (ADR-052).
  */
 
 export type OperationStatus =

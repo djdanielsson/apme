@@ -1,7 +1,7 @@
 ---
 rule_id: L051
 validator: native
-description: Jinja spacing: {{ var }} not {{var}}.
+description: "Jinja spacing: {{ var }} not {{var}}."
 scope: task
 ---
 

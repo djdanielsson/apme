@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { bareRuleId, getRuleDescription, RULE_DESCRIPTIONS } from "../data/ruleDescriptions";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { bareRuleId } from "../data/ruleDescriptions";
 
 describe("bareRuleId", () => {
   it("strips validator prefix", () => {
@@ -19,34 +19,53 @@ describe("bareRuleId", () => {
   });
 });
 
-describe("getRuleDescription", () => {
-  it("returns description for a known rule", () => {
-    expect(getRuleDescription("L003")).toBe("Each play should have a name.");
+describe("getRuleDescription (dynamic fetch)", () => {
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    vi.resetModules();
+    fetchSpy = vi.spyOn(globalThis, "fetch");
   });
 
-  it("resolves prefixed rule IDs via bareRuleId", () => {
-    const desc = RULE_DESCRIPTIONS["L003"];
-    expect(desc).toBeDefined();
-    expect(getRuleDescription("native:L003")).toBe(desc);
+  afterEach(() => {
+    fetchSpy.mockRestore();
   });
 
-  it("returns empty string for unknown rules", () => {
-    expect(getRuleDescription("ZZZZ999")).toBe("");
-    expect(getRuleDescription("native:ZZZZ999")).toBe("");
-  });
-});
+  it("populates descriptions from /api/v1/rules and resolves prefixed IDs", async () => {
+    fetchSpy.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve([
+          { rule_id: "L042", description: "Test rule description" },
+          { rule_id: "M010", description: "Python 2 interpreter" },
+        ]),
+    } as Response);
 
-describe("RULE_DESCRIPTIONS", () => {
-  it("contains expected rule IDs", () => {
-    expect(RULE_DESCRIPTIONS).toHaveProperty("L002");
-    expect(RULE_DESCRIPTIONS).toHaveProperty("L005");
-    expect(RULE_DESCRIPTIONS).toHaveProperty("L003");
+    const mod = await import("../data/ruleDescriptions");
+
+    await vi.waitFor(() => {
+      expect(mod.getRuleDescription("L042")).toBe("Test rule description");
+    });
+
+    expect(mod.getRuleDescription("native:L042")).toBe(
+      "Test rule description",
+    );
+    expect(mod.getRuleDescription("M010")).toBe("Python 2 interpreter");
+    expect(mod.getRuleDescription("ZZZZ999")).toBe("");
   });
 
-  it("values are non-empty strings", () => {
-    for (const [key, value] of Object.entries(RULE_DESCRIPTIONS)) {
-      expect(typeof value).toBe("string");
-      expect(value.length, `${key} should have a non-empty description`).toBeGreaterThan(0);
-    }
+  it("logs a warning on fetch failure", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    fetchSpy.mockRejectedValueOnce(new Error("network error"));
+
+    await import("../data/ruleDescriptions");
+
+    await vi.waitFor(() => {
+      expect(warnSpy).toHaveBeenCalledWith(
+        "Failed to load rule descriptions from /api/v1/rules:",
+        expect.any(Error),
+      );
+    });
+    warnSpy.mockRestore();
   });
 });

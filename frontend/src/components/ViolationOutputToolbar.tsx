@@ -9,7 +9,8 @@ import {
   ToolbarGroup,
 } from '@patternfly/react-core';
 import { FilterIcon, SearchIcon, TimesIcon } from '@patternfly/react-icons';
-import { SEV_CSS_VAR, SEVERITY_ORDER, SEVERITY_LABELS, SCOPE_ORDER, SCOPE_LABELS, FIX_ORDER, FIX_LABELS, bareRuleId } from './severity';
+import { SEV_CSS_VAR, SEVERITY_ORDER, SEVERITY_LABELS, SCOPE_ORDER, SCOPE_LABELS, FIX_ORDER, FIX_LABELS } from './severity';
+import { RuleId } from './RuleId';
 
 interface ViolationOutputToolbarProps {
   searchText: string;
@@ -237,7 +238,7 @@ export function ViolationOutputToolbar({
                     {uniqueRules.map((r) => (
                       <label key={r} className="apme-filter-option">
                         <input type="checkbox" checked={ruleFilters.has(r)} onChange={() => toggleRule(r)} />
-                        <span style={{ fontFamily: 'var(--pf-t--global--font--family--mono)', fontSize: 12 }}>{bareRuleId(r)}</span>
+                        <RuleId ruleId={r} />
                       </label>
                     ))}
                   </div>
@@ -268,7 +269,7 @@ export function ViolationOutputToolbar({
                 ))}
                 {Array.from(ruleFilters).map(r => (
                   <Label key={r} onClose={() => toggleRule(r)} isCompact variant="outline">
-                    {bareRuleId(r)}
+                    <RuleId ruleId={r} />
                   </Label>
                 ))}
                 {searchText && (

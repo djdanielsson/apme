@@ -8,6 +8,7 @@ import {
   Title,
 } from '@patternfly/react-core';
 import { getTopViolations, getRemediationRates, getAiAcceptance, listRules } from '../services/api';
+import { RuleId } from '../components/RuleId';
 import type { TopViolation, RemediationRateEntry, AiAcceptanceEntry, RuleDetail } from '../types/api';
 import { getRuleDescription } from '../data/ruleDescriptions';
 
@@ -87,9 +88,7 @@ export function AnalyticsPage() {
                   {topViolations.map((v, i) => (
                     <tr key={v.rule_id} role="row">
                       <td role="cell" style={{ paddingLeft: 24 }}>
-                        <span style={{ fontFamily: 'var(--pf-t--global--font--family--mono)' }}>
-                          {v.rule_id}
-                        </span>
+                        <RuleId ruleId={v.rule_id} />
                       </td>
                       <td role="cell" style={{ opacity: 0.8, maxWidth: 360, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {descFor(v.rule_id) || '—'}
@@ -132,9 +131,7 @@ export function AnalyticsPage() {
                   {remediationRates.map((r, i) => (
                     <tr key={r.rule_id} role="row">
                       <td role="cell" style={{ paddingLeft: 24 }}>
-                        <span style={{ fontFamily: 'var(--pf-t--global--font--family--mono)' }}>
-                          {r.rule_id}
-                        </span>
+                        <RuleId ruleId={r.rule_id} />
                       </td>
                       <td role="cell" style={{ opacity: 0.8, maxWidth: 360, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {descFor(r.rule_id) || '—'}
@@ -184,9 +181,7 @@ export function AnalyticsPage() {
                     return (
                       <tr key={a.rule_id} role="row">
                         <td role="cell" style={{ paddingLeft: 24 }}>
-                          <span style={{ fontFamily: 'var(--pf-t--global--font--family--mono)' }}>
-                            {a.rule_id}
-                          </span>
+                          <RuleId ruleId={a.rule_id} />
                         </td>
                         <td role="cell" style={{ opacity: 0.8, maxWidth: 360, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {descFor(a.rule_id) || '—'}

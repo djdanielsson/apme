@@ -1,16 +1,15 @@
-"""REST and WebSocket API endpoints for the gateway (ADR-029, ADR-037).
+"""REST and WebSocket API endpoints for the gateway (ADR-029, ADR-037, ADR-052).
 
 Read endpoints serve persisted check/remediate activity.  Write operations happen via the
 gRPC Reporting servicer (engine push model, ADR-020).  The ``WS /ws/session``
 endpoint bridges the browser to Primary's FixSession gRPC stream for the
-playground check + remediate lifecycle (ADR-029).  Project operations use the new
-``WS /projects/{id}/ws/operate`` endpoint (ADR-037).
+playground check + remediate lifecycle (ADR-029).  Project operations use the
+REST + SSE endpoints in ``operation_router.py`` (ADR-052).
 """
 
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 import os
 import uuid
@@ -25,6 +24,7 @@ from starlette.websockets import WebSocketDisconnect  # type: ignore[import-not-
 
 from apme_engine.severity_defaults import severity_from_proto, severity_to_label
 from apme_gateway.api.schemas import (
+    ActiveOperationSummary,
     ActivityDetail,
     ActivitySummary,
     AiAcceptanceEntry,
@@ -465,6 +465,11 @@ async def list_projects(
     Returns:
         Paginated list of project summaries.
     """
+    from apme_gateway.operation_registry import get_operation_registry
+    from apme_gateway.operation_types import TERMINAL_STATUSES
+
+    registry = get_operation_registry()
+
     async with get_session() as db:
         projects = await q.list_projects(
             db,
@@ -481,6 +486,17 @@ async def list_projects(
             last_scan_at = trend_scans[-1].created_at if trend_scans else None
             vt = _compute_violation_trend(trend_scans)
             violation_count = await q.project_violation_count(db, proj.id)
+
+            active_op_summary = None
+            op = registry.get_by_project(proj.id)
+            if op is not None and op.status not in TERMINAL_STATUSES:
+                active_op_summary = ActiveOperationSummary(
+                    operation_id=op.operation_id,
+                    status=op.status.value,
+                    scan_type=op.scan_type,
+                    started_at=op.started_at.isoformat(),
+                )
+
             items.append(
                 ProjectSummary(
                     id=proj.id,
@@ -496,6 +512,7 @@ async def list_projects(
                     scm_provider=proj.scm_provider,
                     has_scm_token=bool(proj.scm_token),
                     last_scanned_commit=proj.last_scanned_commit,
+                    active_operation=active_op_summary,
                 )
             )
     return PaginatedResponse(total=total, limit=limit, offset=offset, items=items)
@@ -558,6 +575,22 @@ async def get_project_detail(project_id: str) -> ProjectDetail:
         if remote_sha and remote_sha != proj.last_scanned_commit:
             has_new = True
 
+    active_op_summary = None
+    try:
+        from apme_gateway.operation_registry import get_operation_registry
+        from apme_gateway.operation_types import TERMINAL_STATUSES
+
+        op = get_operation_registry().get_by_project(proj.id)
+        if op is not None and op.status not in TERMINAL_STATUSES:
+            active_op_summary = ActiveOperationSummary(
+                operation_id=op.operation_id,
+                status=op.status.value,
+                scan_type=op.scan_type,
+                started_at=op.started_at.isoformat(),
+            )
+    except (ImportError, AttributeError, KeyError):
+        logger.debug("Could not resolve active operation for project %s", project_id, exc_info=True)
+
     return ProjectDetail(
         id=proj.id,
         name=proj.name,
@@ -575,6 +608,7 @@ async def get_project_detail(project_id: str) -> ProjectDetail:
         has_new_commits=has_new,
         latest_scan=latest_summary,
         severity_breakdown=severity,
+        active_operation=active_op_summary,
     )
 
 
@@ -1141,6 +1175,48 @@ async def project_dep_health_summary(project_id: str) -> DepHealthSummary:
             for r in cve_rows
         ],
     )
+
+
+# ── Active operations (ADR-052) ──────────────────────────────────────
+
+
+@router.get("/operations/active")  # type: ignore[untyped-decorator]
+async def list_active_operations() -> list[dict[str, object]]:
+    """Return all currently active (non-terminal) operations.
+
+    Returns:
+        List of active operation summaries with project metadata.
+    """
+    from apme_gateway.operation_registry import get_operation_registry
+
+    registry = get_operation_registry()
+    ops = registry.list_active()
+    if not ops:
+        return []
+
+    project_ids = [op.project_id for op in ops]
+    name_map: dict[str, str] = {}
+    try:
+        async with get_session() as db:
+            for pid in project_ids:
+                proj = await q.get_project(db, pid)
+                if proj:
+                    name_map[pid] = proj.name
+    except (ImportError, AttributeError, KeyError):
+        logger.debug("Could not resolve project names for active operations", exc_info=True)
+
+    return [
+        {
+            "operation_id": op.operation_id,
+            "project_id": op.project_id,
+            "project_name": name_map.get(op.project_id, ""),
+            "scan_id": op.scan_id,
+            "status": op.status.value,
+            "scan_type": op.scan_type,
+            "started_at": op.started_at.isoformat(),
+        }
+        for op in ops
+    ]
 
 
 # ── Dashboard (ADR-037) ─────────────────────────────────────────────

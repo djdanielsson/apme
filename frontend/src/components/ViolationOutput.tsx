@@ -7,7 +7,8 @@ import {
   AngleDoubleDownIcon,
 } from '@patternfly/react-icons';
 import { ViolationDetailModal, type ViolationRecord } from './ViolationDetailModal';
-import { severityClass, severityLabel, severityOrder, bareRuleId, scopeLabel } from './severity';
+import { severityClass, severityLabel, severityOrder, scopeLabel } from './severity';
+import { RuleId } from './RuleId';
 
 import { RESOLUTION_AI_ABSTAINED } from '../types/constants';
 
@@ -47,13 +48,12 @@ interface ViolationOutputProps {
   violations: ViolationRecord[];
   hasFilters: boolean;
   scanType?: string;
-  getRuleDescription?: (ruleId: string) => string | undefined;
   onSectionToggle?: (open: boolean) => void;
   scanId?: string;
   feedbackEnabled?: boolean;
 }
 
-export function ViolationOutput({ violations, hasFilters, scanType, getRuleDescription, onSectionToggle, scanId, feedbackEnabled }: ViolationOutputProps) {
+export function ViolationOutput({ violations, hasFilters, scanType, onSectionToggle, scanId, feedbackEnabled }: ViolationOutputProps) {
   const isRemediate = scanType === 'fix' || scanType === 'remediate';
   const [sectionOpen, setSectionOpen] = useState(true);
   const toggleSection = (open: boolean) => {
@@ -90,8 +90,6 @@ export function ViolationOutput({ violations, hasFilters, scanType, getRuleDescr
   };
 
   const isCollapsed = (file: string) => collapsed[file] === true;
-
-  const ruleTitle = (ruleId: string) => getRuleDescription?.(ruleId) || ruleId;
 
   const buildRows = (_groupKey: string, fileViolations: ViolationRecord[]): DisplayRow[] => {
     const sorted = [...fileViolations].sort(
@@ -223,9 +221,7 @@ export function ViolationOutput({ violations, hasFilters, scanType, getRuleDescr
                           >
                             {tierLabel(v.remediation_class, isRemediate, v.remediation_resolution) || '\u00A0'}
                           </span>
-                          <span className="apme-pill apme-rule-pill" title={ruleTitle(v.rule_id)}>
-                            {bareRuleId(v.rule_id)}
-                          </span>
+                          <RuleId ruleId={v.rule_id} className="apme-pill apme-rule-pill" />
                           <span className="apme-output-violation-msg">
                             {v.message}
                           </span>
@@ -245,7 +241,6 @@ export function ViolationOutput({ violations, hasFilters, scanType, getRuleDescr
           isOpen={!!selectedViolation}
           onClose={() => setSelectedViolation(null)}
           violation={selectedViolation}
-          getRuleDescription={getRuleDescription}
           scanType={scanType}
           scanId={scanId}
           feedbackEnabled={feedbackEnabled}
