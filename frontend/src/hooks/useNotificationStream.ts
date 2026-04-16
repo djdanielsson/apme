@@ -125,6 +125,19 @@ export function useNotificationStream(): void {
         // EventSource auto-reconnects — nothing to do
       };
 
+      const emitBufferedAlert = (buffered: NotificationItem) => {
+        const timeout = NO_DISMISS_TYPES.has(buffered.type) ? undefined : 8000;
+        alertToaster.addAlert({
+          key: `notif-${buffered.id}`,
+          title: buffered.title,
+          children: buffered.message,
+          variant: buffered.variant,
+          timeout,
+          actionClose: undefined,
+        });
+        markNotificationRead(buffered.id).catch(() => {});
+      };
+
       try {
         const resp = await listNotifications(100, 0);
         if (!mountedRef.current) return;
@@ -156,24 +169,37 @@ export function useNotificationStream(): void {
           }
           return base;
         });
+        // Flip the flag BEFORE draining any late-arriving buffered items, so
+        // any SSE message that slips in between the initial drain and here
+        // (or between now and the follow-up drain below) is routed through
+        // handleSseItem directly instead of getting stuck in `buffer`.
         restLoaded = true;
 
         for (const buffered of pending) {
           if (!restIds.has(buffered.id)) {
-            const timeout = NO_DISMISS_TYPES.has(buffered.type) ? undefined : 8000;
-            alertToaster.addAlert({
-              key: `notif-${buffered.id}`,
-              title: buffered.title,
-              children: buffered.message,
-              variant: buffered.variant,
-              timeout,
-              actionClose: undefined,
-            });
-            markNotificationRead(buffered.id).catch(() => {});
+            emitBufferedAlert(buffered);
+          }
+        }
+
+        // Second drain: if any SSE events arrived while we were merging/committing
+        // the REST response (e.g. during the `setNotificationGroups` updater or
+        // between `buffer.splice(0)` and flipping `restLoaded`), pick them up now
+        // and route them through the normal handler so nothing is lost.
+        if (buffer.length > 0) {
+          const late = buffer.splice(0);
+          for (const item of late) {
+            if (!restIds.has(item.id)) {
+              handleSseItem(item);
+            }
           }
         }
       } catch {
         if (!mountedRef.current) return;
+
+        // Flip restLoaded first so any SSE events arriving while we process the
+        // buffered items go through handleSseItem directly rather than getting
+        // stuck in `buffer`.
+        restLoaded = true;
 
         const pending = buffer.splice(0);
         if (pending.length > 0) {
@@ -185,19 +211,17 @@ export function useNotificationStream(): void {
             return next;
           });
           for (const buffered of pending) {
-            const timeout = NO_DISMISS_TYPES.has(buffered.type) ? undefined : 8000;
-            alertToaster.addAlert({
-              key: `notif-${buffered.id}`,
-              title: buffered.title,
-              children: buffered.message,
-              variant: buffered.variant,
-              timeout,
-              actionClose: undefined,
-            });
-            markNotificationRead(buffered.id).catch(() => {});
+            emitBufferedAlert(buffered);
           }
         }
-        restLoaded = true;
+
+        // Second drain for any events that landed during the merge above.
+        if (buffer.length > 0) {
+          const late = buffer.splice(0);
+          for (const item of late) {
+            handleSseItem(item);
+          }
+        }
       }
     };
 

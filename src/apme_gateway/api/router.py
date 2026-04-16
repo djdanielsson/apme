@@ -10,6 +10,7 @@ REST + SSE endpoints in ``operation_router.py`` (ADR-052).
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import uuid
