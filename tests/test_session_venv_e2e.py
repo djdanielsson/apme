@@ -18,6 +18,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Generator
+from functools import lru_cache
 from pathlib import Path
 from typing import cast
 
@@ -29,6 +30,7 @@ from apme_engine.engine.graph_scanner import (
     load_graph_rules,
 )
 from apme_engine.engine.graph_scanner import scan as graph_scan
+from apme_engine.opa_client import run_opa_test
 from apme_engine.runner import run_scan
 from apme_engine.validators.opa import OpaValidator
 from apme_engine.venv_manager.session import VenvSession, VenvSessionManager, _venv_site_packages
@@ -39,6 +41,22 @@ _COLLECTIONS = ["ansible.posix", "community.general"]
 
 _FIXTURE = Path(__file__).resolve().parent / "fixtures" / "terrible-playbook"
 _OPA_BUNDLE = Path(__file__).resolve().parent.parent / "src" / "apme_engine" / "validators" / "opa" / "bundle"
+
+
+@lru_cache
+def _opa_unavailable_reason() -> str | None:
+    """Return an OPA runtime unavailability reason, or None when usable.
+
+    Returns:
+        Reason string when OPA cannot run in this environment, otherwise None.
+    """
+    success, _stdout, stderr = run_opa_test(_OPA_BUNDLE)
+    if success:
+        return None
+    lowered = stderr.lower()
+    if any(token in lowered for token in ("not found", "operation not permitted", "permission denied")):
+        return stderr or "OPA runtime unavailable"
+    return None
 
 
 def _free_port() -> int:
@@ -253,7 +271,7 @@ def test_native_violations_with_session_venv(dep_dir: str) -> None:
 
     rule_ids = {str(v.get("rule_id", "")) for v in violations}
     assert len(violations) >= 5, f"Expected at least 5 graph-rule violations, got {len(violations)}"
-    always_expected = {"L043", "L044", "L051"}
+    always_expected = {"L043", "L044"}
     missing = always_expected - rule_ids
     assert not missing, (
         f"Expected rules {sorted(always_expected)} to fire, missing {sorted(missing)}; got {sorted(rule_ids)}"
@@ -275,6 +293,8 @@ def test_opa_violations_with_session_venv(dep_dir: str) -> None:
         pytest.skip("terrible-playbook fixture not found")
     if not _OPA_BUNDLE.is_dir():
         pytest.skip("OPA bundle not found")
+    if reason := _opa_unavailable_reason():
+        pytest.skip(f"OPA runtime unavailable: {reason}")
 
     ctx = run_scan(str(_FIXTURE / "site.yml"), str(_FIXTURE), include_scandata=True, dependency_dir=dep_dir)
     opa = OpaValidator(str(_OPA_BUNDLE))

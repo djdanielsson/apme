@@ -12,6 +12,8 @@ import configparser
 import logging
 import os
 import re
+import shutil
+import sys
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -167,6 +169,27 @@ def _inject_galaxy_env(env: dict[str, str], servers: list[GalaxyServerConfig]) -
             env[f"{prefix}AUTH_URL"] = s.auth_url
 
 
+def _default_ansible_galaxy_bin() -> str:
+    """Resolve the best ``ansible-galaxy`` executable for this process.
+
+    Prefers the active interpreter's sibling scripts directory so subprocesses
+    launched from tox/venv contexts can find the entrypoint even when PATH is
+    minimal or sanitized.
+
+    Returns:
+        Executable path or the literal ``"ansible-galaxy"`` for PATH lookup.
+    """
+    if resolved := shutil.which("ansible-galaxy"):
+        return resolved
+
+    script_name = "ansible-galaxy.exe" if os.name == "nt" else "ansible-galaxy"
+    candidate = Path(sys.executable).resolve().parent / script_name
+    if candidate.is_file():
+        return str(candidate)
+
+    return "ansible-galaxy"
+
+
 async def download_collections(
     collection_specs: list[str],
     download_dir: Path,
@@ -209,7 +232,7 @@ async def download_collections(
 
     download_dir.mkdir(parents=True, exist_ok=True)
 
-    galaxy_bin = ansible_galaxy_bin or "ansible-galaxy"
+    galaxy_bin = ansible_galaxy_bin or _default_ansible_galaxy_bin()
 
     normalized_specs = []
     for spec in collection_specs:
@@ -231,10 +254,16 @@ async def download_collections(
 
     env = dict(os.environ)
     process: asyncio.subprocess.Process | None = None
+    temp_cfg_dir: Path | None = None
 
     try:
         if servers:
-            _inject_galaxy_env(env, servers)
+            try:
+                _inject_galaxy_env(env, servers)
+            except ValueError:
+                temp_cfg_dir = Path(tempfile.mkdtemp(prefix="apme-galaxy-proxy-"))
+                env["ANSIBLE_CONFIG"] = str(write_temp_ansible_cfg(servers, temp_cfg_dir))
+                logger.info("Falling back to temp ansible.cfg for Galaxy config because server names are not env-safe")
         elif ansible_cfg_path:
             env["ANSIBLE_CONFIG"] = str(ansible_cfg_path)
 
@@ -301,6 +330,9 @@ async def download_collections(
             failed_specs=list(collection_specs),
             stderr=f"ansible-galaxy binary not found: {galaxy_bin}",
         )
+    finally:
+        if temp_cfg_dir is not None:
+            shutil.rmtree(temp_cfg_dir, ignore_errors=True)
 
 
 def download_collections_sync(
