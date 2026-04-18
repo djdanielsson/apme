@@ -481,36 +481,40 @@ class TestSessionBuildResult:
 class TestGalaxyProxyConfigActivation:
     """Tests for temporary Galaxy proxy config activation in daemon mode."""
 
-    async def test_sets_and_restores_ansible_config(self, tmp_path: Path) -> None:
+    async def test_sets_and_restores_ansible_config(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Session-scoped Galaxy config is exposed only for the wrapped operation.
 
         Args:
             tmp_path: Pytest temporary directory fixture.
+            monkeypatch: Pytest monkeypatch fixture for safe env manipulation.
         """
         from apme_engine.daemon.primary_server import PrimaryServicer
 
         cfg = tmp_path / "ansible.cfg"
         cfg.write_text("[galaxy]\nserver_list = certified\n")
         servicer = PrimaryServicer()
-        os.environ["ANSIBLE_CONFIG"] = "/tmp/original.cfg"
+        monkeypatch.setenv("ANSIBLE_CONFIG", "/tmp/original.cfg")
 
         async with servicer._activate_galaxy_proxy_config(cfg):
             assert os.environ["ANSIBLE_CONFIG"] == str(cfg)
 
         assert os.environ["ANSIBLE_CONFIG"] == "/tmp/original.cfg"
 
-    async def test_clears_ansible_config_when_unset_beforehand(self, tmp_path: Path) -> None:
+    async def test_clears_ansible_config_when_unset_beforehand(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Temporary activation removes ``ANSIBLE_CONFIG`` afterward if it was unset.
 
         Args:
             tmp_path: Pytest temporary directory fixture.
+            monkeypatch: Pytest monkeypatch fixture for safe env manipulation.
         """
         from apme_engine.daemon.primary_server import PrimaryServicer
 
         cfg = tmp_path / "ansible.cfg"
         cfg.write_text("[galaxy]\nserver_list = certified\n")
         servicer = PrimaryServicer()
-        os.environ.pop("ANSIBLE_CONFIG", None)
+        monkeypatch.delenv("ANSIBLE_CONFIG", raising=False)
 
         async with servicer._activate_galaxy_proxy_config(cfg):
             assert os.environ["ANSIBLE_CONFIG"] == str(cfg)
