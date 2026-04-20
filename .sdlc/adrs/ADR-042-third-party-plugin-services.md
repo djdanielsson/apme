@@ -429,6 +429,7 @@ apme-reviews/
 
 ## References
 
+- [docs/design/THIRD_PARTY_EXTENSIBILITY_OPTIONS.md](../../docs/design/THIRD_PARTY_EXTENSIBILITY_OPTIONS.md) — options briefing: current tool paths, strategic alternatives, phased outcomes, cross-ADR tensions
 - `proto/apme/v1/validate.proto` — existing Validator service contract
 - `proto/apme/v1/common.proto` — shared Violation, File, Health types
 - `src/apme_engine/daemon/primary_server.py` — Primary fan-out and remediation orchestration
@@ -443,3 +444,4 @@ apme-reviews/
 |------|--------|--------|
 | 2026-03-20 | APME Team | Initial proposal |
 | 2026-03-20 | APME Team | Add AI escalation: per-plugin batching and ai_guidance metadata |
+| 2026-04-20 | APME Team | Link options briefing design doc in References |
