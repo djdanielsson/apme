@@ -10,34 +10,63 @@ log() {
   printf '[apme-cleanup] %s\n' "$*"
 }
 
+_listener_cmd=""
+_detect_listener_tool() {
+  if [[ -n "${_listener_cmd}" ]]; then
+    return 0
+  fi
+  if command -v ss >/dev/null 2>&1; then
+    _listener_cmd="ss"
+  elif command -v lsof >/dev/null 2>&1; then
+    _listener_cmd="lsof"
+  else
+    log "ERROR: neither 'ss' nor 'lsof' found — cannot inspect listening ports"
+    exit 1
+  fi
+}
+
 list_apme_listeners() {
-  ss -ltnpH 2>/dev/null | awk -v ports="${PORTS_STR}" '
-    BEGIN {
-      count = split(ports, items, " ")
-      for (i = 1; i <= count; i++) {
-        wanted[items[i]] = 1
-      }
-    }
-    {
-      addr = $4
-      port = addr
-      sub(/^.*:/, "", port)
-      if (port in wanted) {
-        print
-      }
-    }
-  '
+  _detect_listener_tool
+  case "${_listener_cmd}" in
+    ss)
+      ss -ltnpH 2>/dev/null | awk -v ports="${PORTS_STR}" '
+        BEGIN {
+          count = split(ports, items, " ")
+          for (i = 1; i <= count; i++) wanted[items[i]] = 1
+        }
+        {
+          port = $4; sub(/^.*:/, "", port)
+          if (port in wanted) print
+        }
+      '
+      ;;
+    lsof)
+      lsof -iTCP -sTCP:LISTEN -nP 2>/dev/null | awk -v ports="${PORTS_STR}" '
+        BEGIN {
+          count = split(ports, items, " ")
+          for (i = 1; i <= count; i++) wanted[items[i]] = 1
+        }
+        NR > 1 {
+          port = $9; sub(/^.*:/, "", port)
+          if (port in wanted) print
+        }
+      '
+      ;;
+  esac
 }
 
 collect_apme_pids() {
-  list_apme_listeners | awk '
-    {
+  _detect_listener_tool
+  list_apme_listeners | awk -v tool="${_listener_cmd}" '
+    tool == "ss" {
       line = $0
       while (match(line, /pid=[0-9]+/)) {
-        pid = substr(line, RSTART + 4, RLENGTH - 4)
-        print pid
+        print substr(line, RSTART + 4, RLENGTH - 4)
         line = substr(line, RSTART + RLENGTH)
       }
+    }
+    tool == "lsof" && NR >= 1 {
+      print $2
     }
   ' | sort -u
 }
