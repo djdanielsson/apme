@@ -3,14 +3,8 @@ name: Container Images
 on:
   push:
     branches: [main]
-    paths:
-      - "containers/**"
-      - "src/**"
-      - "pyproject.toml"
-      - "uv.lock"
-      - "frontend/**"
-      - "proto/**"
-      - ".github/workflows/container-images.yml"
+    tags:
+      - "v*.*.*"
   workflow_dispatch:
 
 permissions:
@@ -45,7 +39,10 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ steps.owner.outputs.lc }}/apme-base
           tags: |
             type=sha
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}},enable=${{ github.ref_type == 'tag' }}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ github.ref_type == 'tag' && !contains(github.ref_name, '-') }}
+            type=semver,pattern={{major}},enable=${{ github.ref_type == 'tag' && !contains(github.ref_name, '-') }}
+            type=raw,value=latest,enable=${{ github.ref_type == 'tag' && !contains(github.ref_name, '-') }}
 
       - id: base-ref
         run: echo "image=${{ env.REGISTRY }}/${{ steps.owner.outputs.lc }}/apme-base:${{ steps.meta.outputs.version }}" >> "$GITHUB_OUTPUT"
@@ -105,7 +102,10 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ steps.owner.outputs.lc }}/apme-${{ matrix.image.name }}
           tags: |
             type=sha
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}},enable=${{ github.ref_type == 'tag' }}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ github.ref_type == 'tag' && !contains(github.ref_name, '-') }}
+            type=semver,pattern={{major}},enable=${{ github.ref_type == 'tag' && !contains(github.ref_name, '-') }}
+            type=raw,value=latest,enable=${{ github.ref_type == 'tag' && !contains(github.ref_name, '-') }}
 
       - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
