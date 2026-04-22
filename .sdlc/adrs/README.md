@@ -59,6 +59,7 @@ Decisions that have been accepted but are not yet fully implemented.
 | [ADR-051](ADR-051-dependency-health-scanning.md) | Dependency Health Scanning | 2026-04-07 |
 | [ADR-053](ADR-053-github-integration-strategy.md) | GitHub Integration Strategy | 2026-04-10 |
 | [ADR-054](ADR-054-production-deployment.md) | Production Deployment — Helm Chart and bootc VM Image | 2026-04-10 |
+| [ADR-055](ADR-055-backstage-plugin-ui.md) | Replace Standalone UI with Backstage Plugin | 2026-04 |
 
 ## Proposed
 
@@ -89,7 +90,7 @@ Decisions replaced by newer ADRs.
 ## Creating New ADRs
 
 1. Copy the template from `../templates/adr.md`
-2. Use the next available number (currently ADR-055)
+2. Use the next available number (currently ADR-056)
 3. Include:
    - Status (Proposed → Accepted → Implemented)
    - Date

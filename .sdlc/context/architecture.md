@@ -354,6 +354,54 @@ Primary, Native, OPA, Ansible, and Gitleaks all implement the `Health` RPC. A se
 
 ---
 
+## Backstage Integration (ADR-055)
+
+APME can be deployed as a plugin within the **Ansible self-service automation portal**
+(Red Hat Developer Hub / Backstage). This replaces the standalone nginx-served UI with
+Backstage plugins while keeping the engine stack identical.
+
+```
+┌──────────────── Kubernetes Cluster ──────────────────┐
+│                                                       │
+│  ┌─────────────────────────────────────────────────┐  │
+│  │  RHDH Pod (Backstage)                           │  │
+│  │  ┌───────────────┐  ┌────────────────────────┐  │  │
+│  │  │ plugin-apme   │  │ plugin-apme-backend    │  │  │
+│  │  │ (frontend)    │  │ (proxy → Gateway)      │  │  │
+│  │  └───────────────┘  └──────────┬─────────────┘  │  │
+│  └────────────────────────────────┼────────────────┘  │
+│                                   │                    │
+│  ┌────────────────────────────────▼────────────────┐  │
+│  │  APME Engine Deployment (apme.enabled)          │  │
+│  │  Gateway :8080 | Primary :50051 | Validators    │  │
+│  │  Native :50055 | OPA :50054 | Ansible :50053    │  │
+│  │  Galaxy Proxy :8765 | Gitleaks :50056 (opt)     │  │
+│  └─────────────────────────────────────────────────┘  │
+└───────────────────────────────────────────────────────┘
+```
+
+### Deployment
+
+The portal Helm chart (`ansible-portal-chart`) deploys APME when `apme.enabled=true`:
+
+- **Deployment** with all engine containers sharing localhost (same pod-as-unit model)
+- **ClusterIP Service** `<release>-apme-gateway` exposing port 8080
+- **PVCs** for sessions, gateway data, and proxy cache
+- **Dynamic plugins** loaded into RHDH for the frontend and backend
+
+The Backstage backend plugin proxies all REST, SSE, and WebSocket traffic to the
+Gateway and forwards the authenticated user identity via `X-Backstage-User`.
+
+### Overlap with Portal
+
+| Feature | Portal | APME | Resolution |
+|---------|--------|------|------------|
+| Collections | PAH catalog sync | Dependency health analysis | Complementary — keep both |
+| Auth | AAP OAuth | Gateway (currently open) | Backend plugin forwards identity |
+| Scanning, remediation, rules, playground | Not provided | APME-specific | No overlap |
+
+---
+
 ## Decision Records
 
 See [ADR Index](/.sdlc/adrs/README.md) for the full Architecture Decision Records covering all major design choices:
@@ -364,3 +412,4 @@ See [ADR Index](/.sdlc/adrs/README.md) for the full Architecture Decision Record
 - [ADR-012: Scale Pods Not Services](/.sdlc/adrs/ADR-012-scale-pods-not-services.md)
 - [ADR-013: Structured Diagnostics](/.sdlc/adrs/ADR-013-structured-diagnostics.md)
 - [ADR-039: Unified Operation Stream](/.sdlc/adrs/ADR-039-unified-operation-stream.md) — `FixSession` for check and remediate; `ScanStream` removed
+- [ADR-055: Backstage Plugin UI](/.sdlc/adrs/ADR-055-backstage-plugin-ui.md) — Replace standalone UI with Backstage plugin

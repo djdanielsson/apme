@@ -222,6 +222,62 @@ tox -e wipe                             # stop + wipe DB/sessions
 
 ---
 
+## Kubernetes / Backstage Deployment (ADR-055)
+
+APME can be deployed alongside the **Ansible self-service automation portal**
+using the Helm chart at
+[ansible-portal-chart](https://github.com/ansible-automation-platform/ansible-portal-chart).
+
+### Enable APME
+
+```bash
+helm upgrade --install portal ./ansible-portal-chart \
+  --set apme.enabled=true \
+  --set apme.gateway.image=ghcr.io/your-org/apme-gateway:latest \
+  --set apme.primary.image=ghcr.io/your-org/apme-primary:latest \
+  --set apme.native.image=ghcr.io/your-org/apme-native:latest \
+  --set apme.opa.image=ghcr.io/your-org/apme-opa:latest \
+  --set apme.ansible.image=ghcr.io/your-org/apme-ansible:latest \
+  --set apme.galaxyProxy.image=ghcr.io/your-org/apme-galaxy-proxy:latest
+```
+
+This deploys:
+
+| Resource | Purpose |
+|----------|---------|
+| **Deployment** `<release>-apme` | All engine containers (Gateway, Primary, validators, Galaxy Proxy) sharing localhost |
+| **Service** `<release>-apme-gateway` | ClusterIP on port 8080 for the Backstage backend plugin |
+| **PVCs** | `sessions` (5Gi), `gateway-data` (1Gi), `proxy-cache` (5Gi) |
+| **Dynamic plugins** | Frontend (`plugin-apme`) and backend (`plugin-apme-backend`) loaded into RHDH |
+
+### Configuration
+
+In the Helm values:
+
+```yaml
+apme:
+  enabled: true
+  gitleaks:
+    enabled: true    # Set false to skip secrets scanning
+  persistence:
+    storageClass: "" # Use cluster default
+    sessions:
+      size: 5Gi
+    gatewayData:
+      size: 1Gi
+    proxyCache:
+      size: 5Gi
+  feedback:
+    enabled: false
+```
+
+### Environment Variables
+
+The APME Gateway accepts `APME_CORS_ORIGINS` (comma-separated) for cross-origin
+requests and logs `X-Backstage-User` headers forwarded by the Backstage proxy.
+
+---
+
 ## Related Documents
 
 - [Architecture series](/docs/architecture/) — Container topology and service contracts
@@ -231,3 +287,4 @@ tox -e wipe                             # stop + wipe DB/sessions
 - [ADR-024](/.sdlc/adrs/ADR-024-thin-cli-daemon-mode.md) — Thin CLI with local daemon mode
 - [ADR-028](/.sdlc/adrs/ADR-028-session-based-fix-workflow.md) — Session-based fix workflow (FixSession bidi stream)
 - [ADR-039](/.sdlc/adrs/ADR-039-unified-operation-stream.md) — Unified check/remediate via `FixSession`; `ScanStream` removed
+- [ADR-055](/.sdlc/adrs/ADR-055-backstage-plugin-ui.md) — Replace standalone UI with Backstage plugin
