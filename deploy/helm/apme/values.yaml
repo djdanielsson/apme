@@ -19,7 +19,9 @@ fullnameOverride: ""
 # -- Engine stack (Primary + all validators + Galaxy Proxy)
 engine:
   replicas: 1
-  # Recreate avoids RWO PVC conflicts during rolling updates
+  # Recreate avoids RWO PVC conflicts during single-replica rolling updates.
+  # Multi-replica deployments use emptyDir (no PVC conflict) and can safely
+  # override this to RollingUpdate for zero-downtime upgrades.
   strategy:
     type: Recreate
   resources:

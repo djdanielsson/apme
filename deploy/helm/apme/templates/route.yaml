@@ -1,4 +1,7 @@
 {{- if .Values.route.enabled }}
+{{- if not (.Capabilities.APIVersions.Has "route.openshift.io/v1") }}
+{{- fail "route.enabled is true but the cluster does not provide the route.openshift.io/v1 API (not an OpenShift cluster?)" }}
+{{- end }}
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
