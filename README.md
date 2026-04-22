@@ -100,13 +100,27 @@ Six app containers, one pod. All inter-service communication is gRPC. The Galaxy
 
 ## Quick start
 
-### Local development (no containers)
+### Install
 
 ```bash
-# Install tox (one-time)
-uv tool install tox --with tox-uv
+# Install a specific release (recommended)
+pip install apme-engine@git+https://github.com/ansible/apme.git@v2026.4.1
 
-# Run a check (user-facing); engine runs the internal scan pipeline
+# Install with AI escalation support
+pip install "apme-engine[ai] @ git+https://github.com/ansible/apme.git@v2026.4.1"
+
+# Install the latest development version (main branch)
+pip install apme-engine@git+https://github.com/ansible/apme.git@main
+```
+
+Replace the tag with any [release version](https://github.com/ansible/apme/releases).
+The CLI automatically starts a local daemon with all validators when you run a
+command. No containers required for basic usage.
+
+### Basic usage
+
+```bash
+# Scan a playbook or project
 apme check /path/to/playbook-or-project
 
 # JSON output
@@ -148,11 +162,12 @@ apme remediate --ai --auto-approve /path/to/playbook-or-project
 
 ### Container deployment (Podman)
 
-The full pod runs 9 containers: engine services (Primary, Native, OPA, Ansible,
+For the web UI, persistent scan history, or AI-assisted remediation, run the
+full pod. This is also required for APME development.
+
+The pod runs 9 containers: engine services (Primary, Native, OPA, Ansible,
 Gitleaks, Galaxy Proxy), Gateway (REST API + persistence), UI (React dashboard),
-and Abbenay (AI provider). Pod management scripts (`build.sh`, `up.sh`,
-`down.sh`, `wait-for-pod.sh`) run from the **repo root**. The CLI helper
-`run-cli.sh` runs from the directory you want to scan.
+and Abbenay (AI provider).
 
 ```
 Container        Port   Role
