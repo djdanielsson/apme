@@ -203,6 +203,10 @@ route:
   host: ""
   annotations: {}
   tls:
+    # Only "edge" termination is supported out of the box — backend services
+    # (UI nginx, Gateway FastAPI) serve plain HTTP.  "reencrypt" and
+    # "passthrough" require TLS-enabled backends and are not supported
+    # without custom container builds.
     termination: edge
     insecureEdgeTerminationPolicy: Redirect
 
