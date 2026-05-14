@@ -339,9 +339,7 @@ class TestDebugSensitiveVarsGraphRule:
 
     def test_multiple_sensitive_vars_all_listed(self) -> None:
         """All sensitive vars are listed in violation message."""
-        graph, task_id = _make_debug_graph(
-            msg="{{ password }} and {{ api_key }} and {{ secret }}"
-        )
+        graph, task_id = _make_debug_graph(msg="{{ password }} and {{ api_key }} and {{ secret }}")
         rule = DebugSensitiveVarsGraphRule()
 
         result = rule.process(graph, task_id)

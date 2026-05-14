@@ -20,30 +20,34 @@ from apme_engine.validators.native.rules.graph_rule_base import GraphRule, Graph
 
 _TASK_TYPES = frozenset({NodeType.TASK, NodeType.HANDLER})
 
-_DEBUG_MODULES = frozenset({
-    "debug",
-    "ansible.builtin.debug",
-    "ansible.legacy.debug",
-})
+_DEBUG_MODULES = frozenset(
+    {
+        "debug",
+        "ansible.builtin.debug",
+        "ansible.legacy.debug",
+    }
+)
 
-_SENSITIVE_PATTERNS = frozenset({
-    "password",
-    "passwd",
-    "pwd",
-    "secret",
-    "secrets",
-    "token",
-    "auth_token",
-    "access_token",
-    "api_token",
-    "api_key",
-    "apikey",
-    "credential",
-    "credentials",
-    "cred",
-    "private_key",
-    "ssh_key",
-})
+_SENSITIVE_PATTERNS = frozenset(
+    {
+        "password",
+        "passwd",
+        "pwd",
+        "secret",
+        "secrets",
+        "token",
+        "auth_token",
+        "access_token",
+        "api_token",
+        "api_key",
+        "apikey",
+        "credential",
+        "credentials",
+        "cred",
+        "private_key",
+        "ssh_key",
+    }
+)
 
 _JINJA_VAR_RE = re.compile(r"\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)")
 
@@ -94,9 +98,8 @@ def _find_sensitive_vars_in_debug(node: ContentNode) -> list[str]:
                 sensitive_found.append(var_name)
 
     var_param = mo.get("var", "")
-    if var_param and isinstance(var_param, str):
-        if _var_looks_sensitive(var_param):
-            sensitive_found.append(var_param)
+    if var_param and isinstance(var_param, str) and _var_looks_sensitive(var_param):
+        sensitive_found.append(var_param)
 
     return sensitive_found
 
