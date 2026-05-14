@@ -27,6 +27,7 @@ Static CLI scanner with FQCN conversion and basic error reporting. Foundation fo
 | REQ | Name | Status |
 |-----|------|--------|
 | REQ-001 | Core Scanning Engine | In Progress |
+| REQ-015 | Detect Debug Sensitive Variables | Implemented |
 
 ## Dependencies
 
