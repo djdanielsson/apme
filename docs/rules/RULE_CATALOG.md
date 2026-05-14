@@ -119,7 +119,7 @@
 | L104 | Native | low | Collection should have meta/runtime.yml. | Yes | — | Yes | — |
 | L105 | Native | low | galaxy.yml should have a repository key. | Yes | Yes | Yes | — |
 | L106 | OPA | medium | set_fact with loop and when is a scaling anti-pattern. | Yes | Yes | Yes | — |
-| L110 | Native | medium |  | Yes | Yes | — | — |
+| L110 | Native | medium | Debug tasks should not log sensitive variables without no_log. | Yes | Yes | Yes | — |
 | M001 | Ansible | high | FQCN resolution — module resolved to a different canonical name. | Yes | Yes | Yes | Yes |
 | M002 | Ansible | high | Deprecated module — module has deprecation metadata. | Yes | Yes | Yes | Yes |
 | M003 | Ansible | high | Module redirect — module name was redirected to a new FQCN. | Yes | Yes | Yes | Yes |
@@ -297,7 +297,7 @@
 | L103 | low | Collection should have a CHANGELOG file. | Yes | Yes | Yes | — |
 | L104 | low | Collection should have meta/runtime.yml. | Yes | — | Yes | — |
 | L105 | low | galaxy.yml should have a repository key. | Yes | Yes | Yes | — |
-| L110 | medium |  | Yes | Yes | — | — |
+| L110 | medium | Debug tasks should not log sensitive variables without no_log. | Yes | Yes | Yes | — |
 | M005 | high | Registered variable used in Jinja template may be untrusted in 2.19+. | Yes | Yes | Yes | — |
 | M010 | high | ansible_python_interpreter set to Python 2; dropped in 2.18+. | Yes | Yes | Yes | — |
 | M014 | medium | Use ansible_facts["name"] instead of injected ansible_* fact variables (removed in 2.24) | Yes | — | Yes | — |
@@ -405,9 +405,8 @@
 - **R117** (Native): Role is from Galaxy/external source.
 - **R401** (Native): Report inbound transfer sources.
 
-### Implemented but undocumented — 2
+### Implemented but undocumented — 1
 
-- **L110** (Native): 
 - **SEC:*** (Gitleaks): Secret/credential detection (delegated to Gitleaks binary).
 
 ## Fixer Summary
