@@ -174,6 +174,13 @@ class TestVarLooksSensitive:
         assert not _var_looks_sensitive("port")
         assert not _var_looks_sensitive("config")
 
+    def test_false_positive_avoidance(self) -> None:
+        """Substring matches that are not word-bounded are rejected."""
+        assert not _var_looks_sensitive("secretary_name")
+        assert not _var_looks_sensitive("tokenized_value")
+        assert not _var_looks_sensitive("accreditation")
+        assert not _var_looks_sensitive("passwords_enabled")
+
 
 class TestFindSensitiveVarsInDebug:
     """Tests for _find_sensitive_vars_in_debug helper."""

@@ -28,7 +28,7 @@ _DEBUG_MODULES = frozenset(
     }
 )
 
-_SENSITIVE_PATTERNS = frozenset(
+_SENSITIVE_WORDS = frozenset(
     {
         "password",
         "passwd",
@@ -36,9 +36,6 @@ _SENSITIVE_PATTERNS = frozenset(
         "secret",
         "secrets",
         "token",
-        "auth_token",
-        "access_token",
-        "api_token",
         "api_key",
         "apikey",
         "credential",
@@ -50,6 +47,7 @@ _SENSITIVE_PATTERNS = frozenset(
 )
 
 _JINJA_VAR_RE = re.compile(r"\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)")
+_WORD_BOUNDARY_RE = re.compile(r"(?:^|_)({})(?:_|$)".format("|".join(_SENSITIVE_WORDS)))
 
 
 def _extract_jinja_vars(text: str) -> set[str]:
@@ -69,14 +67,19 @@ def _extract_jinja_vars(text: str) -> set[str]:
 def _var_looks_sensitive(var_name: str) -> bool:
     """Check if a variable name matches sensitive patterns.
 
+    Uses word-boundary matching to avoid false positives like 'secretary_name'
+    (contains 'secret') or 'tokenized_value' (contains 'token'). Matches when
+    a sensitive word appears as a complete segment bounded by underscores or
+    string start/end.
+
     Args:
         var_name: Variable name to check.
 
     Returns:
-        True if the variable name contains a sensitive pattern.
+        True if the variable name contains a sensitive word as a segment.
     """
     lower = var_name.lower()
-    return any(pattern in lower for pattern in _SENSITIVE_PATTERNS)
+    return bool(_WORD_BOUNDARY_RE.search(lower))
 
 
 def _find_sensitive_vars_in_debug(node: ContentNode) -> list[str]:
