@@ -106,8 +106,8 @@ and then push so CI stays green.
 ### 5a. Comment on review threads
 
 When you push fixes that address a review comment, reply on that thread so
-the resolution is visible. Follow the **`pr-review`** skill for the full
-procedure (REST reply endpoint, finding comment IDs, GraphQL thread resolution).
+the resolution is visible. Follow the **`pr-address-feedback`** skill for the
+full procedure (finding comment IDs, GraphQL thread resolution).
 
 ### 5b. Track all deferred work as issues
 
@@ -154,14 +154,14 @@ When reviewing or preparing a contributor PR:
 - [ ] PR description has Summary, Changes, and Test plan (pr-new style).
 - [ ] If pushing to their branch: rebase onto upstream main, tox green, then
       `git push <remote> <local>:<their-branch> --force-with-lease`.
-- [ ] If you addressed a review comment: follow the `pr-review` skill to reply
-      on the thread with explanation + commit SHA and resolve it.
+- [ ] If you addressed a review comment: follow the `pr-address-feedback` skill
+      to reply on the thread with explanation + commit SHA and resolve it.
 
 ## References
 
 - **tox skill** (`/tox`): Full tox environment reference.
 - **pr-new** skill: PR body template and commit conventions.
-- **pr-review** skill: Responding to review comments and resolving threads.
+- **pr-address-feedback** skill: Responding to review comments and resolving threads.
 - **CONTRIBUTING.md**: PR template, testing, security checklist.
 - **CLAUDE.md**: Quality gates (tox -e lint, tox -e unit).
 

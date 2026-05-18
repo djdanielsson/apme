@@ -192,5 +192,5 @@ The Summary, Changes, and Test plan sections must stay current with all commits 
 ### Responding to review feedback
 
 After pushing the PR, reviewers (human or Copilot) may leave comments. Follow
-the **`pr-review`** skill for the full procedure: checking CI status, replying
-to comments, resolving threads, and re-checking for new Copilot reviews.
+the **`pr-address-feedback`** skill for the full procedure: checking CI status,
+replying to comments, resolving threads, and re-checking for new Copilot reviews.

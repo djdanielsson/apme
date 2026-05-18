@@ -355,7 +355,7 @@ anything else**. If a matching skill exists, read it and follow its instructions
 | `/phase-new` | Create project phase |
 | `/pr-contributor-review` | Review external contributor PRs |
 | `/pr-new` | Create and submit pull requests |
-| `/pr-review` | Handle PR review feedback |
+| `/pr-address-feedback` | Handle PR review feedback |
 | `/prd-import` | Import product requirements |
 | `/req-new` | Create requirement spec |
 | `/rfe-capture` | Capture request for enhancement |
