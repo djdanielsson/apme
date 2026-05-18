@@ -18,9 +18,10 @@ Create the L110_debug_sensitive_vars_graph.py rule that detects debug tasks logg
    - Respects no_log inheritance from task/block/play scope
 
 2. `tests/test_L110_debug_sensitive_vars_graph.py`
-   - 28 unit tests covering all acceptance criteria
+   - Unit tests covering all acceptance criteria
    - Tests for helpers: `_extract_jinja_vars`, `_var_looks_sensitive`, `_find_sensitive_vars_in_debug`
    - Tests for rule: match conditions, violations, no_log inheritance, false positives
+   - Handler coverage, nested vars, dict key access, _raw module args, no_log override
 
 ### Sensitive Patterns Detected
 
@@ -34,7 +35,7 @@ Create the L110_debug_sensitive_vars_graph.py rule that detects debug tasks logg
 ## Verification
 
 - [x] `tox -e lint` passes
-- [x] `tox -e unit -- tests/test_L110_debug_sensitive_vars_graph.py` passes (28/28 tests)
+- [x] `tox -e unit -- tests/test_L110_debug_sensitive_vars_graph.py` passes
 - [x] Rule auto-registered in Native validator (via module discovery)
 - [x] RULE_CATALOG.md auto-updated by lint hook
 

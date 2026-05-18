@@ -43,25 +43,36 @@ _SENSITIVE_WORDS = frozenset(
         "cred",
         "private_key",
         "ssh_key",
+        "access_key",
+        "client_key",
     }
 )
 
-_JINJA_VAR_RE = re.compile(r"\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)")
-_WORD_BOUNDARY_RE = re.compile(r"(?:^|_)({})(?:_|$)".format("|".join(_SENSITIVE_WORDS)))
+_JINJA_VAR_RE = re.compile(r"\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)")
+_JINJA_ATTR_RE = re.compile(r"\[['\"]([a-zA-Z_][a-zA-Z0-9_]*)['\"]")
+_WORD_BOUNDARY_RE = re.compile(r"(?:^|[_.\[])({})(?:[_.\]'\"]|$)".format("|".join(_SENSITIVE_WORDS)))
 
 
 def _extract_jinja_vars(text: str) -> set[str]:
     """Extract variable names from Jinja template references.
 
+    Captures both simple vars ({{ password }}) and nested attribute/key access
+    ({{ vault.db_password }}, {{ credentials['token'] }}).
+
     Args:
         text: String potentially containing Jinja syntax like {{ var_name }}.
 
     Returns:
-        Set of variable names found in the text.
+        Set of variable names/paths found in the text.
     """
     if not isinstance(text, str):
         return set()
-    return {m.group(1) for m in _JINJA_VAR_RE.finditer(text)}
+    result: set[str] = set()
+    for m in _JINJA_VAR_RE.finditer(text):
+        result.add(m.group(1))
+    for m in _JINJA_ATTR_RE.finditer(text):
+        result.add(m.group(1))
+    return result
 
 
 def _var_looks_sensitive(var_name: str) -> bool:
@@ -69,11 +80,14 @@ def _var_looks_sensitive(var_name: str) -> bool:
 
     Uses word-boundary matching to avoid false positives like 'secretary_name'
     (contains 'secret') or 'tokenized_value' (contains 'token'). Matches when
-    a sensitive word appears as a complete segment bounded by underscores or
-    string start/end.
+    a sensitive word appears as a complete segment bounded by underscores,
+    dots, brackets, or string start/end.
+
+    Handles both simple names (db_password) and nested paths (vault.db_password,
+    credentials['token']).
 
     Args:
-        var_name: Variable name to check.
+        var_name: Variable name or dotted path to check.
 
     Returns:
         True if the variable name contains a sensitive word as a segment.
@@ -83,45 +97,62 @@ def _var_looks_sensitive(var_name: str) -> bool:
 
 
 def _find_sensitive_vars_in_debug(node: ContentNode) -> list[str]:
-    """Find sensitive variable references in debug task msg/var.
+    """Find sensitive variable references in debug task msg/var/_raw.
+
+    Checks msg, var, and _raw (free-form module args) for sensitive variable
+    references. Uses a set internally for deduplication.
 
     Args:
         node: Task node to inspect.
 
     Returns:
-        List of sensitive variable names found.
+        List of unique sensitive variable names found.
     """
-    sensitive_found: list[str] = []
+    sensitive_found: set[str] = set()
     mo = node.module_options if isinstance(node.module_options, dict) else {}
 
     msg = mo.get("msg", "")
     if msg:
         for var_name in _extract_jinja_vars(str(msg)):
             if _var_looks_sensitive(var_name):
-                sensitive_found.append(var_name)
+                sensitive_found.add(var_name)
 
     var_param = mo.get("var", "")
     if var_param and isinstance(var_param, str) and _var_looks_sensitive(var_param):
-        sensitive_found.append(var_param)
+        sensitive_found.add(var_param)
 
-    return sensitive_found
+    raw = mo.get("_raw", "")
+    if raw:
+        for var_name in _extract_jinja_vars(str(raw)):
+            if _var_looks_sensitive(var_name):
+                sensitive_found.add(var_name)
+
+    return list(sensitive_found)
 
 
 def _no_log_true_in_scope(graph: ContentGraph, node_id: str) -> bool:
-    """Return True if any scope in the chain sets no_log to True.
+    """Return True if no_log is effectively True at this node.
+
+    Ansible allows more-specific scopes to override inherited keywords. A task
+    with no_log: false can opt out of a block/play with no_log: true. We walk
+    the chain from the task outward and return False immediately if the node
+    explicitly sets no_log: false, overriding any ancestor.
 
     Args:
         graph: Content graph for the scan.
         node_id: Task or handler node id.
 
     Returns:
-        True when no_log is explicitly true on the node or an ancestor.
+        True when no_log is effectively true at this scope.
     """
     node = graph.get_node(node_id)
     if node is None:
         return False
-    chain: list[ContentNode] = [node] + graph.ancestors(node_id)
-    return any(scope.no_log is True for scope in chain)
+    if node.no_log is False:
+        return False
+    if node.no_log is True:
+        return True
+    return any(ancestor.no_log is True for ancestor in graph.ancestors(node_id))
 
 
 @dataclass

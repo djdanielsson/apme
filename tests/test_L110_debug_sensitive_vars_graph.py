@@ -27,18 +27,22 @@ def _make_debug_graph(
     *,
     msg: str | None = None,
     var: str | None = None,
+    raw: str | None = None,
     no_log: bool | None = None,
     block_no_log: bool | None = None,
     play_no_log: bool | None = None,
+    node_type: NodeType = NodeType.TASK,
 ) -> tuple[ContentGraph, str]:
-    """Build a playbook > play > [block >] task graph for L110 testing.
+    """Build a playbook > play > [block >] task/handler graph for L110 testing.
 
     Args:
         msg: Debug msg parameter.
         var: Debug var parameter.
+        raw: Debug _raw parameter (free-form module args).
         no_log: Task-level no_log setting.
         block_no_log: Block-level no_log setting.
         play_no_log: Play-level no_log setting.
+        node_type: NodeType.TASK or NodeType.HANDLER.
 
     Returns:
         Tuple of (graph, task_node_id).
@@ -82,9 +86,12 @@ def _make_debug_graph(
         module_options["msg"] = msg
     if var is not None:
         module_options["var"] = var
+    if raw is not None:
+        module_options["_raw"] = raw
 
+    path_suffix = "handlers[0]" if node_type == NodeType.HANDLER else "tasks[0]"
     task = ContentNode(
-        identity=NodeIdentity(path="site.yml/plays[0]/tasks[0]", node_type=NodeType.TASK),
+        identity=NodeIdentity(path=f"site.yml/plays[0]/{path_suffix}", node_type=node_type),
         file_path="site.yml",
         line_start=10,
         module="ansible.builtin.debug",
@@ -394,3 +401,121 @@ class TestDebugSensitiveVarsGraphRule:
         result = rule.process(g, task.node_id)
         assert result is not None
         assert result.verdict is True
+
+    def test_handler_with_sensitive_var_fires(self) -> None:
+        """Rule fires for handlers with sensitive variables."""
+        graph, handler_id = _make_debug_graph(
+            msg="Password: {{ db_password }}",
+            node_type=NodeType.HANDLER,
+        )
+        rule = DebugSensitiveVarsGraphRule()
+
+        assert rule.match(graph, handler_id)
+        result = rule.process(graph, handler_id)
+
+        assert result is not None
+        assert result.verdict is True
+        assert "db_password" in str(result.detail)
+
+    def test_handler_with_no_log_passes(self) -> None:
+        """Handler with no_log: true passes."""
+        graph, handler_id = _make_debug_graph(
+            msg="Password: {{ db_password }}",
+            node_type=NodeType.HANDLER,
+            no_log=True,
+        )
+        rule = DebugSensitiveVarsGraphRule()
+
+        result = rule.process(graph, handler_id)
+
+        assert result is not None
+        assert result.verdict is False
+
+    def test_nested_var_vault_password(self) -> None:
+        """Rule detects nested attribute access like vault.db_password."""
+        graph, task_id = _make_debug_graph(msg="{{ vault.db_password }}")
+        rule = DebugSensitiveVarsGraphRule()
+
+        result = rule.process(graph, task_id)
+
+        assert result is not None
+        assert result.verdict is True
+        assert "vault.db_password" in str(result.detail)
+
+    def test_dict_key_access_sensitive(self) -> None:
+        """Rule detects dictionary key access like credentials['token']."""
+        graph, task_id = _make_debug_graph(msg="{{ credentials['token'] }}")
+        rule = DebugSensitiveVarsGraphRule()
+
+        result = rule.process(graph, task_id)
+
+        assert result is not None
+        assert result.verdict is True
+
+    def test_no_log_false_overrides_block_true(self) -> None:
+        """Task no_log: false overrides block no_log: true."""
+        graph, task_id = _make_debug_graph(
+            msg="Password: {{ db_password }}",
+            no_log=False,
+            block_no_log=True,
+        )
+        rule = DebugSensitiveVarsGraphRule()
+
+        result = rule.process(graph, task_id)
+
+        assert result is not None
+        assert result.verdict is True
+
+    def test_no_log_false_overrides_play_true(self) -> None:
+        """Task no_log: false overrides play no_log: true."""
+        graph, task_id = _make_debug_graph(
+            msg="Password: {{ db_password }}",
+            no_log=False,
+            play_no_log=True,
+        )
+        rule = DebugSensitiveVarsGraphRule()
+
+        result = rule.process(graph, task_id)
+
+        assert result is not None
+        assert result.verdict is True
+
+    def test_raw_module_args_sensitive(self) -> None:
+        """Rule detects sensitive vars in _raw module args."""
+        graph, task_id = _make_debug_graph(raw='msg="Password {{ db_password }}"')
+        rule = DebugSensitiveVarsGraphRule()
+
+        result = rule.process(graph, task_id)
+
+        assert result is not None
+        assert result.verdict is True
+
+    def test_access_key_sensitive(self) -> None:
+        """access_key is recognized as sensitive."""
+        assert _var_looks_sensitive("access_key")
+        assert _var_looks_sensitive("aws_access_key")
+
+    def test_client_key_sensitive(self) -> None:
+        """client_key is recognized as sensitive."""
+        assert _var_looks_sensitive("client_key")
+        assert _var_looks_sensitive("ssl_client_key")
+
+    def test_nested_var_extraction(self) -> None:
+        """Extract nested vars from Jinja templates."""
+        result = _extract_jinja_vars("{{ vault.db_password }}")
+        assert "vault.db_password" in result
+
+    def test_dict_key_extraction(self) -> None:
+        """Extract dictionary key access from Jinja templates."""
+        result = _extract_jinja_vars("{{ credentials['token'] }}")
+        assert "token" in result
+
+    def test_deduplication_msg_and_var(self) -> None:
+        """Same sensitive var in msg and var is reported once."""
+        node = ContentNode(
+            identity=NodeIdentity(path="test", node_type=NodeType.TASK),
+            module="ansible.builtin.debug",
+            module_options={"msg": "{{ password }}", "var": "password"},
+        )
+        result = _find_sensitive_vars_in_debug(node)
+        assert result.count("password") == 1

@@ -42,7 +42,7 @@ class DebugSensitiveVarsGraphRule(GraphRule):
 
 ## Integration Points
 
-- Reuses `_no_log_true_in_scope` from L047
+- Defines own `_no_log_true_in_scope` helper (respects no_log: false override)
 - Registers in Native validator rule discovery
 - No proto changes required
 
