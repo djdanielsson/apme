@@ -21,7 +21,7 @@ import time
 import uuid
 from collections.abc import AsyncIterator, Callable, Coroutine
 from typing import Any
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import quote, urlparse, urlunparse
 
 import grpc
 import grpc.aio
@@ -123,7 +123,9 @@ def _inject_token_in_url(repo_url: str, token: str) -> str:
     else:
         username = "git"
 
-    netloc_with_auth = f"{username}:{token}@{hostname}"
+    # Percent-encode token to handle special characters (@, :, /, etc.)
+    encoded_token = quote(token, safe="")
+    netloc_with_auth = f"{username}:{encoded_token}@{hostname}"
     if parsed.port:
         netloc_with_auth += f":{parsed.port}"
     return urlunparse(parsed._replace(netloc=netloc_with_auth))
@@ -147,7 +149,9 @@ async def fetch_remote_head(repo_url: str, branch: str, scm_token: str | None = 
     if not any(repo_url.startswith(scheme) for scheme in _ALLOWED_SCHEMES):
         return None
 
-    cache_key = f"{repo_url}:{branch}"
+    # Include token presence in cache key to avoid mixing authenticated/unauthenticated results
+    token_marker = ":auth" if scm_token else ""
+    cache_key = f"{repo_url}:{branch}{token_marker}"
     now = time.monotonic()
     cached = _REMOTE_HEAD_CACHE.get(cache_key)
     if cached and (now - cached[0]) < _REMOTE_HEAD_TTL:
