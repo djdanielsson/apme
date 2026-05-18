@@ -9,7 +9,7 @@ Agent skills for development workflow and spec-driven development.
 | Skill | Purpose | Arguments |
 |-------|---------|-----------|
 | `pr-new` | Prepare and submit a pull request | `[branch-name] [--title 'PR title']` |
-| `pr-review` | Handle PR review feedback | `<PR number>` |
+| `pr-address-feedback` | Handle PR review feedback | `<PR number>` |
 | `pr-contributor-review` | Review and prepare a contributor's PR (upstream/fork) | `<PR number or URL>` |
 
 ### Spec-Driven Development (SDLC)
@@ -45,7 +45,7 @@ skills/
 │   └── status-values.md
 ├── pr-new/                 # PR lifecycle
 │   └── SKILL.md
-├── pr-review/
+├── pr-address-feedback/
 │   └── SKILL.md
 ├── pr-contributor-review/
 │   └── SKILL.md

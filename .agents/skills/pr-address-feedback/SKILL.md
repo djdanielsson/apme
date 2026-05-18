@@ -1,14 +1,14 @@
 ---
 name: pr-address-feedback
 description: >
-Guide for handling pull request reviews, including automated (Copilot) and
-human reviewer feedback. Use when responding to PR comments, resolving
-review threads, or updating PRs after review.
-argument-hint: ""
+  Guide for handling pull request reviews, including automated (Copilot) and
+  human reviewer feedback. Use when responding to PR comments, resolving
+  review threads, or updating PRs after review.
+argument-hint: "<PR number>"
 user-invocable: true
 metadata:
-author: APME Team
-version: 1.1.0
+  author: APME Team
+  version: 1.1.0
 ---
 
 # PR Address Feedback
@@ -163,7 +163,7 @@ gh api graphql -f query='{
   repository(owner: "ansible", name: "apme") {
     pullRequest(number: N) {
       reviewThreads(first: 50) {
-        nodes { id isResolved comments(first:1) { nodes { body } } }
+        nodes { id isResolved comments(last: 5) { nodes { body author { login } } } }
       }
     }
   }
@@ -175,7 +175,7 @@ Replace `THREAD_ID` with the `id` fetched above. State how the issue was resolve
 
 ```bash
 gh api graphql -f query='mutation {
-  addPullRequestReviewThreadReply(input: {pullRequestThreadId: "THREAD_ID", body: "Removed the unused imports so Ruff F401 passes. Fixed in abc1234."}) {
+  addPullRequestReviewThreadReply(input: {pullRequestReviewThreadId: "THREAD_ID", body: "Removed the unused imports so Ruff F401 passes. Fixed in abc1234."}) {
     comment { id }
   }
 }'
@@ -196,11 +196,23 @@ gh api graphql -f query='mutation {
 
 ### Verification Check
 
-After replying and selectively resolving, run the Step 1 query one final time.
+After replying and selectively resolving, run this query to list **all** threads (resolved and unresolved) with their latest replies. This differs from Step 1, which only shows unresolved threads.
 
-* **Verify Replies:** Ensure that *every* thread (whether resolved or left unresolved) has a new reply from you explaining your action or dispute.
+```bash
+gh api graphql -f query='{
+  repository(owner: "ansible", name: "apme") {
+    pullRequest(number: N) {
+      reviewThreads(first: 50) {
+        nodes { id isResolved comments(last: 3) { nodes { body author { login } } } }
+      }
+    }
+  }
+}' --jq '.data.repository.pullRequest.reviewThreads.nodes[] | {id, isResolved, lastReplyBy: .comments.nodes[-1].author.login, lastReplySnippet: .comments.nodes[-1].body[0:120]}'
+```
 
-* **Verify Intentional State:** It is expected to see unresolved threads returned in this query *only* if they are disputed. Verify that any thread you left unresolved was left open intentionally. Do NOT blindly resolve all threads just to clear the list.
+* **Verify Replies:** Every thread must have a reply from you. If `lastReplyBy` is still the original reviewer, that thread was missed.
+
+* **Verify Intentional State:** Unresolved threads should only be ones you intentionally left open (disputed). Verify that any thread still showing `isResolved: false` was left open on purpose. Do NOT blindly resolve all threads just to clear the list.
 
 ### After pushing fixes: check for a new Copilot review
 
@@ -210,5 +222,8 @@ line comments so you can reply and resolve any new threads.
 ```bash
 # New Copilot review (replace N with PR number, ISO8601 with last push time)
 gh api repos/ansible/apme/pulls/N/reviews --jq '.[] | select(.user.login == "copilot-pull-request-reviewer[bot]" and .submitted_at > "ISO8601") | {submitted_at, state, body: .body[0:200]}'
+
+# New Copilot inline comments (line comments not attached to a review)
+gh api repos/ansible/apme/pulls/N/comments --jq '.[] | select(.user.login == "copilot-pull-request-reviewer[bot]" and .created_at > "ISO8601") | {created_at, path, body: .body[0:200]}'
 ```
 
