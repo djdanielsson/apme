@@ -133,6 +133,17 @@ class TestExtractJinjaVars:
         result = _extract_jinja_vars(123)  # type: ignore[arg-type]
         assert result == set()
 
+    def test_bracket_pattern_outside_jinja_ignored(self) -> None:
+        """Bracket patterns outside Jinja blocks are not extracted."""
+        result = _extract_jinja_vars("Use format like ['password'] for keys")
+        assert "password" not in result
+        assert result == set()
+
+    def test_bracket_pattern_inside_jinja_extracted(self) -> None:
+        """Bracket patterns inside Jinja blocks are extracted."""
+        result = _extract_jinja_vars("{{ credentials['password'] }}")
+        assert "password" in result
+
 
 class TestVarLooksSensitive:
     """Tests for _var_looks_sensitive helper."""

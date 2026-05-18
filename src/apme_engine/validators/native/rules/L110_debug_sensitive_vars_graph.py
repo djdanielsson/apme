@@ -49,6 +49,7 @@ _SENSITIVE_WORDS = frozenset(
 )
 
 _JINJA_VAR_RE = re.compile(r"\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)")
+_JINJA_BLOCK_RE = re.compile(r"\{\{([^}]+)\}\}")
 _JINJA_ATTR_RE = re.compile(r"\[['\"]([a-zA-Z_][a-zA-Z0-9_]*)['\"]")
 _WORD_BOUNDARY_RE = re.compile(r"(?:^|[_.\[])({})(?:[_.\]'\"]|$)".format("|".join(_SENSITIVE_WORDS)))
 
@@ -57,7 +58,8 @@ def _extract_jinja_vars(text: str) -> set[str]:
     """Extract variable names from Jinja template references.
 
     Captures both simple vars ({{ password }}) and nested attribute/key access
-    ({{ vault.db_password }}, {{ credentials['token'] }}).
+    ({{ vault.db_password }}, {{ credentials['token'] }}). Only scans within
+    Jinja blocks to avoid false positives from plain text containing brackets.
 
     Args:
         text: String potentially containing Jinja syntax like {{ var_name }}.
@@ -70,8 +72,10 @@ def _extract_jinja_vars(text: str) -> set[str]:
     result: set[str] = set()
     for m in _JINJA_VAR_RE.finditer(text):
         result.add(m.group(1))
-    for m in _JINJA_ATTR_RE.finditer(text):
-        result.add(m.group(1))
+    for block_match in _JINJA_BLOCK_RE.finditer(text):
+        block_content = block_match.group(1)
+        for attr_match in _JINJA_ATTR_RE.finditer(block_content):
+            result.add(attr_match.group(1))
     return result
 
 
