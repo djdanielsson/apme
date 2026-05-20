@@ -13,6 +13,7 @@ import asyncio
 import hashlib
 import logging
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -20,6 +21,7 @@ import time
 import uuid
 from collections.abc import AsyncIterator, Callable, Coroutine
 from typing import Any
+from urllib.parse import quote, urlparse, urlunparse
 
 import grpc
 import grpc.aio
@@ -51,6 +53,23 @@ _REMOTE_HEAD_CACHE: dict[str, tuple[float, str | None]] = {}
 _REMOTE_HEAD_TTL = 60.0  # seconds
 _REMOTE_HEAD_CACHE_MAX = 256
 
+_CRED_REDACT_RE = re.compile(r"(https?://)[^@]+@")
+
+
+def _redact_credentials(text: str) -> str:
+    """Redact embedded credentials from URLs in text.
+
+    Replaces ``https://user:token@host`` with ``https://[REDACTED]@host``
+    to prevent token exposure in logs or error messages.
+
+    Args:
+        text: Text potentially containing URLs with credentials.
+
+    Returns:
+        Text with credentials redacted.
+    """
+    return _CRED_REDACT_RE.sub(r"\1[REDACTED]@", text)
+
 
 def _git_subprocess_env() -> dict[str, str]:
     """Return environment variables for git subprocesses.
@@ -76,7 +95,43 @@ def _git_subprocess_env() -> dict[str, str]:
     return env
 
 
-async def fetch_remote_head(repo_url: str, branch: str) -> str | None:
+def _inject_token_in_url(repo_url: str, token: str) -> str:
+    """Inject an authentication token into an HTTPS git URL.
+
+    Supports multiple SCM providers with their respective auth schemes:
+    - GitHub: ``x-access-token:TOKEN``
+    - GitLab: ``oauth2:TOKEN``
+    - Bitbucket: ``x-token-auth:TOKEN``
+    - Others: ``git:TOKEN`` (generic fallback)
+
+    Args:
+        repo_url: Original HTTPS clone URL.
+        token: SCM token (e.g., PAT, OAuth token).
+
+    Returns:
+        URL with embedded credentials.
+    """
+    parsed = urlparse(repo_url)
+    hostname = parsed.hostname or ""
+
+    if "github" in hostname:
+        username = "x-access-token"
+    elif "gitlab" in hostname:
+        username = "oauth2"
+    elif "bitbucket" in hostname:
+        username = "x-token-auth"
+    else:
+        username = "git"
+
+    # Percent-encode token to handle special characters (@, :, /, etc.)
+    encoded_token = quote(token, safe="")
+    netloc_with_auth = f"{username}:{encoded_token}@{hostname}"
+    if parsed.port:
+        netloc_with_auth += f":{parsed.port}"
+    return urlunparse(parsed._replace(netloc=netloc_with_auth))
+
+
+async def fetch_remote_head(repo_url: str, branch: str, scm_token: str | None = None) -> str | None:
     """Query the remote for the HEAD commit SHA of *branch* without cloning.
 
     Uses ``git ls-remote`` which only contacts the server for ref advertisement.
@@ -86,6 +141,7 @@ async def fetch_remote_head(repo_url: str, branch: str) -> str | None:
     Args:
         repo_url: HTTPS clone URL.
         branch: Branch name to resolve.
+        scm_token: Optional SCM token for private repository access.
 
     Returns:
         40-char hex SHA, or ``None`` if the lookup fails.
@@ -93,13 +149,17 @@ async def fetch_remote_head(repo_url: str, branch: str) -> str | None:
     if not any(repo_url.startswith(scheme) for scheme in _ALLOWED_SCHEMES):
         return None
 
-    cache_key = f"{repo_url}:{branch}"
+    # Include token presence in cache key to avoid mixing authenticated/unauthenticated results
+    token_marker = ":auth" if scm_token else ""
+    cache_key = f"{repo_url}:{branch}{token_marker}"
     now = time.monotonic()
     cached = _REMOTE_HEAD_CACHE.get(cache_key)
     if cached and (now - cached[0]) < _REMOTE_HEAD_TTL:
         return cached[1]
 
-    cmd = ["git", "ls-remote", "--exit-code", repo_url, f"refs/heads/{branch}"]
+    # Inject token for private repo access
+    effective_url = _inject_token_in_url(repo_url, scm_token) if scm_token else repo_url
+    cmd = ["git", "ls-remote", "--exit-code", effective_url, f"refs/heads/{branch}"]
     loop = asyncio.get_running_loop()
     sha: str | None = None
     try:
@@ -153,7 +213,7 @@ def get_clone_head(clone_dir: str) -> str | None:
     return None
 
 
-async def clone_repo(repo_url: str, branch: str, dest: str) -> None:
+async def clone_repo(repo_url: str, branch: str, dest: str, scm_token: str | None = None) -> None:
     """Shallow-clone an SCM repo into *dest*.
 
     Only ``https://`` URLs are permitted to prevent SSRF via ``file://``,
@@ -163,6 +223,7 @@ async def clone_repo(repo_url: str, branch: str, dest: str) -> None:
         repo_url: HTTPS clone URL.
         branch: Branch to check out.
         dest: Target directory (must not already exist).
+        scm_token: Optional SCM token for private repository access.
 
     Raises:
         ValueError: If *repo_url* uses a disallowed scheme.
@@ -176,6 +237,9 @@ async def clone_repo(repo_url: str, branch: str, dest: str) -> None:
         msg = f"Invalid branch name: {branch[:60]}"
         raise ValueError(msg)
 
+    # Inject token for private repo access
+    effective_url = _inject_token_in_url(repo_url, scm_token) if scm_token else repo_url
+
     cmd = [
         "git",
         "clone",
@@ -184,7 +248,7 @@ async def clone_repo(repo_url: str, branch: str, dest: str) -> None:
         "--single-branch",
         "--depth",
         "1",
-        repo_url,
+        effective_url,
         dest,
     ]
     loop = asyncio.get_running_loop()
@@ -199,7 +263,8 @@ async def clone_repo(repo_url: str, branch: str, dest: str) -> None:
         ),
     )
     if result.returncode != 0:
-        raise RuntimeError(f"git clone failed (exit {result.returncode}): {result.stderr[:500]}")
+        safe_stderr = _redact_credentials(result.stderr[:500])
+        raise RuntimeError(f"git clone failed (exit {result.returncode}): {safe_stderr}")
 
 
 ProgressCallback = Callable[[primary_pb2.SessionEvent], Coroutine[Any, Any, None]]
@@ -220,6 +285,7 @@ async def run_project_operation(
     approval_queue: asyncio.Queue[list[str]] | None = None,
     scan_id: str | None = None,
     galaxy_servers: list[GalaxyServerDef] | None = None,
+    scm_token: str | None = None,
 ) -> tuple[str, primary_pb2.SessionResult | None, str]:
     """Clone a project repo and run check or remediate via Primary ``FixSession``.
 
@@ -240,6 +306,7 @@ async def run_project_operation(
         approval_queue: Queue of approved proposal IDs (remediate mode, when AI proposes).
         scan_id: Optional pre-generated scan ID; one is created if omitted.
         galaxy_servers: Global Galaxy server defs to inject into scan metadata (ADR-045).
+        scm_token: Optional SCM token for private repository access.
 
     Returns:
         Tuple of (scan_id, SessionResult or None, clone_commit_sha).
@@ -252,7 +319,7 @@ async def run_project_operation(
     temp_dir = tempfile.mkdtemp(prefix=prefix)
 
     try:
-        await clone_repo(repo_url, branch, temp_dir)
+        await clone_repo(repo_url, branch, temp_dir, scm_token=scm_token)
         clone_sha = get_clone_head(temp_dir) or ""
 
         chunks = list(
@@ -341,6 +408,7 @@ async def run_project_scan(
     progress_callback: ProgressCallback | None = None,
     scan_id: str | None = None,
     galaxy_servers: list[GalaxyServerDef] | None = None,
+    scm_token: str | None = None,
 ) -> tuple[str, primary_pb2.SessionResult | None, str]:
     """Backward-compatible alias for check mode.
 
@@ -357,6 +425,7 @@ async def run_project_scan(
         progress_callback: Optional async callable for each ``SessionEvent``.
         scan_id: Optional pre-generated scan ID.
         galaxy_servers: Global Galaxy server defs to inject (ADR-045).
+        scm_token: Optional SCM token for private repository access.
 
     Returns:
         Tuple of (scan_id, SessionResult or None, clone_commit_sha).
@@ -372,6 +441,7 @@ async def run_project_scan(
         progress_callback=progress_callback,
         scan_id=scan_id,
         galaxy_servers=galaxy_servers,
+        scm_token=scm_token,
     )
 
 
@@ -389,6 +459,7 @@ async def run_project_fix(
     approval_queue: asyncio.Queue[list[str]] | None = None,
     scan_id: str | None = None,
     galaxy_servers: list[GalaxyServerDef] | None = None,
+    scm_token: str | None = None,
 ) -> tuple[str, primary_pb2.SessionResult | None, str]:
     """Backward-compatible alias for remediate mode.
 
@@ -408,6 +479,7 @@ async def run_project_fix(
         approval_queue: Queue of approved proposal IDs.
         scan_id: Optional pre-generated scan ID.
         galaxy_servers: Global Galaxy server defs to inject (ADR-045).
+        scm_token: Optional SCM token for private repository access.
 
     Returns:
         Tuple of (scan_id, SessionResult or None, clone_commit_sha).
@@ -426,4 +498,5 @@ async def run_project_fix(
         approval_queue=approval_queue,
         scan_id=scan_id,
         galaxy_servers=galaxy_servers,
+        scm_token=scm_token,
     )
