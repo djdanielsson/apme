@@ -107,7 +107,7 @@ and then push so CI stays green.
 
 When you push fixes that address a review comment, reply on that thread so
 the resolution is visible. Follow the **`pr-address-feedback`** skill for the
-full procedure (finding comment IDs, GraphQL thread resolution).
+full procedure (finding thread IDs / Node IDs and using the GraphQL-based thread workflow).
 
 ### 5b. Track all deferred work as issues
 
