@@ -126,6 +126,7 @@ async def initiate_operation(project_id: str, body: OperateRequest) -> OperateRe
             options=body.options,
             scan_id=scan_id,
             galaxy_servers=galaxy_servers,
+            scm_token=proj.scm_token or cfg.scm_token,
         )
     )
     state.grpc_task = task
@@ -417,6 +418,7 @@ async def _drive_operation(
     options: dict[str, Any],
     scan_id: str,
     galaxy_servers: Any = None,
+    scm_token: str | None = None,
 ) -> None:
     """Background task that clones the repo and drives Primary's FixSession.
 
@@ -433,13 +435,14 @@ async def _drive_operation(
         options: Client-supplied options.
         scan_id: Engine scan identifier.
         galaxy_servers: Galaxy server defs.
+        scm_token: Optional SCM token for private repository access.
     """
     from apme_gateway.scan.driver import fetch_remote_head, run_project_operation
 
     registry = get_operation_registry()
 
     try:
-        await fetch_remote_head(repo_url, branch)
+        await fetch_remote_head(repo_url, branch, scm_token=scm_token)
 
         registry.transition(operation_id, OperationStatus.CLONING)
 
@@ -588,6 +591,7 @@ async def _drive_operation(
             approval_queue=approval_queue,
             scan_id=scan_id,
             galaxy_servers=galaxy_servers or None,
+            scm_token=scm_token,
         )
 
         if bridge_task is not None:

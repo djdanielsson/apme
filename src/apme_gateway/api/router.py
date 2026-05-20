@@ -571,7 +571,11 @@ async def get_project_detail(project_id: str) -> ProjectDetail:
 
     has_new = False
     if proj.last_scanned_commit:
-        remote_sha = await fetch_remote_head(proj.repo_url, proj.branch)
+        from apme_gateway.config import load_config
+
+        cfg = load_config()
+        token = proj.scm_token or cfg.scm_token
+        remote_sha = await fetch_remote_head(proj.repo_url, proj.branch, scm_token=token)
         if remote_sha and remote_sha != proj.last_scanned_commit:
             has_new = True
 
@@ -1489,7 +1493,9 @@ async def create_pull_request(
             )
 
     # Token priority: inline request > project config > global env
-    token = body.scm_token or project.scm_token or cfg.scm_token
+    # Strip whitespace to prevent whitespace-only tokens overriding valid fallbacks
+    inline_token = body.scm_token.strip() if body.scm_token else None
+    token = inline_token or project.scm_token or cfg.scm_token
     if not token:
         raise HTTPException(
             status_code=422,
@@ -2240,7 +2246,9 @@ async def project_operate_ws(
             await websocket.send_json({"type": "error", "message": "Project not found"})
             return
 
-        remote_sha = await fetch_remote_head(proj.repo_url, proj.branch)
+        cfg = load_config()
+        scm_token = proj.scm_token or cfg.scm_token
+        remote_sha = await fetch_remote_head(proj.repo_url, proj.branch, scm_token=scm_token)
         if remote_sha and proj.last_scanned_commit and remote_sha != proj.last_scanned_commit:
             await websocket.send_json(
                 {
@@ -2251,7 +2259,6 @@ async def project_operate_ws(
                 }
             )
 
-        cfg = load_config()
         galaxy_servers = await load_galaxy_server_defs()
 
         op_scan_id = uuid.uuid4().hex
@@ -2398,6 +2405,7 @@ async def project_operate_ws(
                     approval_queue=approval_queue,
                     scan_id=op_scan_id,
                     galaxy_servers=galaxy_servers or None,
+                    scm_token=scm_token,
                 )
 
             op_task = asyncio.create_task(_run_op())
@@ -2440,6 +2448,7 @@ async def project_operate_ws(
                 progress_callback=_progress_cb,
                 scan_id=op_scan_id,
                 galaxy_servers=galaxy_servers or None,
+                scm_token=scm_token,
             )
             completed_scan_id = scan_id
 
