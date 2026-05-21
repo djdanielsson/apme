@@ -113,7 +113,11 @@ def load_suppressions(project_root: Path) -> list[Suppression]:
             continue
 
         raw_rule_id = entry.get("rule_id")
-        rule_id = raw_rule_id if isinstance(raw_rule_id, str) else ""
+        rule_id = raw_rule_id.strip() if isinstance(raw_rule_id, str) else ""
+        if not rule_id:
+            sys.stderr.write(f"Warning: {path}: entry {i} missing 'rule_id', skipping\n")
+            continue
+
         raw_mode = entry.get("mode")
         mode = raw_mode if isinstance(raw_mode, str) else "full"
         if mode not in _VALID_MODES:

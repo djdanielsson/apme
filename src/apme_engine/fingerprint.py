@@ -71,7 +71,6 @@ def normalize_yaml(text: str) -> str:
     yaml = YAML(typ="rt", pure=True)
     yaml.preserve_quotes = True
     yaml.allow_duplicate_keys = True
-    yaml.width = 4096
 
     try:
         data = yaml.load(text)

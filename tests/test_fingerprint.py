@@ -342,6 +342,27 @@ class TestLoadSuppressions:
         assert len(result) == 1
         assert result[0].rule_id == "L047"
 
+    def test_missing_or_blank_rule_id_skipped(self, tmp_path: Path) -> None:
+        """Entries without a usable rule_id are skipped.
+
+        Args:
+            tmp_path: Pytest temporary directory.
+        """
+        (tmp_path / ".apme").mkdir()
+        data = {
+            "version": 1,
+            "suppressions": [
+                {"fingerprint": "c" * 64},
+                {"fingerprint": "d" * 64, "rule_id": "   "},
+                {"fingerprint": "e" * 64, "rule_id": "L047"},
+            ],
+        }
+        (tmp_path / ".apme" / "suppressions.yml").write_text(yaml.safe_dump(data))
+
+        result = load_suppressions(tmp_path)
+        assert len(result) == 1
+        assert result[0].rule_id == "L047"
+
     def test_invalid_mode_defaults_to_full(self, tmp_path: Path) -> None:
         """Invalid mode value defaults to 'full' with warning.
 
