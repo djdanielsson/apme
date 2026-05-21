@@ -56,12 +56,13 @@ SHA-256(rule_id + "\x00" + normalize(original_yaml))
 ```
 
 Where:
-- `rule_id` is the violation's rule identifier (e.g. `L046`)
+- `rule_id` is the violation's **canonical** rule identifier (e.g. `L046`) after stripping any legacy namespace prefixes (e.g. `native:L046` → `L046`). The canonicalization step ensures fingerprint stability across engine versions that may have emitted prefixed IDs for backward compatibility.
 - `original_yaml` is the full node YAML as originally written (already carried on the `Violation` proto, field 16)
 - `normalize()` strips non-runtime content before hashing:
-  - Strip leading/trailing whitespace per line
-  - Strip YAML comment-only lines
-  - Collapse runs of blank lines
+  - Parse the YAML through a structure-aware normalizer (e.g. `ruamel.yaml` round-trip) that distinguishes scalar content from structural formatting
+  - Remove YAML comments that are outside scalar values (block scalar content like `|` and `>` bodies is preserved verbatim — lines inside block scalars that look like comments are runtime content, not metadata)
+  - Strip leading/trailing whitespace on structural lines only (not within block scalar bodies, where indentation is significant)
+  - Collapse runs of blank lines between mappings/sequences
   - Do NOT re-order keys, change quoting style, or alter values
 
 Whitespace and comments have zero effect on what Ansible executes. Stripping them means `apme format`, re-indentation, and comment edits do not invalidate acceptances. Any change to runtime content (variable values, module arguments, conditions, task name) changes the fingerprint and forces re-review.
@@ -83,11 +84,13 @@ The engine does not compute fingerprints, store them, or filter by them. Fingerp
 
 Power users can opt into looser fingerprints by choosing which components to include. This is an advanced option, not the default:
 
+All modes use the `\x00` null byte as a field separator to prevent collisions between rule IDs and content that could otherwise concatenate ambiguously:
+
 | Mode | Hash input | Use case |
 |------|-----------|----------|
-| `full` (default) | `rule_id + original_yaml` | "I accept this exact content for this rule" |
-| `rule_module` | `rule_id + module_fqcn` | "I accept all tasks using this module for this rule" |
-| `rule_only` | `rule_id` | "I never care about this rule" (overlaps ADR-041 disable, useful in CLI-file workflows) |
+| `full` (default) | `SHA-256(rule_id + "\x00" + normalize(original_yaml))` | "I accept this exact content for this rule" |
+| `rule_module` | `SHA-256(rule_id + "\x00" + module_fqcn)` | "I accept all tasks using this module for this rule" |
+| `rule_only` | `SHA-256(rule_id + "\x00")` | "I never care about this rule" (overlaps ADR-041 disable, useful in CLI-file workflows) |
 
 The suppression record stores which mode was used, so the matching logic knows how to compare. The default is maximally specific (safest); users explicitly broaden scope when they understand the implications.
 
@@ -116,7 +119,7 @@ A `suppressions` table with:
 | `created_by` | text | User or system that created the suppression |
 | `created_at` | text | ISO 8601 timestamp |
 
-Query: given violation fingerprints from a scan, `WHERE fingerprint_hash IN (...)` — simple indexed lookup.
+Query: given violation fingerprints from a scan, `WHERE fingerprint_hash IN (...) AND (scope = 'global' OR scope = 'project:<current_project_uuid>')` — scoped lookup prevents suppressions from unrelated projects from applying. An index on `(fingerprint_hash, scope)` keeps this efficient.
 
 REST endpoints: `POST /api/v1/suppressions`, `GET /api/v1/suppressions`, `DELETE /api/v1/suppressions/{id}`.
 
@@ -232,7 +235,8 @@ Suppressed violations are always available for audit. The default display hides 
 1. Create a shared `fingerprint` module (usable by both Gateway and CLI) with:
    - `normalize_yaml(text: str) -> str` — strip comments, normalize whitespace
    - `compute_fingerprint(rule_id: str, original_yaml: str, mode: str = "full") -> str` — SHA-256 hex digest
-2. Unit tests covering normalization edge cases (empty YAML, comment-only, multiline values, Jinja2 expressions)
+2. Unit tests covering normalization edge cases (empty YAML, comment-only, block scalars with `|`/`>`, multiline values, Jinja2 expressions, lines that resemble comments inside scalar content)
+3. `canonicalize_rule_id(raw_id: str) -> str` — strips legacy prefixes (e.g. `native:`, `opa:`) to produce the bare rule ID for hashing
 
 ### Phase 2: CLI suppression file
 
@@ -275,3 +279,4 @@ Suppressed violations are always available for audit. The default display hides 
 | Date | Author | Change |
 |------|--------|--------|
 | 2026-05-21 | Brad (cidrblock) | Initial proposal |
+| 2026-05-21 | David (djdanielsson) | Address review: YAML-aware normalization for block scalars, rule_id canonicalization, explicit delimiter in all modes |
