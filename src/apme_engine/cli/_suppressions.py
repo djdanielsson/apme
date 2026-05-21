@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from datetime import date, datetime
 from pathlib import Path
 
 import yaml
@@ -124,7 +125,12 @@ def load_suppressions(project_root: Path) -> list[Suppression]:
         raw_reason = entry.get("reason")
         reason = raw_reason if isinstance(raw_reason, str) else ""
         raw_created = entry.get("created")
-        created = raw_created if isinstance(raw_created, str) else ""
+        if isinstance(raw_created, str):
+            created = raw_created
+        elif isinstance(raw_created, datetime | date):
+            created = raw_created.isoformat()
+        else:
+            created = ""
 
         suppressions.append(
             Suppression(

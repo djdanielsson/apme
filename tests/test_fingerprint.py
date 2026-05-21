@@ -264,6 +264,32 @@ class TestLoadSuppressions:
         assert result[0].mode == "full"
         assert result[0].reason == "Accepted"
 
+    def test_unquoted_created_date_is_preserved(self, tmp_path: Path) -> None:
+        """Unquoted YAML dates are normalized back to ISO strings.
+
+        Args:
+            tmp_path: Pytest temporary directory.
+        """
+        fp = "b" * 64
+        (tmp_path / ".apme").mkdir()
+        (tmp_path / ".apme" / "suppressions.yml").write_text(
+            "\n".join(
+                (
+                    "version: 1",
+                    "suppressions:",
+                    f"  - fingerprint: {fp}",
+                    "    rule_id: L046",
+                    "    created: 2026-05-21",
+                    "",
+                ),
+            ),
+        )
+
+        result = load_suppressions(tmp_path)
+
+        assert len(result) == 1
+        assert result[0].created == "2026-05-21"
+
     def test_mode_defaults_to_full(self, tmp_path: Path) -> None:
         """Missing mode field defaults to 'full'.
 
