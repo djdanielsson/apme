@@ -50,6 +50,10 @@ def main() -> None:
         from apme_engine.cli.sbom_cmd import run_sbom
 
         run_sbom(args)
+    elif cmd == "suppress":
+        from apme_engine.cli.suppress_cmd import run_suppress
+
+        run_suppress(args)
     else:
         parser.print_help()
         sys.exit(EXIT_ERROR)

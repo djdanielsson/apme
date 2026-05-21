@@ -32,6 +32,7 @@ from apme_engine.cli._exit_codes import EXIT_ERROR, EXIT_VIOLATIONS
 from apme_engine.cli._galaxy_config import discover_galaxy_servers
 from apme_engine.cli._project_root import derive_session_id, discover_project_root
 from apme_engine.cli._rules_yml import load_rule_configs_from_project
+from apme_engine.cli._suppressions import apply_suppressions, load_suppressions
 from apme_engine.cli.ansi import dim, red, yellow
 from apme_engine.cli.discovery import resolve_primary
 from apme_engine.daemon.chunked_fs import yield_scan_chunks
@@ -128,6 +129,7 @@ def run_remediate(args: argparse.Namespace) -> None:
     tier1_report: FixReport | None = None
     result_violations: list[ViolationDict] = []
     result_patches: list[object] = []
+    got_result = False
 
     try:
         responses = stub.FixSession(command_iter(), timeout=1800)
@@ -181,11 +183,8 @@ def run_remediate(args: argparse.Namespace) -> None:
                 result = event.result
                 result_violations = [violation_proto_to_dict(v) for v in result.remaining_violations]
                 result_patches = list(result.patches)
-                if not use_json:
-                    _write_patches(target, result.patches)
-                    _render_remaining(result)
-                else:
-                    _write_patches(target, result.patches)
+                got_result = True
+                _write_patches(target, result.patches)
                 cmd_queue.put(SessionCommand(close=CloseRequest()))
 
             elif oneof == "expiring":
@@ -209,8 +208,31 @@ def run_remediate(args: argparse.Namespace) -> None:
         cmd_queue.put(None)
         channel.close()
 
+    if not got_result:
+        sys.stderr.write("Error: no session result received from engine\n")
+        sys.exit(EXIT_ERROR)
+
+    show_suppressed = getattr(args, "show_suppressed", False)
+    suppressed_count = 0
+    if not show_suppressed:
+        suppressions = load_suppressions(project_root)
+        enforced_rules = {cfg.rule_id for cfg in (rule_cfgs or []) if cfg.enforced}
+        suppression_result = apply_suppressions(result_violations, suppressions, enforced_rules)
+        suppressed_count = len(suppression_result.suppressed)
+        result_violations = suppression_result.active
+
     if use_json:
         _emit_json(result_violations, result_patches, tier1_report)
+    elif result_violations:
+        ai_count = sum(1 for v in result_violations if v.get("remediation_class") == "ai-candidate")
+        manual_count = len(result_violations) - ai_count
+        if ai_count:
+            sys.stderr.write(f"\n{ai_count} violation(s) may be fixable with --ai (Tier 2)\n")
+        if manual_count:
+            sys.stderr.write(f"{manual_count} violation(s) require manual review (Tier 3)\n")
+
+    if suppressed_count and not show_suppressed and not use_json:
+        sys.stderr.write(dim(f"  ({suppressed_count} suppressed violation(s) hidden — use --show-suppressed)\n"))
 
     if result_violations:
         sys.exit(EXIT_VIOLATIONS)
