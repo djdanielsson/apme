@@ -428,28 +428,8 @@ def create_app(
 
         Returns:
             Dict with ``converted`` (wheel filenames) and ``failed`` (tarball names).
-
-        Raises:
-            HTTPException: When the tarball directory does not exist.
         """
-        raw_tarball_path = Path(tarball_dir)
-        for component in (raw_tarball_path, *raw_tarball_path.parents):
-            try:
-                if component.is_symlink():
-                    raise HTTPException(status_code=400, detail="Symlinks not allowed")
-            except FileNotFoundError:
-                break
-        tarball_path = raw_tarball_path.resolve()
-
-        allowed_roots = (Path(tempfile.gettempdir()).resolve(), Path("/sessions").resolve())
-        if not any(tarball_path.is_relative_to(root) for root in allowed_roots):
-            raise HTTPException(
-                status_code=400,
-                detail="Path must be under a session or temp directory",
-            )
-
-        if not tarball_path.is_dir():
-            raise HTTPException(status_code=400, detail=f"Not a directory: {tarball_dir}")
+        tarball_path = _validate_tarball_dir(tarball_dir)
 
         converted: list[str] = []
         failed: list[str] = []
@@ -472,6 +452,43 @@ def create_app(
         return {"converted": converted, "failed": failed}
 
     return app
+
+
+def _validate_tarball_dir(tarball_dir: str) -> Path:
+    """Validate and resolve a tarball directory path.
+
+    Rejects symlinks anywhere in the path and restricts the resolved
+    path to known-safe roots (temp dir or ``/sessions``).
+
+    Args:
+        tarball_dir: Untrusted path string from the request.
+
+    Returns:
+        The resolved, validated ``Path``.
+
+    Raises:
+        HTTPException: On symlinks, disallowed roots, or non-directories.
+    """
+    raw = Path(tarball_dir)
+    for component in (raw, *raw.parents):
+        try:
+            if component.is_symlink():
+                raise HTTPException(status_code=400, detail="Symlinks not allowed")
+        except FileNotFoundError:
+            continue
+    resolved = raw.resolve()
+
+    allowed_roots = (Path(tempfile.gettempdir()).resolve(), Path("/sessions").resolve())
+    if not any(resolved.is_relative_to(root) for root in allowed_roots):
+        raise HTTPException(
+            status_code=400,
+            detail="Path must be under a session or temp directory",
+        )
+
+    if not resolved.is_dir():
+        raise HTTPException(status_code=400, detail=f"Not a directory: {tarball_dir}")
+
+    return resolved
 
 
 def _galaxy_version_sort_key(version: str) -> tuple[int, Version | str]:
