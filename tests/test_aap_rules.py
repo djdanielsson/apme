@@ -11,7 +11,6 @@ from apme_engine.engine.content_graph import (
     NodeType,
 )
 from apme_engine.engine.graph_scanner import GraphScanReport, scan
-from apme_engine.validators.native.rules.graph_rule_base import GraphRuleResult
 from apme_engine.engine.models import YAMLDict
 from apme_engine.validators.native.rules.A001_template_id_usage_graph import (
     TemplateIDUsageGraphRule,
@@ -19,7 +18,10 @@ from apme_engine.validators.native.rules.A001_template_id_usage_graph import (
 from apme_engine.validators.native.rules.A002_deprecated_aap_api_graph import (
     DeprecatedAAPAPIGraphRule,
 )
-from apme_engine.validators.native.rules.graph_rule_base import GraphRule
+from apme_engine.validators.native.rules.graph_rule_base import (
+    GraphRule,
+    GraphRuleResult,
+)
 
 
 def _find_violations(report: GraphScanReport, rule_id: str) -> list[GraphRuleResult]:
@@ -358,7 +360,9 @@ class TestNoqaSuppression:
         baseline_violations = _find_violations(baseline, "A001")
         assert baseline_violations, "Baseline should have A001 violation"
 
-        node.yaml_lines = "- name: Launch job  # noqa: A001\n  ansible.controller.job_launch:\n    job_template_id: 42\n"
+        node.yaml_lines = (
+            "- name: Launch job  # noqa: A001\n  ansible.controller.job_launch:\n    job_template_id: 42\n"
+        )
         report = scan(g, rules)
         suppressed = _find_violations(report, "A001")
         assert not suppressed, "A001 should be suppressed by # noqa: A001"
