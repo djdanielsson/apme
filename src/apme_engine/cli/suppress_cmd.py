@@ -13,7 +13,7 @@ from apme_engine.cli._suppressions import (
     load_suppressions,
     write_suppressions,
 )
-from apme_engine.fingerprint import compute_fingerprint
+from apme_engine.fingerprint import canonicalize_rule_id, compute_fingerprint
 
 
 def run_suppress(args: argparse.Namespace) -> None:
@@ -43,7 +43,7 @@ def _suppress_add(args: argparse.Namespace) -> None:
     target = getattr(args, "target", ".")
     project_root = discover_project_root(target)
 
-    rule_id = args.rule_id
+    rule_id = canonicalize_rule_id(args.rule_id)
     mode = getattr(args, "mode", "full") or "full"
     reason = getattr(args, "reason", "") or ""
     original_yaml = getattr(args, "original_yaml", None) or ""

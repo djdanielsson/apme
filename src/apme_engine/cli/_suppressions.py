@@ -187,14 +187,14 @@ def apply_suppressions(
 
         original_yaml = str(v.get("original_yaml") or "")
         module_fqcn = str(
-            v.get("module_fqcn") or v.get("resolved_fqcn") or v.get("original_module") or "",
+            v.get("module_fqcn") or v.get("resolved_fqcn") or v.get("original_module") or v.get("fqcn") or "",
         )
 
         suppressed = False
 
-        if fp_index_full:
-            fp_full = compute_fingerprint(rule_id, original_yaml, mode="full")
-            if fp_full in fp_index_full:
+        if fp_index_rule:
+            fp_rule = compute_fingerprint(rule_id, original_yaml, mode="rule_only")
+            if fp_rule in fp_index_rule:
                 suppressed = True
 
         if not suppressed and fp_index_module and module_fqcn:
@@ -207,9 +207,9 @@ def apply_suppressions(
             if fp_module in fp_index_module:
                 suppressed = True
 
-        if not suppressed and fp_index_rule:
-            fp_rule = compute_fingerprint(rule_id, original_yaml, mode="rule_only")
-            if fp_rule in fp_index_rule:
+        if not suppressed and fp_index_full:
+            fp_full = compute_fingerprint(rule_id, original_yaml, mode="full")
+            if fp_full in fp_index_full:
                 suppressed = True
 
         if suppressed:

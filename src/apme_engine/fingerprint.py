@@ -68,8 +68,9 @@ def normalize_yaml(text: str) -> str:
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     text = unicodedata.normalize("NFC", text)
 
-    yaml = YAML()
+    yaml = YAML(typ="rt", pure=True)
     yaml.preserve_quotes = True
+    yaml.allow_duplicate_keys = True
     yaml.width = 4096
 
     try:
@@ -82,8 +83,9 @@ def normalize_yaml(text: str) -> str:
 
     _strip_comments(data)
 
-    out_yaml = YAML()
+    out_yaml = YAML(typ="rt", pure=True)
     out_yaml.preserve_quotes = True
+    out_yaml.allow_duplicate_keys = True
     out_yaml.width = 4096
     out_yaml.indent(mapping=2, sequence=2, offset=2)
 

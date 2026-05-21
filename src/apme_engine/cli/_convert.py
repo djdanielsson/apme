@@ -54,7 +54,7 @@ def violation_proto_to_dict(
     if v.HasField("line_range"):
         line = [v.line_range.start, v.line_range.end]
     metadata = dict(v.metadata) if v.metadata else {}
-    module_fqcn = metadata.get("resolved_fqcn") or metadata.get("original_module") or ""
+    module_fqcn = metadata.get("resolved_fqcn") or metadata.get("original_module") or metadata.get("fqcn") or ""
     return {
         "rule_id": v.rule_id,
         "severity": severity_to_label(severity_from_proto(v.severity)),
