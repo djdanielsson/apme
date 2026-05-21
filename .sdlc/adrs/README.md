@@ -16,7 +16,7 @@ Decisions that are fully reflected in the codebase.
 | [ADR-004](ADR-004-podman-pod-deployment.md) | Podman Pod as Deployment Unit | 2026-02 |
 | [ADR-005](ADR-005-no-service-discovery.md) | Reject etcd/Service Discovery for Single-Pod Deployment | 2026-02 |
 | [ADR-007](ADR-007-async-grpc-servers.md) | Fully Async gRPC Servers (grpc.aio) | 2026-03 |
-| [ADR-008](ADR-008-rule-id-conventions.md) | Rule ID Conventions (L/M/R/P) | 2026-02 |
+| [ADR-008](ADR-008-rule-id-conventions.md) | Rule ID Conventions (L/M/R/P/A) | 2026-02 |
 | [ADR-009](ADR-009-remediation-engine.md) | Separate Remediation Engine with Transform Registry | 2026-03 |
 | [ADR-010](ADR-010-gitleaks-validator.md) | Gitleaks as a gRPC Validator | 2026-03 |
 | [ADR-011](ADR-011-yaml-formatter-prepass.md) | YAML Formatter as Phase 1 Pre-Pass | 2026-03 |
