@@ -491,6 +491,20 @@ class TestDebugSensitiveVarsGraphRule:
         assert result is not None
         assert result.verdict is True
 
+    def test_block_no_log_false_overrides_play_true(self) -> None:
+        """Block no_log: false overrides play no_log: true (closer scope wins)."""
+        graph, task_id = _make_debug_graph(
+            msg="Password: {{ db_password }}",
+            block_no_log=False,
+            play_no_log=True,
+        )
+        rule = DebugSensitiveVarsGraphRule()
+
+        result = rule.process(graph, task_id)
+
+        assert result is not None
+        assert result.verdict is True
+
     def test_raw_module_args_sensitive(self) -> None:
         """Rule detects sensitive vars in _raw module args."""
         graph, task_id = _make_debug_graph(raw='msg="Password {{ db_password }}"')

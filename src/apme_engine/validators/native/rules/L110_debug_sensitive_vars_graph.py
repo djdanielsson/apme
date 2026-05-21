@@ -139,8 +139,10 @@ def _no_log_true_in_scope(graph: ContentGraph, node_id: str) -> bool:
 
     Ansible allows more-specific scopes to override inherited keywords. A task
     with no_log: false can opt out of a block/play with no_log: true. We walk
-    the chain from the task outward and return False immediately if the node
-    explicitly sets no_log: false, overriding any ancestor.
+    the chain from the task outward (closest to farthest) and return on the
+    first explicit no_log setting. This correctly handles cases like:
+    - Task: unset, Block: false, Play: true → effective false (block wins)
+    - Task: unset, Block: true, Play: false → effective true (block wins)
 
     Args:
         graph: Content graph for the scan.
@@ -156,7 +158,12 @@ def _no_log_true_in_scope(graph: ContentGraph, node_id: str) -> bool:
         return False
     if node.no_log is True:
         return True
-    return any(ancestor.no_log is True for ancestor in graph.ancestors(node_id))
+    for ancestor in graph.ancestors(node_id):
+        if ancestor.no_log is False:
+            return False
+        if ancestor.no_log is True:
+            return True
+    return False
 
 
 @dataclass
@@ -185,7 +192,7 @@ class DebugSensitiveVarsGraphRule(GraphRule):
     name: str = "DebugSensitiveVars"
     version: str = "v0.0.1"
     severity: Severity = Severity.HIGH
-    tags: tuple[str, ...] = (Tag.SYSTEM,)
+    tags: tuple[str, ...] = (Tag.SYSTEM, Tag.SECURITY)
 
     def match(self, graph: ContentGraph, node_id: str) -> bool:
         """Match debug tasks with msg or var parameters.
@@ -237,9 +244,9 @@ class DebugSensitiveVarsGraphRule(GraphRule):
                 file=(node.file_path, node.line_start),
             )
 
-        vars_str = ", ".join(sorted(sensitive_vars))
+        vars_jinja = ", ".join(f"{{{{ {v} }}}}" for v in sorted(sensitive_vars))
         detail: YAMLDict = {
-            "message": f"Debug task logs sensitive variable(s): {vars_str}; set no_log: true",
+            "message": f"Debug task logs sensitive variable(s): {vars_jinja}; set no_log: true",
             "sensitive_vars": list(sensitive_vars),
         }
         return GraphRuleResult(
