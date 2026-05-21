@@ -66,13 +66,13 @@ def _make_task(
     """
     g = ContentGraph()
     pb = ContentNode(
-        identity=NodeIdentity(path="site.yml", node_type=NodeType.PLAYBOOK),
-        file_path="site.yml",
+        identity=NodeIdentity(path=file_path, node_type=NodeType.PLAYBOOK),
+        file_path=file_path,
         scope=NodeScope.OWNED,
     )
     play = ContentNode(
-        identity=NodeIdentity(path="site.yml/plays[0]", node_type=NodeType.PLAY),
-        file_path="site.yml",
+        identity=NodeIdentity(path=f"{file_path}/plays[0]", node_type=NodeType.PLAY),
+        file_path=file_path,
         scope=NodeScope.OWNED,
     )
     task = ContentNode(
@@ -97,7 +97,7 @@ class TestA001TemplateIDUsage:
 
     def test_uri_hardcoded_job_template_id_flagged(self) -> None:
         """URI module with /api/v2/job_templates/<id>/ is flagged."""
-        g, tid = _make_task(
+        g, _ = _make_task(
             module="ansible.builtin.uri",
             module_options={
                 "url": "https://controller.example.com/api/v2/job_templates/42/launch/",
@@ -114,7 +114,7 @@ class TestA001TemplateIDUsage:
 
     def test_uri_hardcoded_workflow_template_id_flagged(self) -> None:
         """URI module with /api/v2/workflow_job_templates/<id>/ is flagged."""
-        g, tid = _make_task(
+        g, _ = _make_task(
             module="uri",
             module_options={
                 "url": "https://aap.local/api/v2/workflow_job_templates/99/launch/",
@@ -128,9 +128,25 @@ class TestA001TemplateIDUsage:
         assert violations[0].detail["hardcoded_id"] == "99"
         assert violations[0].detail["template_type"] == "workflow_job_template"
 
+    def test_uri_gateway_path_hardcoded_id_flagged(self) -> None:
+        """URI module with /api/controller/v2/job_templates/<id>/ is flagged."""
+        g, _ = _make_task(
+            module="ansible.builtin.uri",
+            module_options={
+                "url": "https://aap.local/api/controller/v2/job_templates/42/launch/",
+            },
+        )
+        rules: list[GraphRule] = [TemplateIDUsageGraphRule()]
+        report = scan(g, rules)
+        violations = _find_violations(report, "A001")
+        assert len(violations) == 1
+        assert violations[0].detail is not None
+        assert violations[0].detail["hardcoded_id"] == "42"
+        assert violations[0].detail["template_type"] == "job_template"
+
     def test_uri_named_url_not_flagged(self) -> None:
         """URI module with named_url pattern is not flagged."""
-        g, tid = _make_task(
+        g, _ = _make_task(
             module="ansible.builtin.uri",
             module_options={
                 "url": "https://controller.example.com/api/controller/v2/job_templates/Deploy+App++Default/launch/",
@@ -143,7 +159,7 @@ class TestA001TemplateIDUsage:
 
     def test_uri_templated_url_not_flagged(self) -> None:
         """URI module with Jinja-templated URL is not flagged."""
-        g, tid = _make_task(
+        g, _ = _make_task(
             module="ansible.builtin.uri",
             module_options={
                 "url": "{{ controller_url }}/api/v2/job_templates/{{ template_id }}/launch/",
@@ -156,7 +172,7 @@ class TestA001TemplateIDUsage:
 
     def test_controller_module_numeric_job_template_id_flagged(self) -> None:
         """Controller module with numeric job_template_id is flagged."""
-        g, tid = _make_task(
+        g, _ = _make_task(
             module="ansible.controller.job_launch",
             module_options={"job_template_id": 123},
         )
@@ -169,7 +185,7 @@ class TestA001TemplateIDUsage:
 
     def test_controller_module_numeric_job_template_flagged(self) -> None:
         """Controller module with numeric job_template value is flagged."""
-        g, tid = _make_task(
+        g, _ = _make_task(
             module="ansible.controller.job_launch",
             module_options={"job_template": 456},
         )
@@ -182,7 +198,7 @@ class TestA001TemplateIDUsage:
 
     def test_controller_module_named_job_template_not_flagged(self) -> None:
         """Controller module with named job_template is not flagged."""
-        g, tid = _make_task(
+        g, _ = _make_task(
             module="ansible.controller.job_launch",
             module_options={"job_template": "Deploy Application"},
         )
@@ -193,7 +209,7 @@ class TestA001TemplateIDUsage:
 
     def test_controller_module_templated_id_not_flagged(self) -> None:
         """Controller module with Jinja-templated ID is not flagged."""
-        g, tid = _make_task(
+        g, _ = _make_task(
             module="ansible.controller.job_launch",
             module_options={"job_template_id": "{{ my_template_id }}"},
         )
@@ -204,7 +220,7 @@ class TestA001TemplateIDUsage:
 
     def test_non_numeric_job_template_id_not_flagged(self) -> None:
         """Controller module with non-numeric job_template_id string is not flagged."""
-        g, tid = _make_task(
+        g, _ = _make_task(
             module="ansible.controller.job_launch",
             module_options={"job_template_id": "my-template-name"},
         )
@@ -215,7 +231,7 @@ class TestA001TemplateIDUsage:
 
     def test_unrelated_module_not_flagged(self) -> None:
         """Non-AAP modules are not flagged."""
-        g, tid = _make_task(
+        g, _ = _make_task(
             module="ansible.builtin.debug",
             module_options={"msg": "job_templates/42/"},
         )
@@ -230,7 +246,7 @@ class TestA002DeprecatedAAPAPI:
 
     def test_deprecated_api_v2_job_templates_flagged(self) -> None:
         """URI with deprecated /api/v2/job_templates is flagged."""
-        g, tid = _make_task(
+        g, _ = _make_task(
             module="ansible.builtin.uri",
             module_options={
                 "url": "https://controller.example.com/api/v2/job_templates/",
@@ -247,7 +263,7 @@ class TestA002DeprecatedAAPAPI:
 
     def test_deprecated_api_v2_inventories_flagged(self) -> None:
         """URI with deprecated /api/v2/inventories is flagged."""
-        g, tid = _make_task(
+        g, _ = _make_task(
             module="uri",
             module_options={"url": "https://aap.local/api/v2/inventories/"},
         )
@@ -260,7 +276,7 @@ class TestA002DeprecatedAAPAPI:
 
     def test_gateway_api_not_flagged(self) -> None:
         """URI with new gateway /api/controller/v2/ is not flagged."""
-        g, tid = _make_task(
+        g, _ = _make_task(
             module="ansible.builtin.uri",
             module_options={
                 "url": "https://aap.local/api/controller/v2/job_templates/",
@@ -273,7 +289,7 @@ class TestA002DeprecatedAAPAPI:
 
     def test_hub_gateway_api_not_flagged(self) -> None:
         """URI with /api/hub/v2/ is not flagged."""
-        g, tid = _make_task(
+        g, _ = _make_task(
             module="ansible.builtin.uri",
             module_options={"url": "https://hub.example.com/api/hub/v2/collections/"},
         )
@@ -284,7 +300,7 @@ class TestA002DeprecatedAAPAPI:
 
     def test_templated_url_not_flagged(self) -> None:
         """Templated URLs are not flagged."""
-        g, tid = _make_task(
+        g, _ = _make_task(
             module="ansible.builtin.uri",
             module_options={"url": "{{ controller_url }}/api/v2/job_templates/"},
         )
@@ -295,7 +311,7 @@ class TestA002DeprecatedAAPAPI:
 
     def test_deprecated_hub_module_flagged(self) -> None:
         """Deprecated ansible.hub.ah_token module is flagged."""
-        g, tid = _make_task(
+        g, _ = _make_task(
             module="ansible.hub.ah_token",
             module_options={"state": "present"},
         )
@@ -309,7 +325,7 @@ class TestA002DeprecatedAAPAPI:
 
     def test_deprecated_hub_ah_user_flagged(self) -> None:
         """Deprecated ansible.hub.ah_user module is flagged."""
-        g, tid = _make_task(
+        g, _ = _make_task(
             module="ansible.hub.ah_user",
             module_options={"username": "admin"},
         )
@@ -322,7 +338,7 @@ class TestA002DeprecatedAAPAPI:
 
     def test_unrelated_uri_not_flagged(self) -> None:
         """URI to non-AAP endpoints is not flagged."""
-        g, tid = _make_task(
+        g, _ = _make_task(
             module="ansible.builtin.uri",
             module_options={"url": "https://api.github.com/repos"},
         )
@@ -333,7 +349,7 @@ class TestA002DeprecatedAAPAPI:
 
     def test_non_uri_module_not_flagged(self) -> None:
         """Non-uri modules are not flagged even with /api/v2/ in options."""
-        g, tid = _make_task(
+        g, _ = _make_task(
             module="ansible.builtin.debug",
             module_options={"msg": "/api/v2/job_templates/"},
         )

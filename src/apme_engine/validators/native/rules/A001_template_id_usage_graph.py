@@ -46,7 +46,7 @@ _AAP_CONTROLLER_MODULES = frozenset(
 )
 
 _TEMPLATE_ID_PATTERN = re.compile(
-    r"/api/v2/(job_templates|workflow_job_templates)/(\d+)(/|$)",
+    r"/api/(v2|controller/v2)/(job_templates|workflow_job_templates)/(\d+)(/|$)",
     re.IGNORECASE,
 )
 
@@ -123,8 +123,8 @@ def _check_uri_module(node: ContentNode) -> tuple[bool, str | None, str | None]:
 
     match = _TEMPLATE_ID_PATTERN.search(url)
     if match:
-        template_type = match.group(1).rstrip("s")
-        id_value = match.group(2)
+        template_type = match.group(2).rstrip("s")
+        id_value = match.group(3)
         return (True, template_type, id_value)
 
     return (False, None, None)
@@ -211,7 +211,7 @@ class TemplateIDUsageGraphRule(GraphRule):
             "module": mod,
             "template_type": template_type,
             "hardcoded_id": id_value,
-            "recommendation": f"Use named_url (e.g., '{template_type}_name++') instead of ID",
+            "recommendation": "Use named_url (e.g., 'My Template++Default') instead of ID",
         }
 
         return GraphRuleResult(
