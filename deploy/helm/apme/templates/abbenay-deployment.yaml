@@ -54,12 +54,26 @@ spec:
                   name: {{ include "apme.fullname" . }}-secrets
                   key: vertex-anthropic-api-key
                   optional: true
+            {{- if .Values.abbenay.aiModel }}
+            - name: APME_AI_MODEL
+              value: {{ .Values.abbenay.aiModel | quote }}
+            {{- end }}
             - name: XDG_RUNTIME_DIR
               value: /tmp/abbenay-run
           ports:
             - name: grpc
               containerPort: 50057
               protocol: TCP
+          readinessProbe:
+            tcpSocket:
+              port: 50057
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 50057
+            initialDelaySeconds: 15
+            periodSeconds: 30
           resources:
             {{- toYaml .Values.abbenay.resources | nindent 12 }}
 {{- end }}
