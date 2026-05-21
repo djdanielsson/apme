@@ -156,8 +156,9 @@ def apply_suppressions(
 
     Args:
         violations: Sequence of violation dicts (must include ``rule_id``,
-            ``original_yaml``, and optionally ``module_fqcn`` or
-            ``resolved_fqcn``/``original_module``).
+            ``original_yaml``, and optionally one of ``module_fqcn``,
+            ``resolved_fqcn``, ``original_module``, or ``fqcn`` as the
+            module identifier.
         suppressions: Loaded suppression entries.
         enforced_rules: Set of rule IDs that cannot be suppressed.
 

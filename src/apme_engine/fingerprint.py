@@ -144,7 +144,8 @@ def compute_fingerprint(
         SHA-256 hex digest string.
 
     Raises:
-        ValueError: If mode is not one of the three valid values.
+        ValueError: If mode is not one of the three valid values, or if
+            ``mode="rule_module"`` is used without a non-empty ``module_fqcn``.
     """
     canonical_id = canonicalize_rule_id(rule_id)
 
