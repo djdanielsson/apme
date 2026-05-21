@@ -475,7 +475,7 @@ def _validate_tarball_dir(tarball_dir: str) -> Path:
             if component.is_symlink():
                 raise HTTPException(status_code=400, detail="Symlinks not allowed")
         except FileNotFoundError:
-            break
+            continue
     resolved = raw.resolve()
 
     allowed_roots = (Path(tempfile.gettempdir()).resolve(), Path("/sessions").resolve())
