@@ -64,10 +64,12 @@ PUT /api/v1/rules/L026/config
 Content-Type: application/json
 
 {
-  "enabled": false,
-  "severity": "low"
+  "enabled_override": false,
+  "severity_override": 2
 }
 ```
+
+**Severity values:** 0=unspecified, 1=info, 2=low, 3=medium, 4=high, 5=error, 6=critical
 
 ## Custom Rules (BYO)
 
@@ -211,14 +213,9 @@ GET /api/v1/stats/ai-acceptance
 }
 ```
 
-### Configuration
+### Default Confidence
 
-AI confidence thresholds can be configured:
-
-| Environment Variable | Default | Description |
-|---------------------|---------|-------------|
-| `APME_AI_MIN_CONFIDENCE` | `0.7` | Minimum confidence to propose |
-| `APME_AI_AUTO_APPROVE_THRESHOLD` | `0.95` | Auto-approve if above this |
+The AI provider returns a default confidence of 0.85 when no explicit score is provided. Confidence aggregation uses the average across all changes in a proposal.
 
 ## Rule ID Conventions
 

@@ -145,8 +145,7 @@ def _check_uri_module(node: ContentNode) -> tuple[bool, str | None, str | None, 
     for url in urls:
         service_type, recommended = _classify_deprecated_api(url)
         if service_type:
-            match = _DEPRECATED_API_PATTERN.search(url)
-            deprecated_path = match.group(0) if match else "/api/v2/"
+            deprecated_path = "/api/v2/"
             return (True, service_type, deprecated_path, recommended)
 
     return (False, None, None, None)

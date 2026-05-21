@@ -82,13 +82,13 @@ def _check_controller_module_id(node: ContentNode) -> tuple[bool, str | None, st
     job_template_id = options.get("job_template_id")
     if job_template_id is not None:
         val = str(job_template_id)
-        if not is_templated(val):
+        if _TEMPLATE_ID_ONLY_PATTERN.match(val) and not is_templated(val):
             return (True, "job_template", val)
 
     workflow_template_id = options.get("workflow_template_id")
     if workflow_template_id is not None:
         val = str(workflow_template_id)
-        if not is_templated(val):
+        if _TEMPLATE_ID_ONLY_PATTERN.match(val) and not is_templated(val):
             return (True, "workflow_template", val)
 
     job_template = options.get("job_template")

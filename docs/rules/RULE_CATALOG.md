@@ -16,7 +16,7 @@
 | Rule ID | Validator | Severity | Description | Impl | Tested | Doc | Fixer |
 |---------|-----------|----------|-------------|------|--------|-----|-------|
 | A001 | Native | medium | Tasks should use named_url instead of hardcoded template IDs. | Yes | — | Yes | — |
-| A002 | Native | medium | Tasks should not use deprecated AAP API endpoints. | Yes | — | Yes | — |
+| A002 | Native | high | Tasks should not use deprecated AAP API endpoints. | Yes | — | Yes | — |
 | L003 | OPA | low | Each play should have a name. | Yes | Yes | Yes | — |
 | L004 | OPA | high | Do not use deprecated modules. | Yes | Yes | Yes | — |
 | L005 | OPA | low | Community collection module detected; use certified or validated collections. | Yes | Yes | Yes | Yes |
@@ -232,7 +232,7 @@
 | Rule ID | Severity | Description | Impl | Tested | Doc | Fixer |
 |---------|----------|-------------|------|--------|-----|-------|
 | A001 | medium | Tasks should use named_url instead of hardcoded template IDs. | Yes | — | Yes | — |
-| A002 | medium | Tasks should not use deprecated AAP API endpoints. | Yes | — | Yes | — |
+| A002 | high | Tasks should not use deprecated AAP API endpoints. | Yes | — | Yes | — |
 | L026 | low | Tasks should use FQCN for modules. | Yes | Yes | Yes | Yes |
 | L027 | low | Roles should have meta/main.yml with metadata. | Yes | Yes | Yes | — |
 | L030 | low | Non-builtin module used when a builtin equivalent exists. | Yes | Yes | Yes | — |

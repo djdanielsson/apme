@@ -29,7 +29,7 @@ AAP 2.5+ supports named_url for job templates and workflow templates, enabling p
 ```yaml
 - name: Launch job with named_url
   ansible.builtin.uri:
-    url: "https://controller.example.com/api/v2/job_templates/Deploy+App++Default/launch/"
+    url: "https://controller.example.com/api/controller/v2/job_templates/Deploy+App++Default/launch/"
     method: POST
 
 - name: Launch job via controller module with name
