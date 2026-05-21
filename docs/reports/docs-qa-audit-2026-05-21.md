@@ -3,9 +3,9 @@
 ## Executive Summary
 
 - **Total Questions**: 34
-- **Covered**: 13 (38%)
-- **Partial**: 9 (26%)
-- **Gaps**: 12 (35%)
+- **Covered** (✓): 12 (35%)
+- **Partial** (⚠): 9 (26%)
+- **Gaps** (✗): 13 (38%)
 
 The documentation has solid coverage of core functionality (installation, basic scanning, container deployment, rule catalog) but significant gaps exist in CI/CD integration guides, tooling ecosystem integration, and some rule configuration topics.
 
@@ -24,40 +24,40 @@ The documentation has solid coverage of core functionality (installation, basic 
 
 | ID | Category | Question | Status | Source |
 |----|----------|----------|--------|--------|
-| Q01 | What Is It | What is APME and what problem does it solve? | Covered | [README.md#what-apme-is](README.md) |
-| Q02 | What Is It | What types of Ansible content can APME scan? | Covered | [README.md#what-apme-is](README.md) |
-| Q03 | What Is It | What rules does APME enforce and why? | Covered | [docs/rules/RULE_CATALOG.md](docs/rules/RULE_CATALOG.md) |
-| Q04 | What Is It | How does APME differ from ansible-lint? | Partial | [docs/rules/ANSIBLELINT_COVERAGE.md](docs/rules/ANSIBLELINT_COVERAGE.md) |
-| Q05 | What Is It | What are the severity levels and what do they mean? | Covered | [docs/rules/RULE_CATALOG.md](docs/rules/RULE_CATALOG.md) |
-| Q06 | How Can I Use It | How do I install APME? | Covered | [README.md#install](README.md) |
-| Q07 | How Can I Use It | How do I run a basic scan? | Covered | [README.md#basic-usage](README.md) |
-| Q08 | How Can I Use It | How do I get JSON output for automation? | Covered | [README.md#basic-usage](README.md) |
-| Q09 | How Can I Use It | How do I run APME in a container? | Covered | [README.md#container-deployment-podman](README.md), [docs/guides/DEPLOYMENT.md](docs/guides/DEPLOYMENT.md) |
-| Q10 | How Can I Use It | How do I use daemon vs pod mode? | Partial | [docs/guides/DEPLOYMENT.md#local-development-daemon-mode](docs/guides/DEPLOYMENT.md) |
-| Q11 | Rule Config | How do I enable/disable specific rules? | Partial | [src/apme_engine/cli/_rules_yml.py](src/apme_engine/cli/_rules_yml.py) (code only) |
-| Q12 | Rule Config | How do I change rule severity? | Partial | [.sdlc/adrs/ADR-041-rule-catalog-override-architecture.md](.sdlc/adrs/ADR-041-rule-catalog-override-architecture.md) |
-| Q13 | Rule Config | How do I suppress a rule for a specific line? | Gap | No documentation found |
-| Q14 | Rule Config | How do I configure rules per-project? | Partial | [src/apme_engine/cli/_rules_yml.py](src/apme_engine/cli/_rules_yml.py) (code only) |
-| Q15 | Rule Config | How do I enforce rules and ignore noqa comments? | Covered | [.sdlc/adrs/ADR-041-rule-catalog-override-architecture.md](.sdlc/adrs/ADR-041-rule-catalog-override-architecture.md) |
-| Q16 | Custom Rules | Can I add custom rules? | Partial | [.sdlc/adrs/ADR-042-third-party-plugin-services.md](.sdlc/adrs/ADR-042-third-party-plugin-services.md) |
-| Q17 | Custom Rules | How do I write a custom OPA/Rego rule? | Partial | [docs/guides/DEVELOPMENT.md#opa-rego-rule](docs/guides/DEVELOPMENT.md) |
-| Q18 | Custom Rules | How do I add custom rules via plugins? | Partial | [.sdlc/adrs/ADR-042-third-party-plugin-services.md](.sdlc/adrs/ADR-042-third-party-plugin-services.md) |
-| Q19 | Custom Rules | What rule ID conventions should custom rules follow? | Gap | ADR-008 exists but not user-facing |
-| Q20 | Value | How do I show before/after remediation? | Covered | [README.md#basic-usage](README.md) |
-| Q21 | Value | How do I track improvement over time? | Gap | No documentation found |
-| Q22 | Value | How do I generate reports for stakeholders? | Partial | [docs/architecture/13-gateway-and-persistence.md](docs/architecture/13-gateway-and-persistence.md) |
-| Q23 | Value | How do I measure AI fix acceptance rates? | Gap | API exists per 13-gateway, no user guide |
-| Q24 | Value | What metrics does the Gateway API provide? | Gap | [docs/architecture/13-gateway-and-persistence.md](docs/architecture/13-gateway-and-persistence.md) (architecture, not guide) |
-| Q25 | Integration | How do I integrate with GitHub Actions? | Gap | No documentation found |
-| Q26 | Integration | How do I integrate with GitLab CI? | Gap | No documentation found |
-| Q27 | Integration | How do I integrate with Jenkins? | Gap | No documentation found |
-| Q28 | Integration | How do I integrate with Azure DevOps? | Gap | No documentation found |
-| Q29 | Integration | How do I use APME with AAP/AWX? | Gap | No documentation found |
-| Q30 | Integration | How do I use APME with Backstage? | Gap | No documentation found |
-| Q31 | Integration | How do I use APME with pre-commit hooks? | Gap | No documentation found |
-| Q32 | Integration | How do I migrate from ansible-lint? | Covered | [docs/rules/ANSIBLELINT_COVERAGE.md](docs/rules/ANSIBLELINT_COVERAGE.md) |
-| Q33 | Integration | How do I use APME in an air-gapped environment? | Covered | [docs/guides/DEPLOYMENT.md#custom-ca-certificates](docs/guides/DEPLOYMENT.md) |
-| Q34 | Integration | How do I integrate with VS Code? | Covered | No VS Code extension exists yet; N/A |
+| Q01 | What Is It | What is APME and what problem does it solve? | ✓ | [README.md#what-apme-is](../../README.md#what-apme-is) |
+| Q02 | What Is It | What types of Ansible content can APME scan? | ✓ | [README.md#what-apme-is](../../README.md#what-apme-is) |
+| Q03 | What Is It | What rules does APME enforce and why? | ✓ | [RULE_CATALOG.md](../rules/RULE_CATALOG.md) |
+| Q04 | What Is It | How does APME differ from ansible-lint? | ⚠ | [ANSIBLELINT_COVERAGE.md](../rules/ANSIBLELINT_COVERAGE.md) |
+| Q05 | What Is It | What are the severity levels and what do they mean? | ✓ | [RULE_CATALOG.md](../rules/RULE_CATALOG.md) |
+| Q06 | How Can I Use It | How do I install APME? | ✓ | [README.md#install](../../README.md#install) |
+| Q07 | How Can I Use It | How do I run a basic scan? | ✓ | [README.md#basic-usage](../../README.md#basic-usage) |
+| Q08 | How Can I Use It | How do I get JSON output for automation? | ✓ | [README.md#basic-usage](../../README.md#basic-usage) |
+| Q09 | How Can I Use It | How do I run APME in a container? | ✓ | [README.md](../../README.md), [DEPLOYMENT.md](../guides/DEPLOYMENT.md) |
+| Q10 | How Can I Use It | How do I use daemon vs pod mode? | ⚠ | [DEPLOYMENT.md#local-development-daemon-mode](../guides/DEPLOYMENT.md#local-development-daemon-mode) |
+| Q11 | Rule Config | How do I enable/disable specific rules? | ⚠ | [_rules_yml.py](../../src/apme_engine/cli/_rules_yml.py) (code only) |
+| Q12 | Rule Config | How do I change rule severity? | ⚠ | [ADR-041](../../.sdlc/adrs/ADR-041-rule-catalog-override-architecture.md) |
+| Q13 | Rule Config | How do I suppress a rule for a specific line? | ✗ | No documentation found |
+| Q14 | Rule Config | How do I configure rules per-project? | ⚠ | [_rules_yml.py](../../src/apme_engine/cli/_rules_yml.py) (code only) |
+| Q15 | Rule Config | How do I enforce rules and ignore noqa comments? | ✓ | [ADR-041](../../.sdlc/adrs/ADR-041-rule-catalog-override-architecture.md) |
+| Q16 | Custom Rules | Can I add custom rules? | ⚠ | [ADR-042](../../.sdlc/adrs/ADR-042-third-party-plugin-services.md) |
+| Q17 | Custom Rules | How do I write a custom OPA/Rego rule? | ⚠ | [DEVELOPMENT.md](../guides/DEVELOPMENT.md) |
+| Q18 | Custom Rules | How do I add custom rules via plugins? | ⚠ | [ADR-042](../../.sdlc/adrs/ADR-042-third-party-plugin-services.md) |
+| Q19 | Custom Rules | What rule ID conventions should custom rules follow? | ✗ | ADR-008 exists but not user-facing |
+| Q20 | Value | How do I show before/after remediation? | ✓ | [README.md#basic-usage](../../README.md#basic-usage) |
+| Q21 | Value | How do I track improvement over time? | ✗ | No documentation found |
+| Q22 | Value | How do I generate reports for stakeholders? | ⚠ | [13-gateway-and-persistence.md](../architecture/13-gateway-and-persistence.md) |
+| Q23 | Value | How do I measure AI fix acceptance rates? | ✗ | API exists per 13-gateway, no user guide |
+| Q24 | Value | What metrics does the Gateway API provide? | ✗ | [13-gateway-and-persistence.md](../architecture/13-gateway-and-persistence.md) (architecture, not guide) |
+| Q25 | Integration | How do I integrate with GitHub Actions? | ✗ | No documentation found |
+| Q26 | Integration | How do I integrate with GitLab CI? | ✗ | No documentation found |
+| Q27 | Integration | How do I integrate with Jenkins? | ✗ | No documentation found |
+| Q28 | Integration | How do I integrate with Azure DevOps? | ✗ | No documentation found |
+| Q29 | Integration | How do I use APME with AAP/AWX? | ✗ | No documentation found |
+| Q30 | Integration | How do I use APME with Backstage? | ✗ | No documentation found |
+| Q31 | Integration | How do I integrate with pre-commit hooks? | ✗ | No documentation found |
+| Q32 | Integration | How do I migrate from ansible-lint? | ✓ | [ANSIBLELINT_COVERAGE.md](../rules/ANSIBLELINT_COVERAGE.md) |
+| Q33 | Integration | How do I use APME in an air-gapped environment? | ✓ | [DEPLOYMENT.md#custom-ca-certificates](../guides/DEPLOYMENT.md#custom-ca-certificates) |
+| Q34 | Integration | How do I integrate with VS Code? | ✗ | No VS Code extension exists yet |
 
 ## Gap Analysis
 

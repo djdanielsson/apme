@@ -1,3 +1,17 @@
+---
+name: docs-qa-audit
+description: >
+  Audit documentation coverage against common user questions. Generates a Q&A
+  matrix, searches docs/code for answers, flags gaps, and creates DRs for
+  missing content. Use when asked to "audit docs", "check documentation
+  coverage", "what questions can users answer", or before releases/demos.
+argument-hint: "[--output path/to/report.md]"
+user-invocable: true
+metadata:
+  author: APME Team
+  version: 1.0.0
+---
+
 # docs-qa-audit
 
 Audit documentation coverage against common user questions. Generates a Q&A matrix, searches docs/code for answers, flags gaps, and creates DRs for missing content.
@@ -108,8 +122,8 @@ Markdown report (`docs/reports/docs-qa-audit-YYYY-MM-DD.md`) containing:
 
 | # | Question | Status | Source |
 |---|----------|--------|--------|
-| 1 | What is APME? | ✓ | [README.md#overview](README.md) |
-| 2 | How do I install? | ✓ | [README.md#quick-start](README.md) |
+| 1 | What is APME? | ✓ | [README.md#overview](../../README.md#overview) |
+| 2 | How do I install? | ✓ | [README.md#quick-start](../../README.md#quick-start) |
 | 3 | How do I write custom OPA rules? | ⚠ | ADR-042 (not user-facing) |
 | 4 | How do I use with Backstage? | ✗ | — |
 
@@ -127,3 +141,4 @@ Markdown report (`docs/reports/docs-qa-audit-YYYY-MM-DD.md`) containing:
 - Run periodically before releases or customer engagements
 - Output is designed as input for `/red-hat-quick-deck` skill
 - Gaps with DRs can be tracked via `/sdlc-status`
+- **Link format**: When the report lives in `docs/reports/`, use `../../` prefix for repo-root links

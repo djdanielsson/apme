@@ -180,14 +180,14 @@ Record:
 
 ## Step 4: Generate Coverage Matrix
 
-Create markdown table:
+Create markdown table. **Important:** Since reports live in `docs/reports/`, use `../../` prefix for repo-root links.
 
 ```markdown
 ## Coverage Matrix
 
 | ID | Category | Question | Status | Source |
 |----|----------|----------|--------|--------|
-| Q01 | What Is It | What is APME and what problem does it solve? | ✓ | [README.md#overview](README.md) |
+| Q01 | What Is It | What is APME and what problem does it solve? | ✓ | [README.md#overview](../../README.md#overview) |
 ```
 
 ## Step 5: Handle Gaps
@@ -246,7 +246,7 @@ Write report to `docs/reports/docs-qa-audit-YYYY-MM-DD.md`:
 - **Impact**: Why this matters to users
 - **Suggested Location**: `docs/guides/FOO.md`
 - **Research Notes**: What we found in code/ADRs
-- **DR**: [DR-0XX](../.sdlc/decisions/open/DR-0XX.md) (if created)
+- **DR**: [DR-0XX](../../.sdlc/decisions/open/DR-0XX.md) (if created)
 
 ## Partial Coverage Improvements
 
