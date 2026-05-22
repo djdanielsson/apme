@@ -12,13 +12,13 @@ WORKDIR /app
 
 # Dependency layer: only invalidated when pyproject.toml or uv.lock change.
 COPY pyproject.toml uv.lock ./
-RUN --mount=type=cache,target=/root/.cache/uv \
+RUN --mount=type=cache,target=/tmp/uv-cache \
     uv sync --frozen --no-install-project --no-dev \
             --extra ai --extra gateway
 
 # Full source; install the project itself (deps already cached).
 COPY . /app
-RUN --mount=type=cache,target=/root/.cache/uv \
+RUN --mount=type=cache,target=/tmp/uv-cache \
     uv sync --frozen --no-dev --extra ai --extra gateway
 
 ENV PATH="/app/.venv/bin:$PATH"
