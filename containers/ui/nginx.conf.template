@@ -29,7 +29,7 @@ server {
     }
 
     location /api/ {
-        set $backend "http://127.0.0.1:8080";
+        set $backend "${APME_API_BACKEND}";
         proxy_pass         $backend;
         proxy_http_version 1.1;
         proxy_set_header   Host $host;
