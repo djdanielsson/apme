@@ -6,6 +6,45 @@ import re
 
 valid_playbook_re = re.compile(r"^\s*?-?\s*?(?:hosts|include|import_playbook):\s*?.*?$")
 
+# EDA rulebook detection: look for 'sources:' or 'rules:' at ruleset level
+# These keys are valid in EDA rulebooks but not in Ansible playbooks
+_eda_rulebook_re = re.compile(r"^\s{2,4}(?:sources|rules):\s*$")
+
+
+def could_be_eda_rulebook(fpath: str) -> bool:
+    """Check if a file is an EDA rulebook based on path and content.
+
+    EDA rulebooks have 'sources' and/or 'rules' keys at the ruleset level,
+    which are not valid Ansible playbook keywords. This function is called
+    before could_be_playbook() to prevent EDA files from being misclassified.
+
+    Args:
+        fpath: Path to the file to check.
+
+    Returns:
+        True if the file appears to be an EDA rulebook.
+    """
+    basename, ext = os.path.splitext(fpath)
+    if ext not in [".yml", ".yaml"]:
+        return False
+
+    # Path-based detection: files in rulebooks/ or extensions/eda/ directories
+    path_lower = fpath.lower()
+    if "/rulebooks/" in path_lower or "/extensions/eda/" in path_lower:
+        return True
+
+    # Content-based detection: look for EDA-specific keywords
+    try:
+        with codecs.open(fpath, "r", encoding="utf-8", errors="ignore") as f:
+            for n, line in enumerate(f):
+                if n > 100:
+                    break
+                if _eda_rulebook_re.match(line):
+                    return True
+    except OSError:
+        return False
+    return False
+
 
 # this method is based on awx code
 # awx/main/utils/ansible.py#L42-L64 in ansible/awx
@@ -24,6 +63,11 @@ def could_be_playbook(fpath: str) -> bool:
     basename, ext = os.path.splitext(fpath)
     if ext not in [".yml", ".yaml"]:
         return False
+
+    # EDA rulebooks should not be treated as playbooks
+    if could_be_eda_rulebook(fpath):
+        return False
+
     # Filter files that do not have either hosts or top-level
     # includes. Use regex to allow files with invalid YAML to
     # show up.

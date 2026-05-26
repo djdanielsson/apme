@@ -743,6 +743,10 @@ def could_be_playbook_detail(body: str = "", data: YAMLValue | None = None, fpat
     if not isinstance(data[0], dict):
         return False
 
+    # EDA rulebooks have 'sources' or 'rules' keys - these are not playbooks
+    if "sources" in data[0] or "rules" in data[0]:
+        return False
+
     if "hosts" in data[0]:
         return True
 

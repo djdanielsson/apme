@@ -155,6 +155,8 @@ _SCANNABLE_TYPES = frozenset(
         NodeType.PLAYBOOK,
         NodeType.COLLECTION,
         NodeType.MODULE,
+        NodeType.RULEBOOK,
+        NodeType.RULESET,
     }
 )
 
