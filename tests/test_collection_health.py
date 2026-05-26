@@ -296,6 +296,11 @@ class TestCuratedRuleIds:
         play_rules = {"L001", "L002", "L003", "L004", "L005"}
         assert not play_rules.intersection(CURATED_RULE_IDS)
 
+    def test_curated_rules_sorted_and_unique(self) -> None:
+        """CURATED_RULE_IDS is sorted and contains no duplicates."""
+        assert list(CURATED_RULE_IDS) == sorted(CURATED_RULE_IDS)
+        assert len(CURATED_RULE_IDS) == len(set(CURATED_RULE_IDS))
+
     def test_no_authoring_lint_rules(self) -> None:
         """Galaxy metadata, module/role quality, and FQCN hygiene rules are excluded."""
         authoring_lint = {
