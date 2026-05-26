@@ -203,6 +203,12 @@ class TestVarLooksSensitive:
         assert not _var_looks_sensitive("accreditation")
         assert not _var_looks_sensitive("passwords_enabled")
 
+    def test_bracket_notation_credentials(self) -> None:
+        """Bracket notation like credentials['token'] is sensitive."""
+        assert _var_looks_sensitive("credentials['token']")
+        assert _var_looks_sensitive('credentials["password"]')
+        assert _var_looks_sensitive("vault['secret']")
+
 
 class TestFindSensitiveVarsInDebug:
     """Tests for _find_sensitive_vars_in_debug helper."""

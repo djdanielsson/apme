@@ -51,7 +51,7 @@ _SENSITIVE_WORDS = frozenset(
 _JINJA_VAR_RE = re.compile(r"\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)")
 _JINJA_BLOCK_RE = re.compile(r"\{\{([^}]+)\}\}")
 _JINJA_ATTR_RE = re.compile(r"\[['\"]([a-zA-Z_][a-zA-Z0-9_]*)['\"]")
-_WORD_BOUNDARY_RE = re.compile(r"(?:^|[_.\[])({})(?:[_.\]'\"]|$)".format("|".join(_SENSITIVE_WORDS)))
+_WORD_BOUNDARY_RE = re.compile(r"(?:^|[_.'\"\[])({})(?:[_.'\"\[\]]|$)".format("|".join(_SENSITIVE_WORDS)))
 
 
 def _extract_jinja_vars(text: str) -> set[str]:
