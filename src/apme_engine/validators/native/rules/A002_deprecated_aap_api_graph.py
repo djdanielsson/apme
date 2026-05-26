@@ -127,7 +127,9 @@ def _classify_deprecated_api(url: str) -> tuple[str | None, str | None]:
         if f"/api/v2/{resource}" in url_lower:
             return ("hub", f"/api/hub/v2/{resource}")
 
-    return ("controller", "/api/controller/v2/")
+    # Only flag URLs that explicitly reference known AAP resources.
+    # Unknown /api/v2/ paths may belong to non-AAP services.
+    return (None, None)
 
 
 def _check_uri_module(node: ContentNode) -> tuple[bool, str | None, str | None, str | None]:
