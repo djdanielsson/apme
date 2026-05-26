@@ -284,17 +284,36 @@ class TestCollectionHealthServicer:
 class TestCuratedRuleIds:
     """Tests for the curated rule ID set."""
 
-    def test_curated_rules_are_sorted_categories(self) -> None:
-        """Curated rules cover galaxy metadata, module, role, FQCN, deprecated, risk."""
-        assert "L095" in CURATED_RULE_IDS
-        assert "M001" in CURATED_RULE_IDS
+    def test_curated_rules_cover_deprecated_and_risk(self) -> None:
+        """Curated rules cover deprecated patterns and risk/security indicators only."""
+        assert "M005" in CURATED_RULE_IDS
+        assert "M010" in CURATED_RULE_IDS
         assert "R101" in CURATED_RULE_IDS
-        assert "L089" in CURATED_RULE_IDS
+        assert "R108" in CURATED_RULE_IDS
 
     def test_no_play_level_rules(self) -> None:
         """Play-level rules are excluded from collection scanning."""
         play_rules = {"L001", "L002", "L003", "L004", "L005"}
         assert not play_rules.intersection(CURATED_RULE_IDS)
+
+    def test_no_authoring_lint_rules(self) -> None:
+        """Galaxy metadata, module/role quality, and FQCN hygiene rules are excluded."""
+        authoring_lint = {
+            "L027",
+            "L053",
+            "L077",
+            "L079",  # role quality
+            "L089",
+            "L090",  # module quality
+            "L095",
+            "L103",
+            "L104",
+            "L105",  # galaxy metadata
+            "M001",
+            "M002",
+            "M003",  # FQCN hygiene
+        }
+        assert not authoring_lint.intersection(CURATED_RULE_IDS)
 
 
 def _scaffold_collection(

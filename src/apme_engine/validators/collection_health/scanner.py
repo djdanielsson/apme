@@ -18,30 +18,8 @@ from apme_engine.engine.models import ViolationDict
 logger = logging.getLogger("apme.collection_health")
 
 CURATED_RULE_IDS: tuple[str, ...] = (
-    # Galaxy metadata quality
-    "L095",
-    "L103",
-    "L104",
-    "L105",
-    # Module quality
-    "L089",
-    "L090",
-    # Role quality
-    "L027",
-    "L053",
-    "L077",
-    "L079",
-    # FQCN usage within collection
-    "M001",
-    "M002",
-    "M003",
-    "M004",
-    # Deprecated patterns
+    # Deprecated patterns (native GraphRule implementations only)
     "M005",
-    "M006",
-    "M007",
-    "M008",
-    "M009",
     "M010",
     # Risk / security indicators
     "R101",
