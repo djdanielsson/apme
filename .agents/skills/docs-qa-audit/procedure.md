@@ -150,7 +150,7 @@ For each question, search these locations in order:
    ```
    .sdlc/adrs/*.md
    .sdlc/specs/*.md
-   docs/reports/*.md
+   docs/reports/*.md (exclude docs-qa-audit-*.md to avoid self-matching)
    ```
 
 3. **Code as documentation** (lowest weight):

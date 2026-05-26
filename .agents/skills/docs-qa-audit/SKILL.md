@@ -30,7 +30,7 @@ Markdown report (`docs/reports/docs-qa-audit-YYYY-MM-DD.md`) containing:
 1. **Coverage Matrix** — Questions with status (✓ covered / ⚠ partial / ✗ gap)
 2. **Source References** — Links to docs/code that answer each question
 3. **Gap Analysis** — Missing answers with suggested doc locations
-4. **Action Items** — DRs created for gaps, draft PRs for answers
+4. **Action Items** — DRs created for gaps, draft answer stubs for documentation
 
 ## Question Categories
 
