@@ -21,7 +21,7 @@ except Exception:
 import contextlib
 
 from . import logger
-from .awx_utils import could_be_playbook
+from .awx_utils import could_be_eda_rulebook, could_be_playbook
 from .finder import (
     could_be_playbook_detail,
     could_be_taskfile,
@@ -1120,7 +1120,11 @@ def load_playbooks(
         if fpath in loaded:
             continue
 
-        if could_be_playbook(fpath=fpath) and could_be_playbook_detail(fpath=fpath):
+        if (
+            could_be_playbook(fpath=fpath)
+            and could_be_playbook_detail(fpath=fpath)
+            and not could_be_eda_rulebook(fpath=fpath)
+        ):
             relative_path = ""
             if fpath.startswith(path):
                 relative_path = fpath[len(path) :]

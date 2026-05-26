@@ -12,12 +12,46 @@ valid_playbook_re = re.compile(r"^\s*?-?\s*?(?:hosts|include|import_playbook):\s
 _eda_rulebook_re = re.compile(r"^\s{1,8}(?:sources|rules):\s*(?:\S.*)?$")
 
 
+def _normalize_eda_path(fpath: str) -> str:
+    """Normalize a file path for EDA directory matching.
+
+    Args:
+        fpath: Path to normalize.
+
+    Returns:
+        Lowercase path with OS separators replaced by ``/``.
+    """
+    return fpath.replace(os.sep, "/").lower()
+
+
+def is_eda_rulebook_path(fpath: str) -> bool:
+    """Return True if *fpath* lies under a conventional EDA rulebook directory.
+
+    Matches both absolute segments (``/rulebooks/``) and relative paths
+    (``rulebooks/foo.yml``, ``extensions/eda/...``) after normalizing separators.
+
+    Args:
+        fpath: Path to check.
+
+    Returns:
+        True when the path is under ``rulebooks/`` or ``extensions/eda/``.
+    """
+    norm = _normalize_eda_path(fpath)
+    return (
+        norm.startswith("rulebooks/")
+        or "/rulebooks/" in norm
+        or norm.startswith("extensions/eda/")
+        or "/extensions/eda/" in norm
+    )
+
+
 def could_be_eda_rulebook(fpath: str) -> bool:
     """Check if a file is an EDA rulebook based on path and content.
 
     Uses a two-tier detection approach:
-    1. Path-based: Files under /rulebooks/ or /extensions/eda/ directories
-       are assumed to be EDA content regardless of their internal structure.
+    1. Path-based: Files under ``rulebooks/`` or ``extensions/eda/`` directories
+       (absolute or relative) are assumed to be EDA content regardless of
+       their internal structure.
     2. Content-based: For files outside those directories, looks for 'sources'
        or 'rules' keys at ruleset level (indented 1-8 spaces).
 
@@ -36,8 +70,7 @@ def could_be_eda_rulebook(fpath: str) -> bool:
         return False
 
     # Path-based detection: files in rulebooks/ or extensions/eda/ directories
-    path_lower = fpath.lower()
-    if "/rulebooks/" in path_lower or "/extensions/eda/" in path_lower:
+    if is_eda_rulebook_path(fpath):
         return True
 
     # Content-based detection: look for EDA-specific keywords

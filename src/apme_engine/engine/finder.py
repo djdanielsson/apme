@@ -25,7 +25,7 @@ except Exception:
 import contextlib
 
 from . import logger
-from .awx_utils import could_be_playbook, search_playbooks
+from .awx_utils import could_be_eda_rulebook, could_be_playbook, is_eda_rulebook_path, search_playbooks
 from .safe_glob import safe_glob
 
 fqcn_module_name_re = re.compile(r"^[a-z0-9_]+\.[a-z0-9_]+\.[a-z0-9_]+$")
@@ -743,14 +743,42 @@ def could_be_playbook_detail(body: str = "", data: YAMLValue | None = None, fpat
     if not isinstance(data[0], dict):
         return False
 
-    # EDA rulebooks have 'sources' or 'rules' keys - these are not playbooks
-    if "sources" in data[0] or "rules" in data[0]:
-        return False
-
     if "hosts" in data[0]:
         return True
 
     return bool("import_playbook" in data[0] or "ansible.builtin.import_playbook" in data[0])
+
+
+def could_be_eda_rulebook_detail(body: str = "", data: YAMLValue | None = None, fpath: str = "") -> bool:
+    """Return True if content looks like an EDA rulebook (path or ruleset keys).
+
+    Args:
+        body: Optional raw YAML string.
+        data: Optional parsed YAML value.
+        fpath: Path used for directory-based detection and file reads.
+
+    Returns:
+        True if the file appears to be an EDA rulebook.
+
+    """
+    if fpath:
+        if is_eda_rulebook_path(fpath):
+            return True
+        if not body and not data:
+            return could_be_eda_rulebook(fpath)
+
+    body, data, fpath = _get_body_data(body, data, fpath)
+
+    if not body or not data:
+        return False
+
+    if not isinstance(data, list) or len(data) == 0:
+        return False
+
+    if not isinstance(data[0], dict):
+        return False
+
+    return "sources" in data[0] or "rules" in data[0]
 
 
 def could_be_taskfile(body: str = "", data: YAMLValue | None = None, fpath: str = "") -> bool:
@@ -771,6 +799,9 @@ def could_be_taskfile(body: str = "", data: YAMLValue | None = None, fpath: str 
         return False
 
     if not data:
+        return False
+
+    if could_be_eda_rulebook_detail(body, data, fpath):
         return False
 
     if not isinstance(data, list):
@@ -798,9 +829,12 @@ def label_empty_file_by_path(fpath: str) -> str:
         fpath: Path to the file.
 
     Returns:
-        'taskfile', 'playbook', or empty string.
+        ``taskfile``, ``playbook``, ``rulebook``, or empty string.
 
     """
+    if is_eda_rulebook_path(fpath):
+        return "rulebook"
+
     taskfile_dir = ["/tasks/", "/handlers/"]
     for t_d in taskfile_dir:
         if t_d in fpath:
@@ -1031,9 +1065,11 @@ def label_yml_file(
         label = label_by_path if label_by_path else "others"
     elif data and not isinstance(data, list):
         label = "others"
+    elif could_be_eda_rulebook_detail(body, data, yml_path):
+        label = "rulebook"
     elif could_be_playbook_detail(body, data):
         label = "playbook"
-    elif could_be_taskfile(body, data):
+    elif could_be_taskfile(body, data, yml_path):
         label = "taskfile"
     else:
         label = "others"

@@ -4,8 +4,17 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from apme_engine.engine.awx_utils import could_be_eda_rulebook, could_be_playbook
-from apme_engine.engine.finder import could_be_playbook_detail
+from apme_engine.engine.awx_utils import (
+    could_be_eda_rulebook,
+    could_be_playbook,
+    is_eda_rulebook_path,
+)
+from apme_engine.engine.finder import (
+    could_be_eda_rulebook_detail,
+    could_be_playbook_detail,
+    could_be_taskfile,
+    label_yml_file,
+)
 from apme_engine.engine.models import YAMLValue
 
 # ---------------------------------------------------------------------------
@@ -86,6 +95,28 @@ class TestEdaRulebookDetection:
         playbook.write_text(content)
         assert could_be_eda_rulebook(str(playbook)) is False
 
+    def test_is_eda_rulebook_path_relative_paths(self) -> None:
+        """Verify path detection works without leading directory separators."""
+        assert is_eda_rulebook_path("rulebooks/foo.yml") is True
+        assert is_eda_rulebook_path("extensions/eda/rulebooks/foo.yml") is True
+        assert is_eda_rulebook_path("/project/rulebooks/foo.yml") is True
+        assert is_eda_rulebook_path("playbooks/site.yml") is False
+
+    def test_could_be_eda_rulebook_relative_path_without_sources(self, tmp_path: Path) -> None:
+        """Verify path-only EDA files are detected when rulebooks/ has no sources/rules keys.
+
+        Args:
+            tmp_path: Pytest fixture providing temporary directory.
+        """
+        rulebooks_dir = tmp_path / "rulebooks"
+        rulebooks_dir.mkdir()
+        rulebook = rulebooks_dir / "minimal.yml"
+        rulebook.write_text("---\n- name: Minimal\n  hosts: localhost\n")
+        # Relative path from project root (no leading slash in segment check)
+        relative = f"rulebooks/{rulebook.name}"
+        assert is_eda_rulebook_path(relative) is True
+        assert could_be_eda_rulebook(str(rulebook)) is True
+
     def test_non_yaml_file_not_eda_rulebook(self, tmp_path: Path) -> None:
         """Verify non-YAML files are not detected as EDA rulebooks.
 
@@ -150,15 +181,15 @@ class TestPlaybookDetectionExcludesEda:
 
 
 # ---------------------------------------------------------------------------
-# Playbook Detail Detection Excludes EDA
+# Playbook detail vs EDA exclusion at call sites
 # ---------------------------------------------------------------------------
 
 
-class TestPlaybookDetailExcludesEda:
-    """Tests that could_be_playbook_detail excludes EDA content."""
+class TestPlaybookDetailVsEdaExclusion:
+    """Tests playbook-detail shape detection vs explicit EDA exclusion."""
 
-    def test_eda_rulebook_not_playbook_detail(self) -> None:
-        """Verify EDA content with sources/rules is not detected as playbook."""
+    def test_eda_rulebook_still_playbook_shaped(self) -> None:
+        """Verify EDA content with hosts is playbook-shaped for detail detection."""
         body = """\
 - name: Hello Events
   hosts: localhost
@@ -177,10 +208,11 @@ class TestPlaybookDetailExcludesEda:
                 "rules": [{"name": "Say Hello", "condition": "event.i == 1"}],
             }
         ]
-        assert could_be_playbook_detail(body=body, data=data) is False
+        assert could_be_playbook_detail(body=body, data=data) is True
+        assert could_be_eda_rulebook_detail(body=body, data=data) is True
 
     def test_eda_rulebook_with_only_sources(self) -> None:
-        """Verify content with sources key is not detected as playbook."""
+        """Verify sources-only EDA is playbook-shaped but identified as EDA."""
         body = """\
 - name: Event Source
   hosts: localhost
@@ -195,10 +227,11 @@ class TestPlaybookDetailExcludesEda:
                 "sources": [{"ansible.eda.webhook": {"port": 5000}}],
             }
         ]
-        assert could_be_playbook_detail(body=body, data=data) is False
+        assert could_be_playbook_detail(body=body, data=data) is True
+        assert could_be_eda_rulebook_detail(body=body, data=data) is True
 
     def test_eda_rulebook_with_only_rules(self) -> None:
-        """Verify content with rules key is not detected as playbook."""
+        """Verify rules-only EDA is playbook-shaped but identified as EDA."""
         body = """\
 - name: Rules Only
   hosts: localhost
@@ -213,7 +246,8 @@ class TestPlaybookDetailExcludesEda:
                 "rules": [{"name": "Test", "condition": "true"}],
             }
         ]
-        assert could_be_playbook_detail(body=body, data=data) is False
+        assert could_be_playbook_detail(body=body, data=data) is True
+        assert could_be_eda_rulebook_detail(body=body, data=data) is True
 
     def test_standard_playbook_still_detected(self) -> None:
         """Verify standard playbook with tasks is still detected."""
@@ -239,3 +273,72 @@ class TestPlaybookDetailExcludesEda:
         body = "- import_playbook: other.yml\n"
         data: YAMLValue = [{"import_playbook": "other.yml"}]
         assert could_be_playbook_detail(body=body, data=data) is True
+
+
+# ---------------------------------------------------------------------------
+# Taskfile / Label Classification Excludes EDA
+# ---------------------------------------------------------------------------
+
+
+class TestEdaExcludedFromTaskfileLabel:
+    """Tests that EDA rulebooks are not classified as taskfiles."""
+
+    def test_could_be_taskfile_excludes_eda_content(self) -> None:
+        """Verify EDA-shaped YAML is not treated as a taskfile."""
+        body = """\
+- name: Hello Events
+  hosts: localhost
+  sources:
+    - ansible.eda.range:
+        limit: 5
+  rules:
+    - name: Say Hello
+      condition: event.i == 1
+"""
+        data: YAMLValue = [
+            {
+                "name": "Hello Events",
+                "hosts": "localhost",
+                "sources": [{"ansible.eda.range": {"limit": 5}}],
+                "rules": [{"name": "Say Hello", "condition": "event.i == 1"}],
+            }
+        ]
+        assert could_be_eda_rulebook_detail(body=body, data=data) is True
+        assert could_be_taskfile(body=body, data=data) is False
+
+    def test_label_yml_file_marks_eda_as_rulebook(self, tmp_path: Path) -> None:
+        """Verify label_yml_file returns rulebook for EDA content.
+
+        Args:
+            tmp_path: Pytest fixture providing temporary directory.
+        """
+        content = """\
+---
+- name: Hello Events
+  hosts: localhost
+  sources:
+    - ansible.eda.range:
+        limit: 5
+  rules:
+    - name: Say Hello
+      condition: event.i == 1
+"""
+        rulebook = tmp_path / "rulebook.yml"
+        rulebook.write_text(content)
+        label, _, error = label_yml_file(yml_path=str(rulebook))
+        assert error is None
+        assert label == "rulebook"
+
+    def test_label_yml_file_path_only_rulebook_directory(self, tmp_path: Path) -> None:
+        """Verify files under rulebooks/ are labeled rulebook even without sources/rules.
+
+        Args:
+            tmp_path: Pytest fixture providing temporary directory.
+        """
+        rulebooks_dir = tmp_path / "rulebooks"
+        rulebooks_dir.mkdir()
+        rulebook = rulebooks_dir / "minimal.yml"
+        rulebook.write_text("---\n- name: Minimal\n  hosts: localhost\n")
+        label, _, error = label_yml_file(yml_path=str(rulebook))
+        assert error is None
+        assert label == "rulebook"
