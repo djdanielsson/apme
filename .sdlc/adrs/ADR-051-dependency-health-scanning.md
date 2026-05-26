@@ -81,26 +81,27 @@ content.
 3. For each collection, builds a `ContentGraph` of the collection's roles,
    modules, plugins, and metadata — the same loader pipeline the engine uses
    for project content.
-4. Runs a **curated rule subset** against the collection graph. Not all rules
-   apply to collection internals (e.g. play-level rules are irrelevant). The
-   initial rule selection focuses on:
-   - **Galaxy metadata quality:** L095, L103, L104, L105 (schema, changelog,
-     runtime, repository)
-   - **Module quality:** L089, L090 (type hints, return types)
-   - **Role quality:** L027 (role without metadata), L053 (meta structure),
-     L077 (argument specs), L079 (role var prefix)
-   - **FQCN usage within collection:** M001-M004
-   - **Deprecated patterns:** M005-M010
-   - **Risk indicators:** R101 (command/shell usage guidance and related
-     risk patterns)
+4. Runs a **curated rule subset** against the collection graph. The scope is
+   limited to **security/runtime risks** and **deprecated patterns** — not
+   authoring-quality lint (galaxy metadata, role structure, type hints, FQCN
+   hygiene). Findings in dependencies should be actionable signals, not noise
+   from code the user does not own. The curated set:
+   - **Deprecated patterns:** M005 (Jinja data tagging 2.19+), M010 (Python 2
+     interpreter dropped 2.18+)
+   - **Risk / security indicators:** R101, R103-R109, R111-R115, R117, R401
+     (command execution, transfers, privilege escalation, package install risks,
+     file changes, external roles)
+   - **Deferred:** M004 (removed modules) requires Ansible introspection, not
+     available in the native GraphRule scanner. M006, M008, M009 are OPA rules.
+     These will be added when cross-validator wiring is implemented.
 5. Emits `Violation` messages scoped to `RuleScope.COLLECTION` with the
    collection FQCN in `metadata["collection_fqcn"]` and
    `metadata["collection_version"]`. The `file` field is relative to the
    collection root, not the project root.
 
-**Rule IDs:** Collection health findings reuse existing rule IDs (L089, M001,
+**Rule IDs:** Collection health findings reuse existing rule IDs (M005, R108,
 etc.) — the rule logic is the same. The `RuleScope.COLLECTION` and metadata
-distinguish "this M001 is in your project" from "this M001 is in a dependency."
+distinguish "this R108 is in your project" from "this R108 is in a dependency."
 
 **Caching:** Collection content is immutable at a given FQCN+version, but
 findings also depend on the scan schema: the engine version, the curated rule
@@ -373,8 +374,11 @@ _OPTIONAL_SERVICES = {
 | R200 | Risk | Known CVE in Python dependency |
 | R201 | Risk | Unmaintained Python dependency (reserved, future) |
 
-Collection health findings reuse existing rule IDs (L0xx, M0xx, R1xx) with
-`RuleScope.COLLECTION` differentiation.
+Collection health findings reuse existing rule IDs (M0xx deprecated patterns,
+R1xx risk/security) with `RuleScope.COLLECTION` differentiation. Authoring-
+quality lint rules (galaxy metadata L095/L103-L105, module quality L089/L090,
+role quality L027/L053/L077/L079, FQCN hygiene M001-M003) are excluded —
+dependency scanning targets security and runtime risks only.
 
 ### CLI integration
 
