@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from apme_engine.engine.awx_utils import could_be_eda_rulebook, could_be_playbook
+from apme_engine.engine.awx_utils import could_be_eda_rulebook, could_be_playbook, search_playbooks
 from apme_engine.engine.content_graph import NodeType
 
 
@@ -118,6 +118,96 @@ class TestEdaGraphIntegration:
         # Rulebook should be detected as EDA, not playbook
         assert could_be_eda_rulebook(str(rulebook)) is True
         assert could_be_playbook(str(rulebook)) is False
+
+    def test_search_playbooks_excludes_eda_rulebooks(self, tmp_path: Path) -> None:
+        """Verify search_playbooks excludes EDA rulebooks from results.
+
+        This is the entry point for project scanning - if EDA rulebooks are
+        excluded here, they won't be parsed as playbooks and won't trigger
+        L095 false positives for 'unknown play keyword' on sources/rules.
+
+        Args:
+            tmp_path: Pytest fixture providing temporary directory.
+        """
+        # Create a standard playbook
+        playbook = tmp_path / "site.yml"
+        playbook.write_text("""\
+---
+- name: Deploy app
+  hosts: web
+  tasks:
+    - name: Copy files
+      ansible.builtin.copy:
+        src: app/
+        dest: /opt/app/
+""")
+
+        # Create an EDA rulebook (content-based detection)
+        eda_content = tmp_path / "events.yml"
+        eda_content.write_text("""\
+---
+- name: Monitor Events
+  hosts: localhost
+  sources:
+    - ansible.eda.webhook:
+        port: 5000
+  rules:
+    - name: Handle webhook
+      condition: event.payload is defined
+      action:
+        debug:
+""")
+
+        # Create an EDA rulebook in rulebooks/ directory (path-based detection)
+        rulebooks_dir = tmp_path / "rulebooks"
+        rulebooks_dir.mkdir()
+        eda_path = rulebooks_dir / "monitor.yml"
+        eda_path.write_text("""\
+---
+- name: Path-based EDA
+  hosts: localhost
+""")
+
+        # search_playbooks should only return the standard playbook
+        playbooks = search_playbooks(str(tmp_path))
+        assert len(playbooks) == 1
+        assert playbooks[0].endswith("site.yml")
+
+    def test_eda_inline_content_detection(self, tmp_path: Path) -> None:
+        """Verify EDA detection works with inline content variants.
+
+        The regex should handle: `sources: []`, `rules:  # comment`, etc.
+
+        Args:
+            tmp_path: Pytest fixture providing temporary directory.
+        """
+        # Test inline empty list
+        inline_list = tmp_path / "inline_list.yml"
+        inline_list.write_text("""\
+---
+- name: Inline List
+  hosts: localhost
+  sources: []
+  rules: []
+""")
+        assert could_be_eda_rulebook(str(inline_list)) is True
+        assert could_be_playbook(str(inline_list)) is False
+
+        # Test with trailing comment
+        with_comment = tmp_path / "with_comment.yml"
+        with_comment.write_text("""\
+---
+- name: With Comment
+  hosts: localhost
+  sources:  # event sources
+    - ansible.eda.range:
+        limit: 5
+  rules:  # event rules
+    - name: Test
+      condition: "true"
+""")
+        assert could_be_eda_rulebook(str(with_comment)) is True
+        assert could_be_playbook(str(with_comment)) is False
 
 
 class TestNodeTypeEnumIncludes:

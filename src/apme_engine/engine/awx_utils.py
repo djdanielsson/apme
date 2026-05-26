@@ -8,15 +8,22 @@ valid_playbook_re = re.compile(r"^\s*?-?\s*?(?:hosts|include|import_playbook):\s
 
 # EDA rulebook detection: look for 'sources:' or 'rules:' at ruleset level
 # These keys are valid in EDA rulebooks but not in Ansible playbooks
-_eda_rulebook_re = re.compile(r"^\s{2,4}(?:sources|rules):\s*$")
+# Allow any trailing content (inline values like [], comments, etc.)
+_eda_rulebook_re = re.compile(r"^\s{1,8}(?:sources|rules):\s*(?:\S.*)?$")
 
 
 def could_be_eda_rulebook(fpath: str) -> bool:
     """Check if a file is an EDA rulebook based on path and content.
 
-    EDA rulebooks have 'sources' and/or 'rules' keys at the ruleset level,
-    which are not valid Ansible playbook keywords. This function is called
-    before could_be_playbook() to prevent EDA files from being misclassified.
+    Uses a two-tier detection approach:
+    1. Path-based: Files under /rulebooks/ or /extensions/eda/ directories
+       are assumed to be EDA content regardless of their internal structure.
+    2. Content-based: For files outside those directories, looks for 'sources'
+       or 'rules' keys at ruleset level (indented 1-8 spaces).
+
+    This function is called before could_be_playbook() to prevent EDA files
+    from being misclassified as playbooks (which would cause L095 false
+    positives for 'unknown play keyword' on sources/rules).
 
     Args:
         fpath: Path to the file to check.
