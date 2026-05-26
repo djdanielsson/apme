@@ -144,6 +144,36 @@ class TestA001TemplateIDUsage:
         assert violations[0].detail["hardcoded_id"] == "42"
         assert violations[0].detail["template_type"] == "job_template"
 
+    def test_uri_hardcoded_id_with_query_params_flagged(self) -> None:
+        """URI module with /api/v2/job_templates/<id>?params is flagged."""
+        g, _ = _make_task(
+            module="ansible.builtin.uri",
+            module_options={
+                "url": "https://controller.example.com/api/v2/job_templates/42?foo=bar",
+            },
+        )
+        rules: list[GraphRule] = [TemplateIDUsageGraphRule()]
+        report = scan(g, rules)
+        violations = _find_violations(report, "A001")
+        assert len(violations) == 1
+        assert violations[0].detail is not None
+        assert violations[0].detail["hardcoded_id"] == "42"
+
+    def test_uri_hardcoded_id_with_fragment_flagged(self) -> None:
+        """URI module with /api/v2/job_templates/<id>#section is flagged."""
+        g, _ = _make_task(
+            module="ansible.builtin.uri",
+            module_options={
+                "url": "https://controller.example.com/api/v2/job_templates/42#details",
+            },
+        )
+        rules: list[GraphRule] = [TemplateIDUsageGraphRule()]
+        report = scan(g, rules)
+        violations = _find_violations(report, "A001")
+        assert len(violations) == 1
+        assert violations[0].detail is not None
+        assert violations[0].detail["hardcoded_id"] == "42"
+
     def test_uri_named_url_not_flagged(self) -> None:
         """URI module with named_url pattern is not flagged."""
         g, _ = _make_task(

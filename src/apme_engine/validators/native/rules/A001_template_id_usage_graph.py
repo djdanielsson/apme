@@ -46,7 +46,7 @@ _AAP_CONTROLLER_MODULES = frozenset(
 )
 
 _TEMPLATE_ID_PATTERN = re.compile(
-    r"/api/(v2|controller/v2)/(job_templates|workflow_job_templates)/(\d+)(/|$)",
+    r"/api/(v2|controller/v2)/(job_templates|workflow_job_templates)/(\d+)(/|$|[?#])",
     re.IGNORECASE,
 )
 

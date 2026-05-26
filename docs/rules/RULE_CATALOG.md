@@ -7,7 +7,7 @@
 | Metric | Count |
 |--------|-------|
 | Implemented | 146/155 |
-| Tested | 108/155 |
+| Tested | 111/155 |
 | Documented | 154/155 |
 | Deterministic fixer | 24/155 |
 
@@ -15,8 +15,8 @@
 
 | Rule ID | Validator | Severity | Description | Impl | Tested | Doc | Fixer |
 |---------|-----------|----------|-------------|------|--------|-----|-------|
-| A001 | Native | medium | Tasks should use named_url instead of hardcoded template IDs. | Yes | — | Yes | — |
-| A002 | Native | high | Tasks should not use deprecated AAP API endpoints. | Yes | — | Yes | — |
+| A001 | Native | medium | Tasks should use named_url instead of hardcoded template IDs. | Yes | Yes | Yes | — |
+| A002 | Native | high | Tasks should not use deprecated AAP API endpoints. | Yes | Yes | Yes | — |
 | L003 | OPA | low | Each play should have a name. | Yes | Yes | Yes | — |
 | L004 | OPA | high | Do not use deprecated modules. | Yes | Yes | Yes | — |
 | L005 | OPA | low | Community collection module detected; use certified or validated collections. | Yes | Yes | Yes | Yes |
@@ -123,7 +123,7 @@
 | M002 | Ansible | high | Deprecated module — module has deprecation metadata. | Yes | Yes | Yes | Yes |
 | M003 | Ansible | high | Module redirect — module name was redirected to a new FQCN. | Yes | Yes | Yes | Yes |
 | M004 | Ansible | error | Removed module — tombstoned module that raises AnsiblePluginRemovedError. | Yes | — | Yes | Yes |
-| M005 | Native | high | Registered variable used in Jinja template may be untrusted in 2.19+. | Yes | — | Yes | — |
+| M005 | Native | high | Registered variable used in Jinja template may be untrusted in 2.19+. | Yes | Yes | Yes | — |
 | M006 | OPA | high | become with ignore_errors will not catch timeout in 2.19+. | Yes | Yes | Yes | Yes |
 | M008 | OPA | high | Bare include is removed in 2.19+; use include_tasks or import_tasks. | Yes | Yes | Yes | Yes |
 | M009 | OPA | high | with_* loops are deprecated; use loop instead. | Yes | Yes | Yes | Yes |
@@ -227,12 +227,12 @@
 | M028 | high | first_found lookup auto-splitting paths on delimiters is deprecated (2.23) | Yes | Yes | Yes | — |
 | R118 | info | Task downloads from an external source (inbound transfer). | Yes | Yes | Yes | — |
 
-### Native (98 rules, 89 impl, 52 tested, 3 fixers)
+### Native (98 rules, 89 impl, 55 tested, 3 fixers)
 
 | Rule ID | Severity | Description | Impl | Tested | Doc | Fixer |
 |---------|----------|-------------|------|--------|-----|-------|
-| A001 | medium | Tasks should use named_url instead of hardcoded template IDs. | Yes | — | Yes | — |
-| A002 | high | Tasks should not use deprecated AAP API endpoints. | Yes | — | Yes | — |
+| A001 | medium | Tasks should use named_url instead of hardcoded template IDs. | Yes | Yes | Yes | — |
+| A002 | high | Tasks should not use deprecated AAP API endpoints. | Yes | Yes | Yes | — |
 | L026 | low | Tasks should use FQCN for modules. | Yes | Yes | Yes | Yes |
 | L027 | low | Roles should have meta/main.yml with metadata. | Yes | Yes | Yes | — |
 | L030 | low | Non-builtin module used when a builtin equivalent exists. | Yes | Yes | Yes | — |
@@ -296,7 +296,7 @@
 | L103 | low | Collection should have a CHANGELOG file. | Yes | Yes | Yes | — |
 | L104 | low | Collection should have meta/runtime.yml. | Yes | — | Yes | — |
 | L105 | low | galaxy.yml should have a repository key. | Yes | Yes | Yes | — |
-| M005 | high | Registered variable used in Jinja template may be untrusted in 2.19+. | Yes | — | Yes | — |
+| M005 | high | Registered variable used in Jinja template may be untrusted in 2.19+. | Yes | Yes | Yes | — |
 | M010 | high | ansible_python_interpreter set to Python 2; dropped in 2.18+. | Yes | Yes | Yes | — |
 | M014 | medium | Use ansible_facts["name"] instead of injected ansible_* fact variables (removed in 2.24) | Yes | — | Yes | — |
 | M015 | medium | Use ansible_play_batch instead of deprecated play_hosts variable (removed in 2.23) | Yes | — | Yes | — |
@@ -362,10 +362,8 @@
 - **R404** (Native): Expose variable_set for the task.
 - **R501** (Native): Suggest collection/role dependency.
 
-### Implemented but untested — 41
+### Implemented but untested — 38
 
-- **A001** (Native): Tasks should use named_url instead of hardcoded template IDs.
-- **A002** (Native): Tasks should not use deprecated AAP API endpoints.
 - **L032** (Native): Variable redefinition may cause confusion.
 - **L033** (Native): Overriding vars without conditions.
 - **L034** (Native): Lower-precedence override may be unused.
@@ -392,7 +390,6 @@
 - **L102** (Native): Do not set read-only Ansible variables.
 - **L104** (Native): Collection should have meta/runtime.yml.
 - **M004** (Ansible): Removed module — tombstoned module that raises AnsiblePluginRemovedError.
-- **M005** (Native): Registered variable used in Jinja template may be untrusted in 2.19+.
 - **M014** (Native): Use ansible_facts["name"] instead of injected ansible_* fact variables (removed in 2.24)
 - **M015** (Native): Use ansible_play_batch instead of deprecated play_hosts variable (removed in 2.23)
 - **M020** (Native): Use !vault instead of deprecated !vault-encrypted tag (2.23)
