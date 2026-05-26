@@ -82,6 +82,10 @@ Markdown report (`docs/reports/docs-qa-audit-YYYY-MM-DD.md`) containing:
 
 ## Procedure
 
+See [procedure.md](procedure.md) for the detailed step-by-step implementation guide.
+
+### Overview
+
 1. **Load Question Set** — Use the categories above
 2. **Search Documentation** — Glob `docs/**/*.md`, `README.md`, `.sdlc/**/*.md`
 3. **Search Code** — Grep for CLI help, config loaders, API endpoints

@@ -18,7 +18,7 @@ The documentation has solid coverage of core functionality (installation, basic 
 | Rule Configuration | 1/5 | 3/5 | 1/5 | 50% |
 | Bring Your Own Rules | 0/4 | 3/4 | 1/4 | 38% |
 | Demonstrating Value | 1/5 | 1/5 | 3/5 | 30% |
-| Integration with Existing Tools | 3/10 | 0/10 | 7/10 | 30% |
+| Integration with Existing Tools | 2/10 | 0/10 | 8/10 | 20% |
 
 ## Coverage Matrix
 
