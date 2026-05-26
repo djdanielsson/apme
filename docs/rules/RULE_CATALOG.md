@@ -7,7 +7,7 @@
 | Metric | Count |
 |--------|-------|
 | Implemented | 146/155 |
-| Tested | 111/155 |
+| Tested | 115/155 |
 | Documented | 154/155 |
 | Deterministic fixer | 24/155 |
 
@@ -65,7 +65,7 @@
 | L050 | Native | low | Variable names: lowercase, underscores. | Yes | Yes | Yes | — |
 | L051 | Native | low | Jinja spacing: {{ var }} not {{var}}. | Yes | Yes | Yes | — |
 | L052 | Native | low | Galaxy version in meta should be semantic. | Yes | Yes | Yes | — |
-| L053 | Native | low | Role meta should have valid structure. | Yes | — | Yes | — |
+| L053 | Native | low | Role meta should have valid structure. | Yes | Yes | Yes | — |
 | L054 | Native | low | Role meta galaxy_info should include galaxy_tags. | Yes | — | Yes | — |
 | L055 | Native | low | Role meta video_links should be valid URLs. | Yes | — | Yes | — |
 | L056 | Native | info | Path may match ignore pattern. | Yes | — | Yes | — |
@@ -91,7 +91,7 @@
 | L076 | Native | low | Use ansible_facts bracket notation instead of injected fact variables. | Yes | — | Yes | — |
 | L077 | Native | low | Roles should have meta/argument_specs.yml for fail-fast parameter validation. | Yes | Yes | Yes | — |
 | L078 | Native | low | Use bracket notation for dict key access in Jinja. | Yes | Yes | Yes | — |
-| L079 | Native | low | Role defaults/vars should be prefixed with the role name. | Yes | — | Yes | — |
+| L079 | Native | low | Role defaults/vars should be prefixed with the role name. | Yes | Yes | Yes | — |
 | L080 | Native | low | Internal role variables should be prefixed with _ (underscore). | Yes | Yes | Yes | — |
 | L081 | Native | low | Do not number roles or playbooks. | Yes | Yes | Yes | — |
 | L082 | Native | low | Template source files should use .j2 extension. | Yes | — | Yes | — |
@@ -102,7 +102,7 @@
 | L087 | Native | low | Collection root should have a LICENSE or COPYING file. | Yes | Yes | Yes | — |
 | L088 | Native | low | Collection README should document supported ansible-core versions. | Yes | Yes | Yes | — |
 | L089 | Native | low | Plugin Python files should include type hints. | Yes | Yes | Yes | — |
-| L090 | Native | low | Plugin entry files should be small; move helpers to module_utils. | Yes | — | Yes | — |
+| L090 | Native | low | Plugin entry files should be small; move helpers to module_utils. | Yes | Yes | Yes | — |
 | L091 | Native | low | Use | bool for bare variables in when conditions. | Yes | — | Yes | — |
 | L092 | Native | low | Avoid loop variable references in task names. | Yes | — | Yes | — |
 | L093 | Native | low | Do not override role defaults/vars with set_fact. | Yes | — | Yes | — |
@@ -116,7 +116,7 @@
 | L101 | Native | medium | Variable names must not collide with Ansible reserved names. | Yes | — | Yes | — |
 | L102 | Native | medium | Do not set read-only Ansible variables. | Yes | — | Yes | — |
 | L103 | Native | low | Collection should have a CHANGELOG file. | Yes | Yes | Yes | — |
-| L104 | Native | low | Collection should have meta/runtime.yml. | Yes | — | Yes | — |
+| L104 | Native | low | Collection should have meta/runtime.yml. | Yes | Yes | Yes | — |
 | L105 | Native | low | galaxy.yml should have a repository key. | Yes | Yes | Yes | — |
 | L106 | OPA | medium | set_fact with loop and when is a scaling anti-pattern. | Yes | Yes | Yes | — |
 | M001 | Ansible | high | FQCN resolution — module resolved to a different canonical name. | Yes | Yes | Yes | Yes |
@@ -227,7 +227,7 @@
 | M028 | high | first_found lookup auto-splitting paths on delimiters is deprecated (2.23) | Yes | Yes | Yes | — |
 | R118 | info | Task downloads from an external source (inbound transfer). | Yes | Yes | Yes | — |
 
-### Native (98 rules, 89 impl, 55 tested, 3 fixers)
+### Native (98 rules, 89 impl, 59 tested, 3 fixers)
 
 | Rule ID | Severity | Description | Impl | Tested | Doc | Fixer |
 |---------|----------|-------------|------|--------|-----|-------|
@@ -258,7 +258,7 @@
 | L050 | low | Variable names: lowercase, underscores. | Yes | Yes | Yes | — |
 | L051 | low | Jinja spacing: {{ var }} not {{var}}. | Yes | Yes | Yes | — |
 | L052 | low | Galaxy version in meta should be semantic. | Yes | Yes | Yes | — |
-| L053 | low | Role meta should have valid structure. | Yes | — | Yes | — |
+| L053 | low | Role meta should have valid structure. | Yes | Yes | Yes | — |
 | L054 | low | Role meta galaxy_info should include galaxy_tags. | Yes | — | Yes | — |
 | L055 | low | Role meta video_links should be valid URLs. | Yes | — | Yes | — |
 | L056 | info | Path may match ignore pattern. | Yes | — | Yes | — |
@@ -269,7 +269,7 @@
 | L076 | low | Use ansible_facts bracket notation instead of injected fact variables. | Yes | — | Yes | — |
 | L077 | low | Roles should have meta/argument_specs.yml for fail-fast parameter validation. | Yes | Yes | Yes | — |
 | L078 | low | Use bracket notation for dict key access in Jinja. | Yes | Yes | Yes | — |
-| L079 | low | Role defaults/vars should be prefixed with the role name. | Yes | — | Yes | — |
+| L079 | low | Role defaults/vars should be prefixed with the role name. | Yes | Yes | Yes | — |
 | L080 | low | Internal role variables should be prefixed with _ (underscore). | Yes | Yes | Yes | — |
 | L081 | low | Do not number roles or playbooks. | Yes | Yes | Yes | — |
 | L082 | low | Template source files should use .j2 extension. | Yes | — | Yes | — |
@@ -280,7 +280,7 @@
 | L087 | low | Collection root should have a LICENSE or COPYING file. | Yes | Yes | Yes | — |
 | L088 | low | Collection README should document supported ansible-core versions. | Yes | Yes | Yes | — |
 | L089 | low | Plugin Python files should include type hints. | Yes | Yes | Yes | — |
-| L090 | low | Plugin entry files should be small; move helpers to module_utils. | Yes | — | Yes | — |
+| L090 | low | Plugin entry files should be small; move helpers to module_utils. | Yes | Yes | Yes | — |
 | L091 | low | Use | bool for bare variables in when conditions. | Yes | — | Yes | — |
 | L092 | low | Avoid loop variable references in task names. | Yes | — | Yes | — |
 | L093 | low | Do not override role defaults/vars with set_fact. | Yes | — | Yes | — |
@@ -294,7 +294,7 @@
 | L101 | medium | Variable names must not collide with Ansible reserved names. | Yes | — | Yes | — |
 | L102 | medium | Do not set read-only Ansible variables. | Yes | — | Yes | — |
 | L103 | low | Collection should have a CHANGELOG file. | Yes | Yes | Yes | — |
-| L104 | low | Collection should have meta/runtime.yml. | Yes | — | Yes | — |
+| L104 | low | Collection should have meta/runtime.yml. | Yes | Yes | Yes | — |
 | L105 | low | galaxy.yml should have a repository key. | Yes | Yes | Yes | — |
 | M005 | high | Registered variable used in Jinja template may be untrusted in 2.19+. | Yes | Yes | Yes | — |
 | M010 | high | ansible_python_interpreter set to Python 2; dropped in 2.18+. | Yes | Yes | Yes | — |
@@ -362,25 +362,22 @@
 - **R404** (Native): Expose variable_set for the task.
 - **R501** (Native): Suggest collection/role dependency.
 
-### Implemented but untested — 38
+### Implemented but untested — 34
 
 - **L032** (Native): Variable redefinition may cause confusion.
 - **L033** (Native): Overriding vars without conditions.
 - **L034** (Native): Lower-precedence override may be unused.
 - **L038** (Native): Role could not be resolved.
 - **L039** (Native): Variable use may be undefined.
-- **L053** (Native): Role meta should have valid structure.
 - **L054** (Native): Role meta galaxy_info should include galaxy_tags.
 - **L055** (Native): Role meta video_links should be valid URLs.
 - **L056** (Native): Path may match ignore pattern.
 - **L073** (Native): YAML should use 2-space indentation.
 - **L075** (Native): Template source files should use .j2 extension (ansible_managed best practice).
 - **L076** (Native): Use ansible_facts bracket notation instead of injected fact variables.
-- **L079** (Native): Role defaults/vars should be prefixed with the role name.
 - **L082** (Native): Template source files should use .j2 extension.
 - **L084** (Native): Task names in included sub-task files should use a prefix.
 - **L086** (Native): Avoid playbook/play vars for routine config; use inventory vars.
-- **L090** (Native): Plugin entry files should be small; move helpers to module_utils.
 - **L091** (Native): Use | bool for bare variables in when conditions.
 - **L092** (Native): Avoid loop variable references in task names.
 - **L093** (Native): Do not override role defaults/vars with set_fact.
@@ -388,7 +385,6 @@
 - **L097** (Native): Task names should be unique within a play.
 - **L101** (Native): Variable names must not collide with Ansible reserved names.
 - **L102** (Native): Do not set read-only Ansible variables.
-- **L104** (Native): Collection should have meta/runtime.yml.
 - **M004** (Ansible): Removed module — tombstoned module that raises AnsiblePluginRemovedError.
 - **M014** (Native): Use ansible_facts["name"] instead of injected ansible_* fact variables (removed in 2.24)
 - **M015** (Native): Use ansible_play_batch instead of deprecated play_hosts variable (removed in 2.23)
