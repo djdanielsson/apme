@@ -28,6 +28,7 @@ def _make_debug_graph(
     msg: str | None = None,
     var: str | None = None,
     raw: str | None = None,
+    raw_params: str | None = None,
     no_log: bool | None = None,
     block_no_log: bool | None = None,
     play_no_log: bool | None = None,
@@ -39,6 +40,7 @@ def _make_debug_graph(
         msg: Debug msg parameter.
         var: Debug var parameter.
         raw: Debug _raw parameter (free-form module args).
+        raw_params: Debug _raw_params parameter (alternate free-form key).
         no_log: Task-level no_log setting.
         block_no_log: Block-level no_log setting.
         play_no_log: Play-level no_log setting.
@@ -88,6 +90,8 @@ def _make_debug_graph(
         module_options["var"] = var
     if raw is not None:
         module_options["_raw"] = raw
+    if raw_params is not None:
+        module_options["_raw_params"] = raw_params
 
     path_suffix = "handlers[0]" if node_type == NodeType.HANDLER else "tasks[0]"
     task = ContentNode(
@@ -514,6 +518,47 @@ class TestDebugSensitiveVarsGraphRule:
 
         assert result is not None
         assert result.verdict is True
+
+    def test_raw_params_module_args_sensitive(self) -> None:
+        """Rule detects sensitive vars in _raw_params module args."""
+        graph, task_id = _make_debug_graph(raw_params='msg="Secret {{ api_secret }}"')
+        rule = DebugSensitiveVarsGraphRule()
+
+        result = rule.process(graph, task_id)
+
+        assert result is not None
+        assert result.verdict is True
+
+    def test_scanner_integration_raw_only(self) -> None:
+        """Scanner integration test for raw-only debug tasks.
+
+        Ensures match() correctly identifies raw-only debug tasks so
+        the full scan pipeline reports L110 violations.
+        """
+        graph, _ = _make_debug_graph(raw='msg="{{ db_password }}"')
+        rules: list[GraphRule] = [DebugSensitiveVarsGraphRule()]
+
+        report = scan(graph, rules, owned_only=True)
+
+        violations = [r for nr in report.node_results for r in nr.rule_results if r.verdict]
+        assert len(violations) == 1
+        assert violations[0].rule is not None
+        assert violations[0].rule.rule_id == "L110"
+
+    def test_scanner_integration_raw_params_only(self) -> None:
+        """Scanner integration test for _raw_params-only debug tasks.
+
+        Ensures match() correctly identifies _raw_params-only debug tasks.
+        """
+        graph, _ = _make_debug_graph(raw_params='msg="{{ secret_token }}"')
+        rules: list[GraphRule] = [DebugSensitiveVarsGraphRule()]
+
+        report = scan(graph, rules, owned_only=True)
+
+        violations = [r for nr in report.node_results for r in nr.rule_results if r.verdict]
+        assert len(violations) == 1
+        assert violations[0].rule is not None
+        assert violations[0].rule.rule_id == "L110"
 
     def test_access_key_sensitive(self) -> None:
         """access_key is recognized as sensitive."""

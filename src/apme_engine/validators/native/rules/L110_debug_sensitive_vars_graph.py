@@ -101,10 +101,10 @@ def _var_looks_sensitive(var_name: str) -> bool:
 
 
 def _find_sensitive_vars_in_debug(node: ContentNode) -> list[str]:
-    """Find sensitive variable references in debug task msg/var/_raw.
+    """Find sensitive variable references in debug task msg/var/_raw/_raw_params.
 
-    Checks msg, var, and _raw (free-form module args) for sensitive variable
-    references. Uses a set internally for deduplication.
+    Checks msg, var, _raw, and _raw_params (free-form module args) for sensitive
+    variable references. Uses a set internally for deduplication.
 
     Args:
         node: Task node to inspect.
@@ -125,11 +125,13 @@ def _find_sensitive_vars_in_debug(node: ContentNode) -> list[str]:
     if var_param and isinstance(var_param, str) and _var_looks_sensitive(var_param):
         sensitive_found.add(var_param)
 
-    raw = mo.get("_raw", "")
-    if raw:
-        for var_name in _extract_jinja_vars(str(raw)):
-            if _var_looks_sensitive(var_name):
-                sensitive_found.add(var_name)
+    # Check both _raw and _raw_params for free-form module args
+    for raw_key in ("_raw", "_raw_params"):
+        raw = mo.get(raw_key, "")
+        if raw:
+            for var_name in _extract_jinja_vars(str(raw)):
+                if _var_looks_sensitive(var_name):
+                    sensitive_found.add(var_name)
 
     return list(sensitive_found)
 
@@ -195,14 +197,14 @@ class DebugSensitiveVarsGraphRule(GraphRule):
     tags: tuple[str, ...] = (Tag.SYSTEM, Tag.SECURITY)
 
     def match(self, graph: ContentGraph, node_id: str) -> bool:
-        """Match debug tasks with msg or var parameters.
+        """Match debug tasks with msg, var, or free-form parameters.
 
         Args:
             graph: The full ContentGraph.
             node_id: ID of the node to check.
 
         Returns:
-            True when the node is a debug task with msg or var set.
+            True when the node is a debug task with msg, var, _raw, or _raw_params set.
         """
         node = graph.get_node(node_id)
         if node is None:
@@ -213,7 +215,7 @@ class DebugSensitiveVarsGraphRule(GraphRule):
             return False
 
         mo = node.module_options if isinstance(node.module_options, dict) else {}
-        return bool(mo.get("msg") or mo.get("var"))
+        return bool(mo.get("msg") or mo.get("var") or mo.get("_raw") or mo.get("_raw_params"))
 
     def process(self, graph: ContentGraph, node_id: str) -> GraphRuleResult | None:
         """Check if debug task logs sensitive variables without no_log.
