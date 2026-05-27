@@ -3,11 +3,11 @@
 ## Executive Summary
 
 - **Total Questions**: 34
-- **Covered** (✓): 11 (32%)
-- **Partial** (⚠): 10 (29%)
-- **Gaps** (✗): 13 (38%)
+- **Covered** (✓): 16 (47%)
+- **Partial** (⚠): 8 (24%)
+- **Gaps** (✗): 10 (29%)
 
-The documentation has solid coverage of core functionality (installation, basic scanning, container deployment, rule catalog) but significant gaps exist in CI/CD integration guides, tooling ecosystem integration, and some rule configuration topics.
+The documentation has solid coverage of core functionality (installation, basic scanning, container deployment, rule catalog, and rule configuration) but significant gaps remain in CI/CD integration guides, tooling ecosystem integration, and higher-level reporting workflows.
 
 ## Coverage by Category
 
@@ -15,9 +15,9 @@ The documentation has solid coverage of core functionality (installation, basic 
 |----------|---------|---------|-----|-------|
 | What Is It / What Does It Do | 4/5 | 1/5 | 0/5 | 90% |
 | How Can I Use It | 4/5 | 1/5 | 0/5 | 90% |
-| Rule Configuration | 0/5 | 4/5 | 1/5 | 40% |
-| Bring Your Own Rules | 0/4 | 3/4 | 1/4 | 38% |
-| Demonstrating Value | 1/5 | 1/5 | 3/5 | 30% |
+| Rule Configuration | 4/5 | 1/5 | 0/5 | 90% |
+| Bring Your Own Rules | 0/4 | 4/4 | 0/4 | 50% |
+| Demonstrating Value | 2/5 | 1/5 | 2/5 | 50% |
 | Integration with Existing Tools | 2/10 | 0/10 | 8/10 | 20% |
 
 ## Coverage Matrix
@@ -34,19 +34,19 @@ The documentation has solid coverage of core functionality (installation, basic 
 | Q08 | How Can I Use It | How do I get JSON output for automation? | ✓ | [README.md#basic-usage](../../README.md#basic-usage) |
 | Q09 | How Can I Use It | How do I run APME in a container? | ✓ | [README.md](../../README.md), [DEPLOYMENT.md](../guides/DEPLOYMENT.md) |
 | Q10 | How Can I Use It | How do I use daemon vs pod mode? | ⚠ | [DEPLOYMENT.md#local-development-daemon-mode](../guides/DEPLOYMENT.md#local-development-daemon-mode) |
-| Q11 | Rule Configuration | How do I enable/disable specific rules? | ⚠ | [_rules_yml.py](../../src/apme_engine/cli/_rules_yml.py) (code only) |
-| Q12 | Rule Configuration | How do I change rule severity? | ⚠ | [ADR-041](../../.sdlc/adrs/ADR-041-rule-catalog-override-architecture.md) |
-| Q13 | Rule Configuration | How do I suppress a rule for a specific line? | ✗ | No documentation found |
-| Q14 | Rule Configuration | How do I configure rules per-project? | ⚠ | [_rules_yml.py](../../src/apme_engine/cli/_rules_yml.py) (code only) |
-| Q15 | Rule Configuration | How do I enforce rules and ignore noqa comments? | ⚠ | [ADR-041](../../.sdlc/adrs/ADR-041-rule-catalog-override-architecture.md) |
+| Q11 | Rule Configuration | How do I enable/disable specific rules? | ✓ | [RULE_CONFIGURATION.md](../guides/RULE_CONFIGURATION.md) |
+| Q12 | Rule Configuration | How do I change rule severity? | ✓ | [RULE_CONFIGURATION.md](../guides/RULE_CONFIGURATION.md) |
+| Q13 | Rule Configuration | How do I suppress a rule for a specific line? | ✓ | [RULE_CONFIGURATION.md](../guides/RULE_CONFIGURATION.md) |
+| Q14 | Rule Configuration | How do I configure rules per-project? | ✓ | [RULE_CONFIGURATION.md](../guides/RULE_CONFIGURATION.md) |
+| Q15 | Rule Configuration | How do I enforce rules and ignore noqa comments? | ⚠ | [RULE_CONFIGURATION.md](../guides/RULE_CONFIGURATION.md), [graph_scanner.py](../../src/apme_engine/engine/graph_scanner.py) |
 | Q16 | Bring Your Own Rules | Can I add custom rules? | ⚠ | [ADR-042](../../.sdlc/adrs/ADR-042-third-party-plugin-services.md) |
 | Q17 | Bring Your Own Rules | How do I write a custom OPA/Rego rule? | ⚠ | [DEVELOPMENT.md](../guides/DEVELOPMENT.md) |
 | Q18 | Bring Your Own Rules | How do I add custom rules via plugins? | ⚠ | [ADR-042](../../.sdlc/adrs/ADR-042-third-party-plugin-services.md) |
-| Q19 | Bring Your Own Rules | What rule ID conventions should custom rules follow? | ✗ | ADR-008 exists but not user-facing |
+| Q19 | Bring Your Own Rules | What rule ID conventions should custom rules follow? | ⚠ | [RULE_CONFIGURATION.md](../guides/RULE_CONFIGURATION.md) |
 | Q20 | Demonstrating Value | How do I show before/after remediation? | ✓ | [README.md#basic-usage](../../README.md#basic-usage) |
 | Q21 | Demonstrating Value | How do I track improvement over time? | ✗ | No documentation found |
 | Q22 | Demonstrating Value | How do I generate reports for stakeholders? | ⚠ | [13-gateway-and-persistence.md](../architecture/13-gateway-and-persistence.md) |
-| Q23 | Demonstrating Value | How do I measure AI fix acceptance rates? | ✗ | API exists per 13-gateway, no user guide |
+| Q23 | Demonstrating Value | How do I measure AI fix acceptance rates? | ✓ | [RULE_CONFIGURATION.md](../guides/RULE_CONFIGURATION.md) |
 | Q24 | Demonstrating Value | What metrics does the Gateway API provide? | ✗ | [13-gateway-and-persistence.md](../architecture/13-gateway-and-persistence.md) (architecture, not guide) |
 | Q25 | Integration with Existing Tools | How do I integrate with GitHub Actions? | ✗ | No documentation found |
 | Q26 | Integration with Existing Tools | How do I integrate with GitLab CI? | ✗ | No documentation found |
@@ -61,25 +61,7 @@ The documentation has solid coverage of core functionality (installation, basic 
 
 ## Gap Analysis
 
-### Gap 1: Inline Suppression (Q13)
-
-- **ID**: Q13
-- **Question**: How do I suppress a rule for a specific line?
-- **Impact**: Users need to suppress false positives in specific locations without disabling the rule globally. This is a fundamental workflow.
-- **Suggested Location**: `docs/guides/RULE_CONFIGURATION.md` or README.md
-- **Research Notes**: The engine currently parses inline suppression via `# noqa: <RULE_ID>` comments in `graph_scanner.py`, and ADR-041 documents the `enforced` flag to ignore those suppressions. There is still no user-facing documentation explaining the syntax or usage.
-- **Draft Answer**: Add an inline `# noqa: <RULE_ID>` comment to suppress that rule for the node. Use `enforced: true` in `.apme/rules.yml` to make suppression impossible for compliance-critical rules.
-
-### Gap 2: Rule ID Conventions for Custom Rules (Q19)
-
-- **ID**: Q19
-- **Question**: What rule ID conventions should custom rules follow?
-- **Impact**: Users writing custom rules need to understand the ID naming scheme to avoid conflicts and maintain consistency.
-- **Suggested Location**: `docs/guides/CUSTOM_RULES.md` (new file)
-- **Research Notes**: ADR-008 defines L/M/R/P/SEC prefixes. ADR-042 defines EXT- prefix for plugins. This information exists but is not in user-facing docs.
-- **Draft Answer**: Built-in rules use prefixes: L (lint), M (modernize), R (risk), P (policy), SEC (secrets). Custom plugin rules must use `EXT-<plugin_name>-<NNN>` format (e.g., `EXT-secteam-001`).
-
-### Gap 3: Tracking Improvement Over Time (Q21)
+### Gap 1: Tracking Improvement Over Time (Q21)
 
 - **ID**: Q21
 - **Question**: How do I track improvement over time?
@@ -88,16 +70,7 @@ The documentation has solid coverage of core functionality (installation, basic 
 - **Research Notes**: Gateway API has `/projects/{id}/trend` endpoint and health scores per 13-gateway architecture doc, but no user guide exists.
 - **Draft Answer**: The Gateway REST API provides trend data via `GET /api/v1/projects/{id}/trend`. The UI dashboard shows violation trends over time. Health scores are computed per project.
 
-### Gap 4: AI Acceptance Rates (Q23)
-
-- **ID**: Q23
-- **Question**: How do I measure AI fix acceptance rates?
-- **Impact**: Teams evaluating AI remediation need metrics to justify the investment.
-- **Suggested Location**: `docs/guides/REPORTING.md` (new file)
-- **Research Notes**: Gateway API has `GET /api/v1/stats/ai-acceptance` endpoint per 13-gateway.
-- **Draft Answer**: Query `GET /api/v1/stats/ai-acceptance` from the Gateway API for proposal approval/rejection statistics.
-
-### Gap 5: Gateway API Metrics Guide (Q24)
+### Gap 2: Gateway API Metrics Guide (Q24)
 
 - **ID**: Q24
 - **Question**: What metrics does the Gateway API provide?
@@ -106,7 +79,7 @@ The documentation has solid coverage of core functionality (installation, basic 
 - **Research Notes**: Full endpoint list exists in 13-gateway architecture doc. Needs user-facing guide with examples.
 - **Draft Answer**: Document the dashboard endpoints: `/api/v1/dashboard/summary`, `/api/v1/violations/top`, `/api/v1/stats/remediation-rates`, `/api/v1/stats/ai-acceptance`.
 
-### Gap 6: GitHub Actions Integration (Q25)
+### Gap 3: GitHub Actions Integration (Q25)
 
 - **ID**: Q25
 - **Question**: How do I integrate with GitHub Actions?
@@ -115,7 +88,7 @@ The documentation has solid coverage of core functionality (installation, basic 
 - **Research Notes**: The CLI supports `--json` output and exit codes suitable for CI. No example workflow exists.
 - **Draft Answer**: Create example workflow using `pip install apme-engine@git+https://github.com/ansible/apme.git@main` and `apme check --json .`.
 
-### Gap 7: GitLab CI Integration (Q26)
+### Gap 4: GitLab CI Integration (Q26)
 
 - **ID**: Q26
 - **Question**: How do I integrate with GitLab CI?
@@ -123,7 +96,7 @@ The documentation has solid coverage of core functionality (installation, basic 
 - **Suggested Location**: `docs/guides/CI_INTEGRATION.md` (new file)
 - **Research Notes**: Same CLI capabilities apply. No `.gitlab-ci.yml` example exists.
 
-### Gap 8: Jenkins Integration (Q27)
+### Gap 5: Jenkins Integration (Q27)
 
 - **ID**: Q27
 - **Question**: How do I integrate with Jenkins?
@@ -131,7 +104,7 @@ The documentation has solid coverage of core functionality (installation, basic 
 - **Suggested Location**: `docs/guides/CI_INTEGRATION.md` (new file)
 - **Research Notes**: CLI can be run in Jenkins pipelines. No example Jenkinsfile exists.
 
-### Gap 9: Azure DevOps Integration (Q28)
+### Gap 6: Azure DevOps Integration (Q28)
 
 - **ID**: Q28
 - **Question**: How do I integrate with Azure DevOps?
@@ -139,7 +112,7 @@ The documentation has solid coverage of core functionality (installation, basic 
 - **Suggested Location**: `docs/guides/CI_INTEGRATION.md` (new file)
 - **Research Notes**: No Azure Pipelines example exists.
 
-### Gap 10: AAP/AWX Integration (Q29)
+### Gap 7: AAP/AWX Integration (Q29)
 
 - **ID**: Q29
 - **Question**: How do I use APME with AAP/AWX?
@@ -148,7 +121,7 @@ The documentation has solid coverage of core functionality (installation, basic 
 - **Research Notes**: README mentions AAP 2.5+ as the target. Roadmap mentions EE compatibility rules. No integration guide exists.
 - **Draft Answer**: APME scans content for AAP 2.5+ compatibility. For EE integration, use `--ansible-core-version` flag. Future: EE compatibility rules (R505-R507) planned.
 
-### Gap 11: Backstage Integration (Q30)
+### Gap 8: Backstage Integration (Q30)
 
 - **ID**: Q30
 - **Question**: How do I use APME with Backstage?
@@ -156,7 +129,7 @@ The documentation has solid coverage of core functionality (installation, basic 
 - **Suggested Location**: `docs/guides/BACKSTAGE_INTEGRATION.md` (new file)
 - **Research Notes**: No Backstage plugin or integration guide exists. The Gateway API could be consumed by a Backstage plugin.
 
-### Gap 12: Pre-commit Hooks (Q31)
+### Gap 9: Pre-commit Hooks (Q31)
 
 - **ID**: Q31
 - **Question**: How do I use APME with pre-commit hooks?
@@ -164,6 +137,15 @@ The documentation has solid coverage of core functionality (installation, basic 
 - **Suggested Location**: `docs/guides/CI_INTEGRATION.md` or README.md
 - **Research Notes**: No `.pre-commit-config.yaml` example exists. The CLI could be wrapped as a pre-commit hook.
 - **Draft Answer**: Create `.pre-commit-config.yaml` entry using `apme check` as a local hook.
+
+### Gap 10: VS Code Integration (Q34)
+
+- **ID**: Q34
+- **Question**: How do I integrate with VS Code?
+- **Impact**: Editor integration is a common adoption path for local developer workflows.
+- **Suggested Location**: `docs/guides/EDITOR_INTEGRATION.md` or README.md
+- **Research Notes**: No VS Code extension or editor integration guide exists in the repo today.
+- **Draft Answer**: Document the current status explicitly: there is no VS Code extension yet, and users should run `apme check` from the terminal or CI until an editor integration exists.
 
 ## Partial Coverage Improvements
 
@@ -179,59 +161,46 @@ The documentation has solid coverage of core functionality (installation, basic 
 - **Gap**: Explains both modes but lacks a decision tree for when to use each.
 - **Recommendation**: Add a "Which mode should I use?" section with clear guidance.
 
-### Partial 3: Enable/Disable Rules (Q11)
+### Partial 3: Enforced Rules vs `noqa` (Q15)
 
-- **Current Source**: Code in `_rules_yml.py`
-- **Gap**: The `.apme/rules.yml` format is only documented in code comments.
-- **Recommendation**: Create `docs/guides/RULE_CONFIGURATION.md` with examples.
+- **Current Source**: `docs/guides/RULE_CONFIGURATION.md`, `graph_scanner.py`
+- **Gap**: The guide documents `enforced`, but the native graph-rule scan path parses `# noqa` before violations are created. The user-facing docs should be explicit about that current limitation.
+- **Recommendation**: Keep the guide aligned with implementation details until the engine supports bypassing native graph-rule `# noqa` suppressions.
 
-### Partial 4: Severity Override (Q12)
-
-- **Current Source**: ADR-041
-- **Gap**: ADR explains architecture, not user workflow.
-- **Recommendation**: Add user-facing examples to `docs/guides/RULE_CONFIGURATION.md`.
-
-### Partial 5: Per-project Config (Q14)
-
-- **Current Source**: Code in `_rules_yml.py`
-- **Gap**: No user documentation for `.apme/rules.yml`.
-- **Recommendation**: Document in `docs/guides/RULE_CONFIGURATION.md`.
-
-### Partial 6: Custom Rules Overview (Q16)
+### Partial 4: Custom Rules Overview (Q16)
 
 - **Current Source**: ADR-042
 - **Gap**: ADR is developer-focused, not user-facing.
 - **Recommendation**: Create `docs/guides/CUSTOM_RULES.md` with high-level overview.
 
-### Partial 7: Custom OPA/Rego Rules (Q17)
+### Partial 5: Rule ID Conventions (Q19)
+
+- **Current Source**: `docs/guides/RULE_CONFIGURATION.md`
+- **Gap**: The guide mentions custom prefixes, but the custom-rule story is still spread across configuration docs, ADRs, and future plugin design. A dedicated custom-rules guide would be clearer for users.
+- **Recommendation**: Fold rule ID conventions into `docs/guides/CUSTOM_RULES.md` alongside plugin and extension guidance.
+
+### Partial 6: Custom OPA/Rego Rules (Q17)
 
 - **Current Source**: docs/guides/DEVELOPMENT.md
 - **Gap**: Development guide shows internal rule addition, not external/user-facing custom rules.
 - **Recommendation**: Clarify distinction between internal development and plugin extensibility.
 
-### Partial 8: Plugin Rules (Q18)
+### Partial 7: Plugin Rules (Q18)
 
 - **Current Source**: ADR-042
 - **Gap**: SDK documentation planned but not yet published.
 - **Recommendation**: Complete Phase 5 of ADR-042 implementation (documentation and SDK guide).
 
-### Partial 9: Stakeholder Reports (Q22)
+### Partial 8: Stakeholder Reports (Q22)
 
 - **Current Source**: 13-gateway architecture doc
-- **Gap**: API endpoints documented but no guide on generating stakeholder reports.
-- **Recommendation**: Create `docs/guides/REPORTING.md` with report examples.
-
-### Partial 10: Enforced Rules vs `noqa` (Q15)
-
-- **Current Source**: ADR-041
-- **Gap**: The behavior is documented architecturally, but there is no user-facing configuration guide explaining `enforced: true` or how it interacts with `# noqa: <RULE_ID>`.
-- **Recommendation**: Add an "Enforced Rules" section to `docs/guides/RULE_CONFIGURATION.md` with examples showing both inline suppression and rule-level enforcement.
+- **Gap**: API endpoints are documented, but there is still no guide on generating stakeholder-facing reports or choosing between dashboard summaries, trends, and proposal statistics.
+- **Recommendation**: Create `docs/guides/REPORTING.md` with report examples and workflow guidance.
 
 ## Action Items
 
 ### High Priority (Core User Workflows)
 
-- [ ] Create `docs/guides/RULE_CONFIGURATION.md` documenting `.apme/rules.yml` format, inline suppression (`# noqa: <RULE_ID>`), severity overrides, and `enforced` flag
 - [ ] Create `docs/guides/CI_INTEGRATION.md` with examples for GitHub Actions, GitLab CI, Jenkins, Azure DevOps, and pre-commit hooks
 
 ### Medium Priority (Value Demonstration)
@@ -243,11 +212,12 @@ The documentation has solid coverage of core functionality (installation, basic 
 
 - [ ] Create `docs/guides/CUSTOM_RULES.md` with rule ID conventions and plugin SDK overview
 - [ ] Create `docs/guides/AAP_INTEGRATION.md` for AAP/EE integration guidance
+- [ ] Document the current "no VS Code extension yet" status and any recommended editor workflow
 - [ ] Document Backstage integration pattern when plugin is available
 
 ## Next Steps
 
 1. Review gaps with stakeholders to prioritize based on customer frequency
-2. Create `RULE_CONFIGURATION.md` and `CI_INTEGRATION.md` as highest-impact additions
-3. Add `# noqa: <RULE_ID>` suppression syntax to user-facing docs immediately
+2. Create `CI_INTEGRATION.md` as the highest-impact missing guide
+3. Create `REPORTING.md` for trends, dashboard metrics, and stakeholder workflows
 4. Re-run audit after documentation updates

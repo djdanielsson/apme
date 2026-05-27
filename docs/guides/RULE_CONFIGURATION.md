@@ -38,7 +38,10 @@ Suppress rules on specific tasks using `# noqa`:
   ansible.builtin.shell: rm -rf /tmp/*
 ```
 
-**Note:** If a rule has `enforced: true` in `.apme/rules.yml`, inline suppressions are ignored.
+**Note:** `enforced: true` prevents rule-level suppressions from bypassing a
+rule during CLI suppression processing. Native graph-rule `# noqa` comments are
+parsed earlier in the scan path, so this setting does not currently override
+those inline suppressions.
 
 ### CLI Flags
 
