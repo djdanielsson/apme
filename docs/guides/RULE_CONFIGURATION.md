@@ -27,7 +27,7 @@ rules:
 |--------|------|---------|-------------|
 | `enabled` | bool | `true` | Set to `false` to skip this rule |
 | `severity` | string | (rule default) | Override: `info`, `low`, `medium`, `high`, `critical` |
-| `enforced` | bool | `false` | If `true`, ignores inline `# noqa` comments |
+| `enforced` | bool | `false` | If `true`, bypasses rule-level fingerprint suppressions during CLI suppression processing |
 
 ### Inline Suppression
 

@@ -145,6 +145,6 @@ See [procedure.md](procedure.md) for the detailed step-by-step implementation gu
 ## Notes
 
 - Run periodically before releases or customer engagements
-- Output is designed as input for `/red-hat-quick-deck` skill
+- Output is designed to feed presentation decks or release-readiness reviews
 - Gaps with DRs can be tracked via `/sdlc-status`
 - **Link format**: When the report lives in `docs/reports/`, use `../../` prefix for repo-root links

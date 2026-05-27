@@ -148,6 +148,8 @@ For each question, search these locations in order:
 
 2. **Secondary docs** (partial coverage):
    ```
+   docs/architecture/*.md
+   docs/design/*.md
    .sdlc/adrs/*.md
    .sdlc/specs/*.md
    docs/reports/*.md (exclude docs-qa-audit-*.md to avoid self-matching)
@@ -168,8 +170,8 @@ For each question, determine status:
 
 | Status | Criteria |
 |--------|----------|
-| ✓ Covered | Clear, user-facing answer in `docs/guides/` or `README.md` |
-| ⚠ Partial | Answer exists but: only in ADRs, incomplete, or buried in code |
+| ✓ Covered | Clear, user-facing answer in `docs/guides/`, `README.md`, or equivalent end-user docs |
+| ⚠ Partial | Answer exists but is incomplete, only in architecture/design/ADRs, or buried in code |
 | ✗ Gap | No answer found, or only implementation exists |
 
 Record:
@@ -187,7 +189,7 @@ Create markdown table. **Important:** Since reports live in `docs/reports/`, use
 
 | ID | Category | Question | Status | Source |
 |----|----------|----------|--------|--------|
-| Q01 | What Is It | What is APME and what problem does it solve? | ✓ | [README.md#overview](../../README.md#overview) |
+| Q01 | What Is It / What Does It Do | What is APME and what problem does it solve? | ✓ | [README.md#overview](../../README.md#overview) |
 ```
 
 ## Step 5: Handle Gaps
@@ -231,10 +233,16 @@ to that explicit path instead:
 
 ## Coverage by Category
 
-| Category | Covered | Partial | Gap |
-|----------|---------|---------|-----|
-| What Is It | 4/5 | 1/5 | 0/5 |
-| ... | ... | ... | ... |
+| Category | Covered | Partial | Gap | Score |
+|----------|---------|---------|-----|-------|
+| What Is It / What Does It Do | 4/5 | 1/5 | 0/5 | 90% |
+| ... | ... | ... | ... | ... |
+
+`Score` is a weighted coverage percentage:
+- covered = 1.0
+- partial = 0.5
+- gap = 0.0
+- formula = `((covered + 0.5 * partial) / total_questions) * 100`, rounded to the nearest whole percent
 
 ## Coverage Matrix
 
