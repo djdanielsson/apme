@@ -34,6 +34,10 @@ _AAP_API_MODULES = frozenset(
 
 _AAP_CONTROLLER_MODULES = frozenset(
     {
+        "job_launch",
+        "workflow_launch",
+        "job_template",
+        "workflow_job_template",
         "awx.awx.job_launch",
         "awx.awx.workflow_launch",
         "ansible.controller.job_launch",

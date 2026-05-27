@@ -241,6 +241,20 @@ class TestA001TemplateIDUsage:
         assert violations[0].detail is not None
         assert violations[0].detail["hardcoded_id"] == "456"
 
+    def test_short_controller_module_numeric_job_template_id_flagged(self) -> None:
+        """Short controller module names are detected when authored via collections."""
+        g, _ = _make_task(
+            module="job_launch",
+            module_options={"job_template_id": 123},
+        )
+        rules: list[GraphRule] = [TemplateIDUsageGraphRule()]
+        report = scan(g, rules)
+        violations = _find_violations(report, "A001")
+        assert len(violations) == 1
+        assert violations[0].detail is not None
+        assert violations[0].detail["hardcoded_id"] == "123"
+        assert violations[0].detail["module"] == "job_launch"
+
     def test_controller_module_numeric_workflow_template_id_flagged(self) -> None:
         """Controller module with numeric workflow_template_id is flagged."""
         g, _ = _make_task(
@@ -432,6 +446,20 @@ class TestA002DeprecatedAAPAPI:
         assert len(violations) == 1
         assert violations[0].detail is not None
         assert violations[0].detail["module"] == "ansible.hub.ah_token"
+        assert violations[0].detail["replacement"] == "ansible.platform.token"
+
+    def test_short_deprecated_hub_module_flagged(self) -> None:
+        """Short deprecated hub module names are detected when authored via collections."""
+        g, _ = _make_task(
+            module="ah_token",
+            module_options={"state": "present"},
+        )
+        rules: list[GraphRule] = [DeprecatedAAPAPIGraphRule()]
+        report = scan(g, rules)
+        violations = _find_violations(report, "A002")
+        assert len(violations) == 1
+        assert violations[0].detail is not None
+        assert violations[0].detail["module"] == "ah_token"
         assert violations[0].detail["replacement"] == "ansible.platform.token"
 
     def test_deprecated_hub_ah_user_flagged(self) -> None:

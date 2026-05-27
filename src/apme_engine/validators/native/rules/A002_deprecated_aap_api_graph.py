@@ -36,6 +36,8 @@ _URI_MODULES = frozenset(
 
 _DEPRECATED_HUB_MODULES = frozenset(
     {
+        "ah_token",
+        "ah_user",
         "ansible.hub.ah_token",
         "ansible.hub.ah_user",
     }
@@ -160,10 +162,10 @@ def _check_deprecated_module(node: ContentNode) -> tuple[bool, str | None]:
     """
     mod = node.module or ""
 
-    if mod == "ansible.hub.ah_token":
+    if mod in {"ansible.hub.ah_token", "ah_token"}:
         return (True, "ansible.platform.token")
 
-    if mod == "ansible.hub.ah_user":
+    if mod in {"ansible.hub.ah_user", "ah_user"}:
         return (True, "ansible.platform.user")
 
     return (False, None)
