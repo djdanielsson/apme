@@ -227,9 +227,9 @@ to that explicit path instead:
 ## Executive Summary
 
 - **Total Questions**: X
-- **Covered**: Y (Z%)
-- **Partial**: A (B%)
-- **Gaps**: C (D%)
+- **Covered** (✓): Y (Z%)
+- **Partial** (⚠): A (B%)
+- **Gaps** (✗): C (D%)
 
 ## Coverage by Category
 

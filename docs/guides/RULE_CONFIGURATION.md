@@ -27,7 +27,7 @@ rules:
 |--------|------|---------|-------------|
 | `enabled` | bool | `true` | Set to `false` to skip this rule |
 | `severity` | string | (rule default) | Override: `info`, `low`, `medium`, `high`, `critical` |
-| `enforced` | bool | `false` | If `true`, bypasses rule-level fingerprint suppressions during CLI suppression processing |
+| `enforced` | bool | `false` | If `true`, bypasses rule-level fingerprint suppressions from `.apme/suppressions.yml` during CLI suppression processing |
 
 ### Inline Suppression
 
@@ -38,10 +38,10 @@ Suppress rules on specific tasks using `# noqa`:
   ansible.builtin.shell: rm -rf /tmp/*
 ```
 
-**Note:** `enforced: true` prevents rule-level suppressions from bypassing a
-rule during CLI suppression processing. Native graph-rule `# noqa` comments are
-parsed earlier in the scan path, so this setting does not currently override
-those inline suppressions.
+**Note:** `enforced: true` affects `.apme/suppressions.yml` fingerprint
+suppressions during CLI suppression processing. Native graph-rule `# noqa`
+comments are parsed earlier during scan-time evaluation, so this setting does
+not currently override those inline suppressions.
 
 ### CLI Flags
 
