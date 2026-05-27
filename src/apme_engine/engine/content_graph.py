@@ -67,6 +67,8 @@ class NodeType(str, Enum):
         LOOKUP_PLUGIN: Lookup plugin.
         VARS_FILE: Variables file node.
         COLLECTION: Collection metadata node.
+        RULEBOOK: EDA rulebook file.
+        RULESET: Ruleset within an EDA rulebook (analogous to PLAY).
     """
 
     PLAYBOOK = "playbook"
@@ -83,6 +85,8 @@ class NodeType(str, Enum):
     LOOKUP_PLUGIN = "lookup_plugin"
     VARS_FILE = "vars_file"
     COLLECTION = "collection"
+    RULEBOOK = "rulebook"
+    RULESET = "ruleset"
 
 
 class EdgeType(str, Enum):

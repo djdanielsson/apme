@@ -1120,6 +1120,7 @@ def load_playbooks(
         if fpath in loaded:
             continue
 
+        # could_be_playbook() already excludes EDA rulebooks internally
         if could_be_playbook(fpath=fpath) and could_be_playbook_detail(fpath=fpath):
             relative_path = ""
             if fpath.startswith(path):
