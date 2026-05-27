@@ -472,7 +472,7 @@
         <div class="arch-row">
           <div class="arch-box">Automation Portal<span class="port">Fleet dashboards</span></div>
           <div class="arch-box">CI/CD Pipelines<span class="port">Block on policy</span></div>
-          <div class="arch-box">AI Agents (MCP)<span class="port">Scan & explain</span></div>
+          <div class="arch-box">AI Agents (MCP)<span class="port">Scan &amp; explain</span></div>
           <div class="arch-box">IDE (LSP)<span class="port">Inline warnings</span></div>
           <div class="arch-box">CLI<span class="port">Local scans</span></div>
         </div>
@@ -484,7 +484,7 @@
     <div class="slide" data-notes="<strong>Human oversight at every level:</strong> APME never modifies content autonomously. Tier 1 generates patches for human review. Tier 2 AI proposals require explicit accept/reject. Tier 3 flags issues for manual resolution.<br><br><strong>Trust model:</strong> Engine produces diffs; humans apply them. This is critical for enterprise adoption.">
       <div class="slide-label animate-in">—— HOW IT WORKS</div>
       <h2 class="animate-in">Parse, Validate, Remediate — <span class="accent">Human in the Loop</span></h2>
-      <div class="two-col animate-in" style="margin-top: 32px; grid-template-columns: 1fr 1fr 1fr; max-width: 1100px;">
+      <div class="three-col animate-in" style="margin-top: 32px; grid-template-columns: 1fr 1fr 1fr; max-width: 1100px;">
         <div class="col">
           <h3 style="color: var(--accent);">Tier 1: Automatic</h3>
           <p>Known patterns with deterministic fixes. Provably correct.</p>
@@ -539,7 +539,7 @@
       <p class="source animate-in">OPA/Rego · Native Python · Ansible Runtime · Gitleaks</p>
     </div>
 
-    <!-- SLIDE 7: DEPENDENCY HEALTH -->
+    <!-- SLIDE 10: DEPENDENCY HEALTH -->
     <div class="slide" data-notes="<strong>Dependency health scanning:</strong> Two optional validators assess supply-chain risk inline during apme check.<br><br><strong>Collection Health Validator:</strong> Scans installed Ansible collections for deprecated modules, missing argument specs, and FQCN violations. Cached by FQCN+version for fast subsequent runs.<br><br><strong>Python Dependency Auditor:</strong> Checks packages against CVE databases via pip-audit.<br><br><strong>CLI flags:</strong><br>• --skip-dep-scan — skip all dependency scanning<br>• --skip-collection-scan — skip only collection health<br>• --skip-python-audit — skip only CVE audit">
       <div class="slide-label animate-in">—— SUPPLY CHAIN SECURITY</div>
       <h2 class="animate-in">Know Your <span class="accent">Dependencies</span></h2>
@@ -566,7 +566,7 @@
       <p class="source animate-in">Optional — skip with --skip-dep-scan</p>
     </div>
 
-    <!-- SLIDE 8: DASHBOARD -->
+    <!-- SLIDE 11: DASHBOARD -->
     <div class="slide" data-notes="<strong>Dashboard features:</strong><br>• Project-level health scores<br>• Current vs fixable violations tracking<br>• AI Candidates — issues that can be auto-remediated<br>• Top 10 cleanest and most-violated projects<br>• Stale project detection<br><br>The UI is a React dashboard served via nginx at :8081.">
       <div class="slide-label animate-in">—— THE DASHBOARD</div>
       <h2 class="animate-in">Visibility Into <span class="accent">Every Violation</span></h2>
@@ -576,7 +576,7 @@
       <p class="source animate-in">APME Dashboard · Real-time violation tracking and remediation status</p>
     </div>
 
-    <!-- SLIDE 9: AI REMEDIATION -->
+    <!-- SLIDE 12: AI REMEDIATION -->
     <div class="slide" data-notes="<strong>Remediation pipeline:</strong><br>1. apme format — YAML normalization (indentation, key ordering, Jinja spacing)<br>2. Idempotency check — ensure formatting is stable<br>3. Re-scan — validate changes<br>4. apme remediate --ai — AI-assisted fixes via Abbenay daemon<br><br><strong>Human-in-the-loop:</strong> By default, AI suggestions require interactive review. Use --auto-approve for CI pipelines.">
       <div class="slide-label animate-in">—— AI-ASSISTED</div>
       <h2 class="animate-in">From Detection to <span class="accent">Remediation</span></h2>
@@ -593,14 +593,14 @@
       </div>
     </div>
 
-    <!-- SLIDE 10: QUOTE -->
+    <!-- SLIDE 13: QUOTE -->
     <div class="slide" data-notes="<strong>Positioning:</strong> APME provides the compatibility floor. It's complementary to Molecule, integration tests, and staging dry-runs — not a replacement.<br><br>Static analysis runs in seconds without infrastructure. Execution-time tools validate behavior against real systems. Both are needed.">
       <div class="slide-label animate-in">—— THE PROMISE</div>
       <blockquote class="quote animate-in">For organizations managing hundreds of roles across ansible-core version upgrades, this shift-left is the difference between a planned migration and an emergency one.</blockquote>
       <p class="quote-attr animate-in">— APME Documentation</p>
     </div>
 
-    <!-- SLIDE 11: CTA -->
+    <!-- SLIDE 14: CTA -->
     <div class="slide" data-notes="<strong>Quick start commands:</strong><br>• apme check /path — run all validators<br>• apme check --json . — JSON output for CI<br>• apme check -v . — timing diagnostics<br>• apme format --apply . — auto-format YAML<br>• apme remediate --ai . — AI-assisted fixes<br><br><strong>Container deployment:</strong> tox -e up builds 9 images and starts the pod.">
       <div class="slide-label animate-in">—— GET STARTED</div>
       <h2 class="animate-in">Try APME <span class="accent">Today</span></h2>
@@ -614,7 +614,7 @@
       <p class="source animate-in">Apache 2.0 Licensed · github.com/ansible/apme</p>
     </div>
 
-    <!-- SLIDE 12: THANK YOU -->
+    <!-- SLIDE 15: THANK YOU -->
     <div class="slide center-content" data-notes="<strong>Resources:</strong><br>• <a href='https://github.com/ansible/apme'>github.com/ansible/apme</a><br>• docs/architecture/ for design details<br>• Apache 2.0 license<br><br>Thank you for watching!">
       <div class="slide-label animate-in">—— THANK YOU</div>
       <h1 class="animate-in">Thank <span class="accent">You</span></h1>
