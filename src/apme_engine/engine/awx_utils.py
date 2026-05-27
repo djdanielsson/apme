@@ -1,6 +1,5 @@
 """AWX-derived utilities for playbook detection and directory filtering."""
 
-import codecs
 import os
 import re
 
@@ -85,54 +84,110 @@ def looks_like_eda_ruleset(ruleset: YAMLDict) -> bool:
     return False
 
 
-def _load_first_ruleset_dict(fpath: str) -> YAMLDict | None:
-    """Load the first list-item mapping from a YAML file, if present.
+def _read_yaml_header_lines(fpath: str, max_lines: int = 101) -> list[str] | None:
+    """Read up to *max_lines* from a YAML file for heuristic scans.
 
     Args:
         fpath: Path to the YAML file.
+        max_lines: Maximum number of lines to read.
+
+    Returns:
+        Lines read from the file, or None on I/O error.
+    """
+    try:
+        with open(fpath, encoding="utf-8", errors="ignore") as f:
+            return [line for n, line in enumerate(f) if n < max_lines]
+    except OSError:
+        return None
+
+
+def _playbook_like_from_lines(lines: list[str]) -> bool:
+    """Return True when *lines* contain playbook markers or a vault header.
+
+    Args:
+        lines: First portion of a YAML file.
+
+    Returns:
+        True when hosts/include/import_playbook or a vault header is present.
+    """
+    for n, line in enumerate(lines):
+        if valid_playbook_re.match(line) or (n == 0 and line.startswith("$ANSIBLE_VAULT;")):
+            return True
+    return False
+
+
+def _lines_might_contain_eda_keys(lines: list[str]) -> bool:
+    """Return True when *lines* may contain ruleset-level EDA keys.
+
+    Args:
+        lines: First portion of a YAML file.
+
+    Returns:
+        True when a ruleset-level ``sources:`` or ``rules:`` line appears.
+    """
+    return any(
+        _eda_sources_key_re.match(line) or (_eda_ruleset_key_re.match(line) and "rules:" in line) for line in lines
+    )
+
+
+def _eda_from_lines(lines: list[str]) -> bool:
+    """Content-based EDA detection via line patterns (no YAML parse).
+
+    Args:
+        lines: First portion of a YAML file.
+
+    Returns:
+        True when line patterns match an EDA ruleset and no playbook sections appear.
+    """
+    saw_list_item = False
+    saw_rules_key = False
+    for line in lines:
+        if _eda_playbook_section_re.match(line):
+            return False
+        if _eda_list_item_re.match(line):
+            saw_list_item = True
+        elif saw_list_item and _eda_sources_key_re.match(line):
+            return True
+        elif saw_list_item and _eda_ruleset_key_re.match(line) and "rules:" in line:
+            saw_rules_key = True
+        elif saw_rules_key and _eda_rule_structure_re.match(line):
+            return True
+    return False
+
+
+def _load_first_ruleset_from_lines(lines: list[str]) -> YAMLDict | None:
+    """Load the first list-item mapping from YAML text, if present.
+
+    Args:
+        lines: YAML source lines.
 
     Returns:
         The first mapping when the document is a non-empty list, else None.
     """
     try:
-        with open(fpath, encoding="utf-8", errors="ignore") as f:
-            data = yaml.safe_load(f)
-    except (OSError, yaml.YAMLError):
+        data = yaml.safe_load("".join(lines))
+    except yaml.YAMLError:
         return None
     if isinstance(data, list) and data and isinstance(data[0], dict):
         return data[0]
     return None
 
 
-def _eda_content_regex_scan(fpath: str) -> bool:
-    """Content-based EDA detection via line scan when YAML parsing fails.
+def _eda_content_from_lines(lines: list[str]) -> bool:
+    """Return True when *lines* describe EDA content (regex, then optional YAML parse).
 
     Args:
-        fpath: Path to the YAML file.
+        lines: First portion of a YAML file.
 
     Returns:
-        True when line patterns match an EDA ruleset and no playbook sections appear.
+        True when the content matches EDA ruleset structure.
     """
-    try:
-        saw_list_item = False
-        saw_rules_key = False
-        with codecs.open(fpath, "r", encoding="utf-8", errors="ignore") as f:
-            for n, line in enumerate(f):
-                if n > 100:
-                    break
-                if _eda_playbook_section_re.match(line):
-                    return False
-                if _eda_list_item_re.match(line):
-                    saw_list_item = True
-                elif saw_list_item and _eda_sources_key_re.match(line):
-                    return True
-                elif saw_list_item and _eda_ruleset_key_re.match(line) and "rules:" in line:
-                    saw_rules_key = True
-                elif saw_rules_key and _eda_rule_structure_re.match(line):
-                    return True
-    except OSError:
+    if _eda_from_lines(lines):
+        return True
+    if not _lines_might_contain_eda_keys(lines):
         return False
-    return False
+    ruleset = _load_first_ruleset_from_lines(lines)
+    return ruleset is not None and looks_like_eda_ruleset(ruleset)
 
 
 def could_be_eda_rulebook(fpath: str) -> bool:
@@ -168,11 +223,10 @@ def could_be_eda_rulebook(fpath: str) -> bool:
     if is_eda_rulebook_path(fpath):
         return True
 
-    # Content-based detection: parsed ruleset shape, then regex fallback
-    ruleset = _load_first_ruleset_dict(fpath)
-    if ruleset is not None:
-        return looks_like_eda_ruleset(ruleset)
-    return _eda_content_regex_scan(fpath)
+    lines = _read_yaml_header_lines(fpath)
+    if lines is None:
+        return False
+    return _eda_content_from_lines(lines)
 
 
 # this method is based on awx code
@@ -193,23 +247,20 @@ def could_be_playbook(fpath: str) -> bool:
     if ext not in [".yml", ".yaml"]:
         return False
 
-    # EDA rulebooks should not be treated as playbooks
-    if could_be_eda_rulebook(fpath):
+    # Path-based EDA directories are never playbooks (no file read).
+    if is_eda_rulebook_path(fpath):
         return False
 
-    # Filter files that do not have either hosts or top-level
-    # includes. Use regex to allow files with invalid YAML to
-    # show up.
-    matched = False
-    try:
-        with codecs.open(fpath, "r", encoding="utf-8", errors="ignore") as f:
-            for n, line in enumerate(f):
-                if valid_playbook_re.match(line) or n == 0 and line.startswith("$ANSIBLE_VAULT;"):
-                    matched = True
-                    break
-    except OSError:
+    lines = _read_yaml_header_lines(fpath)
+    if lines is None:
         return False
-    return matched
+
+    # Cheap playbook heuristic first; skip YAML parse for vars/manifests, etc.
+    if not _playbook_like_from_lines(lines):
+        return False
+
+    # Playbook-shaped files may still be EDA rulebooks (hosts + sources/rules).
+    return not _eda_content_from_lines(lines)
 
 
 # this method is based on awx code
