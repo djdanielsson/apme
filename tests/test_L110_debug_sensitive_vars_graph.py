@@ -148,6 +148,12 @@ class TestExtractJinjaVars:
         result = _extract_jinja_vars("{{ credentials['password'] }}")
         assert "password" in result
 
+    def test_jinja_block_with_nested_braces(self) -> None:
+        """Bracket keys are extracted when the block contains dict literals with braces."""
+        result = _extract_jinja_vars("{{ params['token'] | default({}) }}")
+        assert "params" in result
+        assert "token" in result
+
 
 class TestVarLooksSensitive:
     """Tests for _var_looks_sensitive helper."""
@@ -383,6 +389,7 @@ class TestDebugSensitiveVarsGraphRule:
         assert result.verdict is True
         detail = result.detail or {}
         sensitive_vars = cast(list[str], detail.get("sensitive_vars", []))
+        assert sensitive_vars == sorted(sensitive_vars)
         assert "password" in sensitive_vars
         assert "api_key" in sensitive_vars
         assert "secret" in sensitive_vars

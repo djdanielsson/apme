@@ -12,10 +12,11 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import cast
 
 from apme_engine.engine.content_graph import ContentGraph, ContentNode, NodeType
 from apme_engine.engine.models import RuleTag as Tag
-from apme_engine.engine.models import Severity, YAMLDict
+from apme_engine.engine.models import Severity, YAMLDict, YAMLValue
 from apme_engine.validators.native.rules.graph_rule_base import GraphRule, GraphRuleResult
 
 _TASK_TYPES = frozenset({NodeType.TASK, NodeType.HANDLER})
@@ -49,7 +50,7 @@ _SENSITIVE_WORDS = frozenset(
 )
 
 _JINJA_VAR_RE = re.compile(r"\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)")
-_JINJA_BLOCK_RE = re.compile(r"\{\{([^}]+)\}\}")
+_JINJA_BLOCK_RE = re.compile(r"\{\{(.*?)\}\}", re.DOTALL)
 _JINJA_ATTR_RE = re.compile(r"\[['\"]([a-zA-Z_][a-zA-Z0-9_]*)['\"]")
 _WORD_BOUNDARY_RE = re.compile(r"(?:^|[_.'\"\[])({})(?:[_.'\"\[\]]|$)".format("|".join(_SENSITIVE_WORDS)))
 
@@ -133,7 +134,7 @@ def _find_sensitive_vars_in_debug(node: ContentNode) -> list[str]:
                 if _var_looks_sensitive(var_name):
                     sensitive_found.add(var_name)
 
-    return list(sensitive_found)
+    return sorted(sensitive_found)
 
 
 def _no_log_true_in_scope(graph: ContentGraph, node_id: str) -> bool:
@@ -249,7 +250,7 @@ class DebugSensitiveVarsGraphRule(GraphRule):
         vars_jinja = ", ".join(f"{{{{ {v} }}}}" for v in sorted(sensitive_vars))
         detail: YAMLDict = {
             "message": f"Debug task logs sensitive variable(s): {vars_jinja}; set no_log: true",
-            "sensitive_vars": list(sensitive_vars),
+            "sensitive_vars": cast("list[YAMLValue]", sorted(sensitive_vars)),
         }
         return GraphRuleResult(
             verdict=True,
