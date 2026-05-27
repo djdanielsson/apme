@@ -67,7 +67,7 @@ The documentation has solid coverage of core functionality (installation, basic 
 - **Question**: How do I track improvement over time?
 - **Impact**: Stakeholders want to see progress. Without guidance, users cannot demonstrate ROI.
 - **Suggested Location**: `docs/guides/REPORTING.md` (new file)
-- **Research Notes**: Gateway API has `/projects/{id}/trend` endpoint and health scores per 13-gateway architecture doc, but no user guide exists.
+- **Research Notes**: Gateway API has `GET /api/v1/projects/{id}/trend` endpoint and health scores per 13-gateway architecture doc, but no user guide exists.
 - **Draft Answer**: The Gateway REST API provides trend data via `GET /api/v1/projects/{id}/trend`. The UI dashboard shows violation trends over time. Health scores are computed per project.
 
 ### Gap 2: Gateway API Metrics Guide (Q24)
