@@ -4,8 +4,8 @@
 
 - **Total Questions**: 34
 - **Covered** (✓): 16 (47%)
-- **Partial** (⚠): 8 (24%)
-- **Gaps** (✗): 10 (29%)
+- **Partial** (⚠): 9 (26%)
+- **Gaps** (✗): 9 (26%)
 
 The documentation has solid coverage of core functionality (installation, basic scanning, container deployment, rule catalog, and rule configuration) but significant gaps remain in CI/CD integration guides, tooling ecosystem integration, and higher-level reporting workflows.
 
@@ -17,7 +17,7 @@ The documentation has solid coverage of core functionality (installation, basic 
 | How Can I Use It | 4/5 | 1/5 | 0/5 | 90% |
 | Rule Configuration | 4/5 | 1/5 | 0/5 | 90% |
 | Bring Your Own Rules | 0/4 | 4/4 | 0/4 | 50% |
-| Demonstrating Value | 2/5 | 1/5 | 2/5 | 50% |
+| Demonstrating Value | 2/5 | 2/5 | 1/5 | 60% |
 | Integration with Existing Tools | 2/10 | 0/10 | 8/10 | 20% |
 
 ## Coverage Matrix
@@ -47,7 +47,7 @@ The documentation has solid coverage of core functionality (installation, basic 
 | Q21 | Demonstrating Value | How do I track improvement over time? | ✗ | No documentation found |
 | Q22 | Demonstrating Value | How do I generate reports for stakeholders? | ⚠ | [13-gateway-and-persistence.md](../architecture/13-gateway-and-persistence.md) |
 | Q23 | Demonstrating Value | How do I measure AI fix acceptance rates? | ✓ | [RULE_CONFIGURATION.md](../guides/RULE_CONFIGURATION.md) |
-| Q24 | Demonstrating Value | What metrics does the Gateway API provide? | ✗ | [13-gateway-and-persistence.md](../architecture/13-gateway-and-persistence.md) (architecture, not guide) |
+| Q24 | Demonstrating Value | What metrics does the Gateway API provide? | ⚠ | [13-gateway-and-persistence.md](../architecture/13-gateway-and-persistence.md) |
 | Q25 | Integration with Existing Tools | How do I integrate with GitHub Actions? | ✗ | No documentation found |
 | Q26 | Integration with Existing Tools | How do I integrate with GitLab CI? | ✗ | No documentation found |
 | Q27 | Integration with Existing Tools | How do I integrate with Jenkins? | ✗ | No documentation found |
@@ -70,16 +70,7 @@ The documentation has solid coverage of core functionality (installation, basic 
 - **Research Notes**: Gateway API has `GET /api/v1/projects/{id}/trend` endpoint and health scores per 13-gateway architecture doc, but no user guide exists.
 - **Draft Answer**: The Gateway REST API provides trend data via `GET /api/v1/projects/{id}/trend`. The UI dashboard shows violation trends over time. Health scores are computed per project.
 
-### Gap 2: Gateway API Metrics Guide (Q24)
-
-- **ID**: Q24
-- **Question**: What metrics does the Gateway API provide?
-- **Impact**: API consumers need a reference to build dashboards and integrations.
-- **Suggested Location**: `docs/guides/REPORTING.md` (new file)
-- **Research Notes**: Full endpoint list exists in 13-gateway architecture doc. Needs user-facing guide with examples.
-- **Draft Answer**: Document the dashboard endpoints: `/api/v1/dashboard/summary`, `/api/v1/violations/top`, `/api/v1/stats/remediation-rates`, `/api/v1/stats/ai-acceptance`.
-
-### Gap 3: GitHub Actions Integration (Q25)
+### Gap 2: GitHub Actions Integration (Q25)
 
 - **ID**: Q25
 - **Question**: How do I integrate with GitHub Actions?
@@ -88,7 +79,7 @@ The documentation has solid coverage of core functionality (installation, basic 
 - **Research Notes**: The CLI supports `--json` output and exit codes suitable for CI. No example workflow exists.
 - **Draft Answer**: Create example workflow using `pip install apme-engine@git+https://github.com/ansible/apme.git@main` and `apme check --json .`.
 
-### Gap 4: GitLab CI Integration (Q26)
+### Gap 3: GitLab CI Integration (Q26)
 
 - **ID**: Q26
 - **Question**: How do I integrate with GitLab CI?
@@ -96,7 +87,7 @@ The documentation has solid coverage of core functionality (installation, basic 
 - **Suggested Location**: `docs/guides/CI_INTEGRATION.md` (new file)
 - **Research Notes**: Same CLI capabilities apply. No `.gitlab-ci.yml` example exists.
 
-### Gap 5: Jenkins Integration (Q27)
+### Gap 4: Jenkins Integration (Q27)
 
 - **ID**: Q27
 - **Question**: How do I integrate with Jenkins?
@@ -104,7 +95,7 @@ The documentation has solid coverage of core functionality (installation, basic 
 - **Suggested Location**: `docs/guides/CI_INTEGRATION.md` (new file)
 - **Research Notes**: CLI can be run in Jenkins pipelines. No example Jenkinsfile exists.
 
-### Gap 6: Azure DevOps Integration (Q28)
+### Gap 5: Azure DevOps Integration (Q28)
 
 - **ID**: Q28
 - **Question**: How do I integrate with Azure DevOps?
@@ -112,7 +103,7 @@ The documentation has solid coverage of core functionality (installation, basic 
 - **Suggested Location**: `docs/guides/CI_INTEGRATION.md` (new file)
 - **Research Notes**: No Azure Pipelines example exists.
 
-### Gap 7: AAP/AWX Integration (Q29)
+### Gap 6: AAP/AWX Integration (Q29)
 
 - **ID**: Q29
 - **Question**: How do I use APME with AAP/AWX?
@@ -121,7 +112,7 @@ The documentation has solid coverage of core functionality (installation, basic 
 - **Research Notes**: README mentions AAP 2.5+ as the target. Roadmap mentions EE compatibility rules. No integration guide exists.
 - **Draft Answer**: APME scans content for AAP 2.5+ compatibility. For EE integration, use `--ansible-core-version` flag. Future: EE compatibility rules (R505-R507) planned.
 
-### Gap 8: Backstage Integration (Q30)
+### Gap 7: Backstage Integration (Q30)
 
 - **ID**: Q30
 - **Question**: How do I use APME with Backstage?
@@ -129,7 +120,7 @@ The documentation has solid coverage of core functionality (installation, basic 
 - **Suggested Location**: `docs/guides/BACKSTAGE_INTEGRATION.md` (new file)
 - **Research Notes**: No Backstage plugin or integration guide exists. The Gateway API could be consumed by a Backstage plugin.
 
-### Gap 9: Pre-commit Hooks (Q31)
+### Gap 8: Pre-commit Hooks (Q31)
 
 - **ID**: Q31
 - **Question**: How do I use APME with pre-commit hooks?
@@ -138,7 +129,7 @@ The documentation has solid coverage of core functionality (installation, basic 
 - **Research Notes**: No `.pre-commit-config.yaml` example exists. The CLI could be wrapped as a pre-commit hook.
 - **Draft Answer**: Create `.pre-commit-config.yaml` entry using `apme check` as a local hook.
 
-### Gap 10: VS Code Integration (Q34)
+### Gap 9: VS Code Integration (Q34)
 
 - **ID**: Q34
 - **Question**: How do I integrate with VS Code?
@@ -196,6 +187,12 @@ The documentation has solid coverage of core functionality (installation, basic 
 - **Current Source**: 13-gateway architecture doc
 - **Gap**: API endpoints are documented, but there is still no guide on generating stakeholder-facing reports or choosing between dashboard summaries, trends, and proposal statistics.
 - **Recommendation**: Create `docs/guides/REPORTING.md` with report examples and workflow guidance.
+
+### Partial 9: Gateway API Metrics (Q24)
+
+- **Current Source**: `docs/architecture/13-gateway-and-persistence.md`
+- **Gap**: The architecture doc lists the available dashboard and stats endpoints, but there is no user-facing reporting guide explaining which metrics to use for dashboards, trends, or stakeholder summaries.
+- **Recommendation**: Cover these endpoints in `docs/guides/REPORTING.md` with examples and usage guidance.
 
 ## Action Items
 

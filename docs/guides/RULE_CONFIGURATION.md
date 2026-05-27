@@ -43,6 +43,12 @@ suppressions during CLI suppression processing. Native graph-rule `# noqa`
 comments are parsed earlier during scan-time evaluation, so this setting does
 not currently override those inline suppressions.
 
+Fingerprint suppressions live in `.apme/suppressions.yml`. The CLI can manage
+that file with `apme suppress add`, `apme suppress list`, and
+`apme suppress remove`. The file stores entries under a top-level
+`suppressions:` list with fields such as `fingerprint`, `rule_id`, `mode`,
+`reason`, and `created`.
+
 ### CLI Flags
 
 Skip entire validation categories at scan time:
