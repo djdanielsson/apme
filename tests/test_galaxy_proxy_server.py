@@ -759,3 +759,65 @@ class TestConvertTarballs:
 
         assert resp.status_code == 400
         assert "session or temp directory" in resp.json()["detail"]
+
+    def test_convert_rejects_symlink_in_path(self, tmp_path: Path) -> None:
+        """A symlink anywhere in the path is rejected with 400.
+
+        Args:
+            tmp_path: Pytest-provided temporary directory.
+        """
+        cache_dir = tmp_path / "cache"
+        application = create_app(cache_dir=cache_dir)
+        real_dir = tmp_path / "real"
+        real_dir.mkdir()
+        symlink = tmp_path / "link"
+        symlink.symlink_to(real_dir)
+
+        with TestClient(application) as client:
+            resp = client.post("/convert-tarballs", params={"tarball_dir": str(symlink)})
+
+        assert resp.status_code == 400
+        assert "Symlinks not allowed" in resp.json()["detail"]
+
+    def test_convert_rejects_dotdot_traversal(self, tmp_path: Path) -> None:
+        """Paths using ``..`` to escape allowed roots are rejected.
+
+        Args:
+            tmp_path: Pytest-provided temporary directory.
+        """
+        cache_dir = tmp_path / "cache"
+        application = create_app(cache_dir=cache_dir)
+
+        traversal = str(tmp_path / "subdir" / ".." / ".." / "etc")
+        with (
+            TestClient(application) as client,
+            patch("tempfile.gettempdir", return_value=str(tmp_path / "fake-tmp")),
+        ):
+            resp = client.post("/convert-tarballs", params={"tarball_dir": traversal})
+
+        assert resp.status_code == 400
+
+    def test_convert_rejects_symlink_parent(self, tmp_path: Path) -> None:
+        """A symlink used as a parent directory component is rejected.
+
+        Args:
+            tmp_path: Pytest-provided temporary directory.
+        """
+        cache_dir = tmp_path / "cache"
+        application = create_app(cache_dir=cache_dir)
+        real_parent = tmp_path / "real_parent"
+        real_parent.mkdir()
+        child = real_parent / "child"
+        child.mkdir()
+
+        link_parent = tmp_path / "link_parent"
+        link_parent.symlink_to(real_parent)
+
+        with TestClient(application) as client:
+            resp = client.post(
+                "/convert-tarballs",
+                params={"tarball_dir": str(link_parent / "child")},
+            )
+
+        assert resp.status_code == 400
+        assert "Symlinks not allowed" in resp.json()["detail"]

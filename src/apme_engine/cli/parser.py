@@ -2,6 +2,8 @@
 
 import argparse
 
+from apme_engine.cli.suppress_cmd import register_suppress_parser
+
 
 def build_parser() -> argparse.ArgumentParser:
     """Build and return the CLI argument parser.
@@ -83,6 +85,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help="Disable Python CVE audit only",
+    )
+    check_p.add_argument(
+        "--show-suppressed",
+        action="store_true",
+        default=False,
+        help="Include suppressed violations in output (ADR-055)",
     )
 
     # ── format ──
@@ -167,6 +175,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=False,
         help="Disable Python CVE audit only",
     )
+    remediate_p.add_argument(
+        "--show-suppressed",
+        action="store_true",
+        default=False,
+        help="Include suppressed violations in output (ADR-055)",
+    )
 
     # ── daemon ──
     daemon_p = subparsers.add_parser(
@@ -212,5 +226,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Gateway URL (default: $APME_GATEWAY_URL or http://localhost:8080)",
     )
+
+    # ── suppress ──
+    register_suppress_parser(subparsers, global_opts)
 
     return parser

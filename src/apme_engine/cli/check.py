@@ -25,6 +25,7 @@ from apme_engine.cli._galaxy_config import discover_galaxy_servers
 from apme_engine.cli._models import ViolationDict
 from apme_engine.cli._project_root import derive_session_id, discover_project_root
 from apme_engine.cli._rules_yml import load_rule_configs_from_project
+from apme_engine.cli._suppressions import apply_suppressions, load_suppressions
 from apme_engine.cli.ansi import dim, red, yellow
 from apme_engine.cli.discovery import resolve_primary
 from apme_engine.cli.output import (
@@ -242,6 +243,15 @@ def run_check(args: argparse.Namespace) -> None:
     violations = deduplicate_violations(sort_violations(violations))
     scan_id = scan_id_holder[0]
 
+    show_suppressed = getattr(args, "show_suppressed", False)
+    suppressed_count = 0
+    if not show_suppressed:
+        suppressions = load_suppressions(project_root)
+        enforced_rules = {cfg.rule_id for cfg in (rule_cfgs or []) if cfg.enforced}
+        suppression_result = apply_suppressions(violations, suppressions, enforced_rules)
+        suppressed_count = len(suppression_result.suppressed)
+        violations = suppression_result.active
+
     if getattr(args, "sarif", False):
         from apme_engine.engine._version import __version__ as _engine_version
 
@@ -288,5 +298,7 @@ def run_check(args: argparse.Namespace) -> None:
 
     display_summary = _ScanSummaryCompat(tier1_report)
     render_check_results(violations, scan_id=scan_id, scan_time_ms=None, summary=display_summary)
+    if suppressed_count and not show_suppressed:
+        sys.stderr.write(dim(f"  ({suppressed_count} suppressed violation(s) hidden — use --show-suppressed)\n"))
     if violations:
         sys.exit(EXIT_VIOLATIONS)
