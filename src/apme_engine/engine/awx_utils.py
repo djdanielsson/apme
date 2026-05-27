@@ -95,8 +95,13 @@ def _read_yaml_header_lines(fpath: str, max_lines: int = 101) -> list[str] | Non
         Lines read from the file, or None on I/O error.
     """
     try:
+        lines: list[str] = []
         with open(fpath, encoding="utf-8", errors="ignore") as f:
-            return [line for n, line in enumerate(f) if n < max_lines]
+            for line in f:
+                lines.append(line)
+                if len(lines) >= max_lines:
+                    break
+        return lines
     except OSError:
         return None
 
