@@ -25,7 +25,13 @@ except Exception:
 import contextlib
 
 from . import logger
-from .awx_utils import could_be_eda_rulebook, could_be_playbook, is_eda_rulebook_path, search_playbooks
+from .awx_utils import (
+    could_be_eda_rulebook,
+    could_be_playbook,
+    is_eda_rulebook_path,
+    looks_like_eda_ruleset,
+    search_playbooks,
+)
 from .safe_glob import safe_glob
 
 fqcn_module_name_re = re.compile(r"^[a-z0-9_]+\.[a-z0-9_]+\.[a-z0-9_]+$")
@@ -778,7 +784,7 @@ def could_be_eda_rulebook_detail(body: str = "", data: YAMLValue | None = None, 
     if not isinstance(data[0], dict):
         return False
 
-    return "sources" in data[0] or "rules" in data[0]
+    return looks_like_eda_ruleset(data[0])
 
 
 def could_be_taskfile(body: str = "", data: YAMLValue | None = None, fpath: str = "") -> bool:

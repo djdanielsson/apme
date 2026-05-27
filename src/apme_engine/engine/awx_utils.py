@@ -4,14 +4,25 @@ import codecs
 import os
 import re
 
+import yaml
+
+from .models import YAMLDict
+
 valid_playbook_re = re.compile(r"^\s*?-?\s*?(?:hosts|include|import_playbook):\s*?.*?$")
 
-# EDA rulebook detection patterns:
+# EDA rulebook detection patterns (regex fallback when YAML does not parse):
 # 1. List item start: "- name:" at column 0 indicates ruleset definition
 # 2. Ruleset-level keys: "sources:" or "rules:" at exactly 2-space indent
-#    (child of the list item, not nested deeper in vars/module params)
+# 3. Playbook-only keys at 2-space indent reject EDA classification
+# 4. "rules:" alone requires a following "condition:" or "action:" at 4-space indent
 _eda_list_item_re = re.compile(r"^-\s+name:\s*\S")
 _eda_ruleset_key_re = re.compile(r"^  (?:sources|rules):\s*(?:\S.*)?$")
+_eda_sources_key_re = re.compile(r"^  sources:\s*(?:\S.*)?$")
+_eda_playbook_section_re = re.compile(r"^  (?:tasks|roles|handlers|pre_tasks|post_tasks):")
+_eda_rule_structure_re = re.compile(r"^    (?:condition|action):")
+
+# Keys that identify a play, not an EDA ruleset (first list item dict).
+_PLAYBOOK_SECTION_KEYS = frozenset({"tasks", "roles", "handlers", "pre_tasks", "post_tasks"})
 
 
 def _normalize_eda_path(fpath: str) -> str:
@@ -47,6 +58,83 @@ def is_eda_rulebook_path(fpath: str) -> bool:
     )
 
 
+def looks_like_eda_ruleset(ruleset: YAMLDict) -> bool:
+    """Return True when *ruleset* is an EDA ruleset, not a play with stray keys.
+
+    Playbooks that accidentally include ``sources``/``rules`` at the play level
+    without EDA structure should remain playbooks so L095 can report unknown keys.
+
+    Args:
+        ruleset: First mapping from a YAML list (ruleset / play dict).
+
+    Returns:
+        True if the dict matches EDA ruleset structure.
+    """
+    if _PLAYBOOK_SECTION_KEYS & ruleset.keys():
+        return False
+    if "sources" in ruleset:
+        sources = ruleset["sources"]
+        if sources is None or isinstance(sources, list):
+            return True
+    if "rules" in ruleset:
+        rules = ruleset["rules"]
+        if isinstance(rules, list):
+            if not rules:
+                return "sources" in ruleset
+            return any(isinstance(item, dict) and ("condition" in item or "action" in item) for item in rules)
+    return False
+
+
+def _load_first_ruleset_dict(fpath: str) -> YAMLDict | None:
+    """Load the first list-item mapping from a YAML file, if present.
+
+    Args:
+        fpath: Path to the YAML file.
+
+    Returns:
+        The first mapping when the document is a non-empty list, else None.
+    """
+    try:
+        with open(fpath, encoding="utf-8", errors="ignore") as f:
+            data = yaml.safe_load(f)
+    except (OSError, yaml.YAMLError):
+        return None
+    if isinstance(data, list) and data and isinstance(data[0], dict):
+        return data[0]
+    return None
+
+
+def _eda_content_regex_scan(fpath: str) -> bool:
+    """Content-based EDA detection via line scan when YAML parsing fails.
+
+    Args:
+        fpath: Path to the YAML file.
+
+    Returns:
+        True when line patterns match an EDA ruleset and no playbook sections appear.
+    """
+    try:
+        saw_list_item = False
+        saw_rules_key = False
+        with codecs.open(fpath, "r", encoding="utf-8", errors="ignore") as f:
+            for n, line in enumerate(f):
+                if n > 100:
+                    break
+                if _eda_playbook_section_re.match(line):
+                    return False
+                if _eda_list_item_re.match(line):
+                    saw_list_item = True
+                elif saw_list_item and _eda_sources_key_re.match(line):
+                    return True
+                elif saw_list_item and _eda_ruleset_key_re.match(line) and "rules:" in line:
+                    saw_rules_key = True
+                elif saw_rules_key and _eda_rule_structure_re.match(line):
+                    return True
+    except OSError:
+        return False
+    return False
+
+
 def could_be_eda_rulebook(fpath: str) -> bool:
     """Check if a file is an EDA rulebook based on path and content.
 
@@ -72,7 +160,7 @@ def could_be_eda_rulebook(fpath: str) -> bool:
     Returns:
         True if the file appears to be an EDA rulebook.
     """
-    basename, ext = os.path.splitext(fpath)
+    _, ext = os.path.splitext(fpath)
     if ext not in [".yml", ".yaml"]:
         return False
 
@@ -80,22 +168,11 @@ def could_be_eda_rulebook(fpath: str) -> bool:
     if is_eda_rulebook_path(fpath):
         return True
 
-    # Content-based detection: look for EDA rulebook structure
-    # Requires seeing "- name:" list item followed by "sources:" or "rules:"
-    # at exactly 2-space indent (ruleset-level, not nested in vars/params)
-    try:
-        saw_list_item = False
-        with codecs.open(fpath, "r", encoding="utf-8", errors="ignore") as f:
-            for n, line in enumerate(f):
-                if n > 100:
-                    break
-                if _eda_list_item_re.match(line):
-                    saw_list_item = True
-                elif saw_list_item and _eda_ruleset_key_re.match(line):
-                    return True
-    except OSError:
-        return False
-    return False
+    # Content-based detection: parsed ruleset shape, then regex fallback
+    ruleset = _load_first_ruleset_dict(fpath)
+    if ruleset is not None:
+        return looks_like_eda_ruleset(ruleset)
+    return _eda_content_regex_scan(fpath)
 
 
 # this method is based on awx code
@@ -112,7 +189,7 @@ def could_be_playbook(fpath: str) -> bool:
     Returns:
         True if the file has .yml/.yaml extension and appears playbook-like.
     """
-    basename, ext = os.path.splitext(fpath)
+    _, ext = os.path.splitext(fpath)
     if ext not in [".yml", ".yaml"]:
         return False
 

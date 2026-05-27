@@ -95,6 +95,26 @@ class TestEdaRulebookDetection:
         playbook.write_text(content)
         assert could_be_eda_rulebook(str(playbook)) is False
 
+    def test_playbook_with_stray_rules_key_not_eda(self, tmp_path: Path) -> None:
+        """Verify playbooks with non-EDA ``rules`` entries remain playbooks for L095.
+
+        Args:
+            tmp_path: Pytest fixture providing temporary directory.
+        """
+        content = """\
+---
+- name: Bad play
+  hosts: all
+  rules:
+    - name: Debug task
+      ansible.builtin.debug:
+        msg: hello
+"""
+        playbook = tmp_path / "bad_play.yml"
+        playbook.write_text(content)
+        assert could_be_eda_rulebook(str(playbook)) is False
+        assert could_be_playbook(str(playbook)) is True
+
     def test_is_eda_rulebook_path_relative_paths(self) -> None:
         """Verify path detection works without leading directory separators."""
         assert is_eda_rulebook_path("rulebooks/foo.yml") is True
@@ -267,6 +287,26 @@ class TestPlaybookDetailVsEdaExclusion:
             }
         ]
         assert could_be_playbook_detail(body=body, data=data) is True
+
+    def test_playbook_with_stray_rules_not_eda_detail(self) -> None:
+        """Verify invalid play-level ``rules`` without EDA shape is not labeled EDA."""
+        body = """\
+- name: Bad play
+  hosts: all
+  rules:
+    - name: Debug task
+      ansible.builtin.debug:
+        msg: hello
+"""
+        data: YAMLValue = [
+            {
+                "name": "Bad play",
+                "hosts": "all",
+                "rules": [{"name": "Debug task", "ansible.builtin.debug": {"msg": "hello"}}],
+            }
+        ]
+        assert could_be_playbook_detail(body=body, data=data) is True
+        assert could_be_eda_rulebook_detail(body=body, data=data) is False
 
     def test_import_playbook_still_detected(self) -> None:
         """Verify import_playbook directive is still detected."""
