@@ -49,6 +49,28 @@ class TestEdaRulebookDetection:
         rulebook.write_text(content)
         assert could_be_eda_rulebook(str(rulebook)) is True
 
+    def test_could_be_eda_rulebook_regex_fallback_matches_rule_indent(self, tmp_path: Path) -> None:
+        """Verify malformed EDA YAML still matches the regex fallback.
+
+        Args:
+            tmp_path: Pytest fixture providing temporary directory.
+        """
+        content = """\
+---
+- name: Hello Events
+  hosts: localhost
+  rules:
+    - name: Say Hello
+      condition: event.i == 1
+      action:
+        debug:
+  broken: [unterminated
+"""
+        rulebook = tmp_path / "broken_rulebook.yml"
+        rulebook.write_text(content)
+        assert could_be_eda_rulebook(str(rulebook)) is True
+        assert could_be_playbook(str(rulebook)) is False
+
     def test_could_be_eda_rulebook_path_pattern_rulebooks(self, tmp_path: Path) -> None:
         """Verify file in rulebooks/ directory is detected as EDA.
 

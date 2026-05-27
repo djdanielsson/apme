@@ -13,12 +13,13 @@ valid_playbook_re = re.compile(r"^\s*?-?\s*?(?:hosts|include|import_playbook):\s
 # 1. List item start: "- name:" at column 0 indicates ruleset definition
 # 2. Ruleset-level keys: "sources:" or "rules:" at exactly 2-space indent
 # 3. Playbook-only keys at 2-space indent reject EDA classification
-# 4. "rules:" alone requires a following "condition:" or "action:" at 4-space indent
+# 4. "rules:" alone requires a following "condition:" or "action:" under the
+#    rule entry (typically 6 spaces, but allow a small 4-8 space range)
 _eda_list_item_re = re.compile(r"^-\s+name:\s*\S")
 _eda_ruleset_key_re = re.compile(r"^  (?:sources|rules):\s*(?:\S.*)?$")
 _eda_sources_key_re = re.compile(r"^  sources:\s*(?:\S.*)?$")
 _eda_playbook_section_re = re.compile(r"^  (?:tasks|roles|handlers|pre_tasks|post_tasks):")
-_eda_rule_structure_re = re.compile(r"^    (?:condition|action):")
+_eda_rule_structure_re = re.compile(r"^\s{4,8}(?:condition|action):")
 
 # Keys that identify a play, not an EDA ruleset (first list item dict).
 _PLAYBOOK_SECTION_KEYS = frozenset({"tasks", "roles", "handlers", "pre_tasks", "post_tasks"})
