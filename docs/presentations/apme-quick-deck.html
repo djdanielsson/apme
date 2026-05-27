@@ -167,15 +167,21 @@
       gap: var(--rh-space-2xl, 48px);
       max-width: 1000px;
     }
-    .two-col .col h3 {
+    .three-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: var(--rh-space-2xl, 48px);
+      max-width: 1100px;
+    }
+    .two-col .col h3, .three-col .col h3 {
       font-family: var(--font-display);
       font-size: var(--rh-font-size-heading-sm, 1.25rem);
       font-weight: 700;
       margin-bottom: var(--rh-space-md, 16px);
       color: var(--text-primary);
     }
-    .two-col .col.highlight h3 { color: var(--accent); }
-    .two-col .col p, .two-col .col li {
+    .two-col .col.highlight h3, .three-col .col.highlight h3 { color: var(--accent); }
+    .two-col .col p, .two-col .col li, .three-col .col p, .three-col .col li {
       font-size: var(--rh-font-size-body-text-md, 1rem);
       color: var(--text-secondary);
       line-height: 1.6;
@@ -484,7 +490,7 @@
     <div class="slide" data-notes="<strong>Human oversight at every level:</strong> APME never modifies content autonomously. Tier 1 generates patches for human review. Tier 2 AI proposals require explicit accept/reject. Tier 3 flags issues for manual resolution.<br><br><strong>Trust model:</strong> Engine produces diffs; humans apply them. This is critical for enterprise adoption.">
       <div class="slide-label animate-in">—— HOW IT WORKS</div>
       <h2 class="animate-in">Parse, Validate, Remediate — <span class="accent">Human in the Loop</span></h2>
-      <div class="three-col animate-in" style="margin-top: 32px; grid-template-columns: 1fr 1fr 1fr; max-width: 1100px;">
+      <div class="three-col animate-in" style="margin-top: 32px;">
         <div class="col">
           <h3 style="color: var(--accent);">Tier 1: Automatic</h3>
           <p>Known patterns with deterministic fixes. Provably correct.</p>
