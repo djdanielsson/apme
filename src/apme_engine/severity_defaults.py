@@ -202,6 +202,9 @@ SEVERITY_DEFAULTS: dict[str, Severity] = {
     # ── Infrastructure / meta rules ─────────────────────────────────────
     "INFRA-001": Severity.ERROR,
     "INFRA-002": Severity.ERROR,
+    # ── AAP-specific rules ──────────────────────────────────────────────
+    "A001": Severity.MEDIUM,  # Hardcoded template IDs — portability issue
+    "A002": Severity.HIGH,  # Deprecated APIs — imminent breakage in AAP 2.7
 }
 
 

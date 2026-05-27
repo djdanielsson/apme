@@ -4530,6 +4530,8 @@ class RuleTag:
         VARIABLE: Variable-related rule.
         QUALITY: Quality-related rule.
         DEBUG: Debug-related rule.
+        AAP: AAP platform-specific rule.
+        PORTABILITY: Portability-related rule.
     """
 
     NETWORK = "network"
@@ -4541,6 +4543,8 @@ class RuleTag:
     VARIABLE = "variable"
     QUALITY = "quality"
     DEBUG = "debug"
+    AAP = "aap"
+    PORTABILITY = "portability"
 
 
 @dataclass

@@ -9,6 +9,7 @@ troubleshoot APME.
 |----------|-------------|
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Local setup, tox environments, adding rules, testing |
 | [DEPLOYMENT.md](DEPLOYMENT.md) | Podman pod setup, configuration, environment variables |
+| [RULE_CONFIGURATION.md](RULE_CONFIGURATION.md) | Rule blacklisting, custom rules, AI confidence scoring |
 | [PODMAN_OPA_ISSUES.md](PODMAN_OPA_ISSUES.md) | Podman rootless troubleshooting for OPA |
 
 ## When to Add a Document Here

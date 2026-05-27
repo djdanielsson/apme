@@ -1,4 +1,4 @@
-# ADR-008: Rule ID Conventions (L/M/R/P)
+# ADR-008: Rule ID Conventions (L/M/R/P/A)
 
 ## Status
 
@@ -29,6 +29,7 @@ Rules needed stable, human-readable IDs. The original ansible-lint used kebab-ca
 | **M** | Modernize (ansible-core migration) | M001–M004 |
 | **R** | Risk/security (annotation-based) | R101–R501, R118 |
 | **P** | Policy (legacy, requires ansible runtime) | P001–P004 |
+| **A** | AAP-specific (platform compatibility, APIs) | A001–A099 |
 
 ## Rationale
 
@@ -66,6 +67,8 @@ R100-R199: Security pattern rules
 R500-R599: Secret detection rules (Gitleaks)
 
 P001-P099: Policy rules (require ansible runtime)
+
+A001-A099: AAP-specific rules (platform compatibility, deprecated APIs)
 ```
 
 ### Mapping Document
@@ -76,6 +79,15 @@ L002 (fqcn) ← ansible-lint: fqcn
 L003 (no-changed-when) ← ansible-lint: no-changed-when
 ...
 ```
+
+## Amendments
+
+### 2026-05: Added A (AAP-specific) prefix
+
+AAP platform-specific rules warrant their own category to distinguish them from general Ansible lint rules. The A prefix covers:
+- AAP API compatibility (deprecated endpoints, version-specific behaviors)
+- AAP best practices (named_url vs template IDs, execution environment requirements)
+- AAP 2.5+ migration guidance
 
 ## Related Decisions
 

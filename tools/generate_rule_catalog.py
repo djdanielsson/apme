@@ -165,7 +165,7 @@ def _get_test_cache() -> dict[str, list[str]]:
         _TEST_CACHE = cache
         return cache
 
-    all_rule_id_pat = re.compile(r'["\']((?:L|M|R|P)\d+|SEC:[a-zA-Z0-9_*-]+)["\']')
+    all_rule_id_pat = re.compile(r'["\']((?:A|L|M|R|P)\d+|SEC:[a-zA-Z0-9_*-]+)["\']')
     for py in sorted(TESTS_DIR.rglob("*.py")):
         if py.name.startswith("_"):
             continue

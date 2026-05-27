@@ -27,6 +27,7 @@ from apme_gateway.grpc_reporting.servicer import ReportingServicer
 @pytest.mark.parametrize(  # type: ignore[untyped-decorator]
     ("rule_id", "expected_category"),
     [
+        ("A001", "aap"),
         ("L001", "lint"),
         ("M002", "modernize"),
         ("R101", "risk"),
