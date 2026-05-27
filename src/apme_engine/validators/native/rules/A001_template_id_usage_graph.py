@@ -118,7 +118,7 @@ def _check_uri_module(node: ContentNode) -> tuple[bool, str | None, str | None]:
     options = node.module_options or {}
     url = _extract_url_from_options(options)
 
-    if not url or is_templated(url):
+    if not url:
         return (False, None, None)
 
     match = _TEMPLATE_ID_PATTERN.search(url)

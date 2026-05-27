@@ -20,7 +20,6 @@ from apme_engine.engine.models import Severity, YAMLDict
 from apme_engine.validators.native.rules.graph_rule_base import (
     GraphRule,
     GraphRuleResult,
-    is_templated,
 )
 
 if TYPE_CHECKING:
@@ -46,6 +45,8 @@ _DEPRECATED_API_PATTERN = re.compile(
     r"(?:https?://[^/]+)?/api/v2/(?!controller/|hub/|eda/)",
     re.IGNORECASE,
 )
+
+_RESOURCE_TERMINATOR_PATTERN = re.compile(r"[/?#]")
 
 _CONTROLLER_API_RESOURCES = frozenset(
     {
@@ -110,22 +111,17 @@ def _classify_deprecated_api(url: str) -> tuple[str | None, str | None]:
     Returns:
         Tuple of (service_type, recommended_path) or (None, None) if not deprecated.
     """
-    if is_templated(url):
-        return (None, None)
-
     match = _DEPRECATED_API_PATTERN.search(url)
     if not match:
         return (None, None)
 
-    url_lower = url.lower()
+    resource = _RESOURCE_TERMINATOR_PATTERN.split(url[match.end() :], maxsplit=1)[0].lower()
 
-    for resource in _CONTROLLER_API_RESOURCES:
-        if f"/api/v2/{resource}" in url_lower:
-            return ("controller", f"/api/controller/v2/{resource}")
+    if resource in _CONTROLLER_API_RESOURCES:
+        return ("controller", f"/api/controller/v2/{resource}")
 
-    for resource in _HUB_API_RESOURCES:
-        if f"/api/v2/{resource}" in url_lower:
-            return ("hub", f"/api/hub/v2/{resource}")
+    if resource in _HUB_API_RESOURCES:
+        return ("hub", f"/api/hub/v2/{resource}")
 
     # Only flag URLs that explicitly reference known AAP resources.
     # Unknown /api/v2/ paths may belong to non-AAP services.

@@ -187,8 +187,23 @@ class TestA001TemplateIDUsage:
         violations = _find_violations(report, "A001")
         assert len(violations) == 0
 
-    def test_uri_templated_url_not_flagged(self) -> None:
-        """URI module with Jinja-templated URL is not flagged."""
+    def test_uri_templated_base_with_hardcoded_id_flagged(self) -> None:
+        """URI module with templated base and literal numeric ID is flagged."""
+        g, _ = _make_task(
+            module="ansible.builtin.uri",
+            module_options={
+                "url": "{{ controller_url }}/api/v2/job_templates/42/launch/",
+            },
+        )
+        rules: list[GraphRule] = [TemplateIDUsageGraphRule()]
+        report = scan(g, rules)
+        violations = _find_violations(report, "A001")
+        assert len(violations) == 1
+        assert violations[0].detail is not None
+        assert violations[0].detail["hardcoded_id"] == "42"
+
+    def test_uri_templated_template_id_not_flagged(self) -> None:
+        """URI module with templated template ID is not flagged."""
         g, _ = _make_task(
             module="ansible.builtin.uri",
             module_options={
@@ -370,11 +385,35 @@ class TestA002DeprecatedAAPAPI:
         violations = _find_violations(report, "A002")
         assert len(violations) == 0
 
-    def test_templated_url_not_flagged(self) -> None:
-        """Templated URLs are not flagged."""
+    def test_templated_base_with_deprecated_path_flagged(self) -> None:
+        """Templated base with a literal deprecated AAP path is flagged."""
         g, _ = _make_task(
             module="ansible.builtin.uri",
             module_options={"url": "{{ controller_url }}/api/v2/job_templates/"},
+        )
+        rules: list[GraphRule] = [DeprecatedAAPAPIGraphRule()]
+        report = scan(g, rules)
+        violations = _find_violations(report, "A002")
+        assert len(violations) == 1
+        assert violations[0].detail is not None
+        assert violations[0].detail["service"] == "controller"
+
+    def test_templated_resource_path_not_flagged(self) -> None:
+        """Templated resources after /api/v2/ are not classified as AAP resources."""
+        g, _ = _make_task(
+            module="ansible.builtin.uri",
+            module_options={"url": "https://aap.local/api/v2/{{ resource_name }}/"},
+        )
+        rules: list[GraphRule] = [DeprecatedAAPAPIGraphRule()]
+        report = scan(g, rules)
+        violations = _find_violations(report, "A002")
+        assert len(violations) == 0
+
+    def test_resource_prefix_match_not_flagged(self) -> None:
+        """Resources that only start with a known name are not misclassified."""
+        g, _ = _make_task(
+            module="ansible.builtin.uri",
+            module_options={"url": "https://aap.local/api/v2/job_templates_backup/"},
         )
         rules: list[GraphRule] = [DeprecatedAAPAPIGraphRule()]
         report = scan(g, rules)

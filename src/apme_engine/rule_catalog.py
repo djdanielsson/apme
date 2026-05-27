@@ -43,6 +43,7 @@ _SCOPE_TO_PROTO: dict[str, int] = {
 }
 
 _PREFIX_TO_CATEGORY: dict[str, str] = {
+    "A": "aap",
     "L": "lint",
     "M": "modernize",
     "R": "risk",
@@ -59,7 +60,7 @@ def _category_from_rule_id(rule_id: str) -> str:
         rule_id: Rule identifier (e.g. ``L026``, ``SEC:key``).
 
     Returns:
-        Category string (lint, modernize, risk, policy, secrets, or unknown).
+        Category string (aap, lint, modernize, risk, policy, secrets, or unknown).
     """
     for prefix, category in _PREFIX_TO_CATEGORY.items():
         if rule_id.startswith(prefix):
