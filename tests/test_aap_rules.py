@@ -126,7 +126,7 @@ class TestA001TemplateIDUsage:
         assert len(violations) == 1
         assert violations[0].detail is not None
         assert violations[0].detail["hardcoded_id"] == "99"
-        assert violations[0].detail["template_type"] == "workflow_job_template"
+        assert violations[0].detail["template_type"] == "workflow_template"
 
     def test_uri_gateway_path_hardcoded_id_flagged(self) -> None:
         """URI module with /api/controller/v2/job_templates/<id>/ is flagged."""
@@ -226,6 +226,34 @@ class TestA001TemplateIDUsage:
         assert violations[0].detail is not None
         assert violations[0].detail["hardcoded_id"] == "456"
 
+    def test_controller_module_numeric_workflow_template_id_flagged(self) -> None:
+        """Controller module with numeric workflow_template_id is flagged."""
+        g, _ = _make_task(
+            module="ansible.controller.workflow_launch",
+            module_options={"workflow_template_id": 789},
+        )
+        rules: list[GraphRule] = [TemplateIDUsageGraphRule()]
+        report = scan(g, rules)
+        violations = _find_violations(report, "A001")
+        assert len(violations) == 1
+        assert violations[0].detail is not None
+        assert violations[0].detail["hardcoded_id"] == "789"
+        assert violations[0].detail["template_type"] == "workflow_template"
+
+    def test_controller_module_numeric_workflow_flagged(self) -> None:
+        """Controller module with numeric workflow value is flagged."""
+        g, _ = _make_task(
+            module="ansible.controller.workflow_launch",
+            module_options={"workflow": 321},
+        )
+        rules: list[GraphRule] = [TemplateIDUsageGraphRule()]
+        report = scan(g, rules)
+        violations = _find_violations(report, "A001")
+        assert len(violations) == 1
+        assert violations[0].detail is not None
+        assert violations[0].detail["hardcoded_id"] == "321"
+        assert violations[0].detail["template_type"] == "workflow_template"
+
     def test_controller_module_named_job_template_not_flagged(self) -> None:
         """Controller module with named job_template is not flagged."""
         g, _ = _make_task(
@@ -303,6 +331,20 @@ class TestA002DeprecatedAAPAPI:
         assert len(violations) == 1
         assert violations[0].detail is not None
         assert violations[0].detail["service"] == "controller"
+
+    def test_deprecated_hub_api_v2_collections_flagged(self) -> None:
+        """URI with deprecated hub /api/v2/collections is flagged as hub."""
+        g, _ = _make_task(
+            module="ansible.builtin.uri",
+            module_options={"url": "https://hub.example.com/api/v2/collections/"},
+        )
+        rules: list[GraphRule] = [DeprecatedAAPAPIGraphRule()]
+        report = scan(g, rules)
+        violations = _find_violations(report, "A002")
+        assert len(violations) == 1
+        assert violations[0].detail is not None
+        assert violations[0].detail["service"] == "hub"
+        assert violations[0].detail["recommended_path"] == "/api/hub/v2/collections"
 
     def test_gateway_api_not_flagged(self) -> None:
         """URI with new gateway /api/controller/v2/ is not flagged."""

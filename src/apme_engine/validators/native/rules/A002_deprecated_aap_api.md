@@ -1,7 +1,7 @@
 ---
 rule_id: A002
 validator: native
-description: Tasks should not use deprecated AAP API endpoints.
+description: Tasks should not use deprecated AAP API endpoints or deprecated ansible.hub modules.
 scope: task
 ---
 

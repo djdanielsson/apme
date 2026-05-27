@@ -123,7 +123,8 @@ def _check_uri_module(node: ContentNode) -> tuple[bool, str | None, str | None]:
 
     match = _TEMPLATE_ID_PATTERN.search(url)
     if match:
-        template_type = match.group(2).rstrip("s")
+        resource = match.group(2)
+        template_type = "workflow_template" if resource == "workflow_job_templates" else "job_template"
         id_value = match.group(3)
         return (True, template_type, id_value)
 
