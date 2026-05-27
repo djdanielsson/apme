@@ -4532,6 +4532,7 @@ class RuleTag:
         DEBUG: Debug-related rule.
         AAP: AAP platform-specific rule.
         PORTABILITY: Portability-related rule.
+        SECURITY: Security-related rule.
     """
 
     NETWORK = "network"
@@ -4545,6 +4546,7 @@ class RuleTag:
     DEBUG = "debug"
     AAP = "aap"
     PORTABILITY = "portability"
+    SECURITY = "security"
 
 
 @dataclass

@@ -24,6 +24,7 @@ Specs answer "What does this feature do?" They provide:
 | REQ-012 | EDA Rulebook Validation | PHASE-003 | Draft |
 | REQ-013 | Extended OPA Policy Inputs | PHASE-003 | Draft |
 | REQ-014 | Policy Permissive Mode | PHASE-003 | Draft |
+| REQ-015 | Detect Debug Sensitive Variables | PHASE-001 | Implemented |
 
 ## Directory Structure
 
@@ -45,7 +46,8 @@ specs/
 ├── REQ-011-aa-deprecated-reporting/
 ├── REQ-012-eda-rulebook-validation/
 ├── REQ-013-opa-policy-inputs/
-└── REQ-014-policy-permissive-mode/
+├── REQ-014-policy-permissive-mode/
+└── REQ-015-debug-sensitive-vars/
 ```
 
 ## Phase Relationship
@@ -54,7 +56,8 @@ Requirements are grouped by delivery phase:
 
 ```
 PHASE-001: CLI Scanner (In Progress)
-└── REQ-001: Core Scanning Engine (In Progress)
+├── REQ-001: Core Scanning Engine (In Progress)
+└── REQ-015: Detect Debug Sensitive Variables (Implemented)
 
 PHASE-002: Rewrite Engine (Implemented)
 └── REQ-002: Automated Remediation (Implemented)
