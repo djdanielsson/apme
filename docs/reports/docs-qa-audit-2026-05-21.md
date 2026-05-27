@@ -3,8 +3,8 @@
 ## Executive Summary
 
 - **Total Questions**: 34
-- **Covered** (✓): 12 (35%)
-- **Partial** (⚠): 9 (26%)
+- **Covered** (✓): 11 (32%)
+- **Partial** (⚠): 10 (29%)
 - **Gaps** (✗): 13 (38%)
 
 The documentation has solid coverage of core functionality (installation, basic scanning, container deployment, rule catalog) but significant gaps exist in CI/CD integration guides, tooling ecosystem integration, and some rule configuration topics.
@@ -15,7 +15,7 @@ The documentation has solid coverage of core functionality (installation, basic 
 |----------|---------|---------|-----|-------|
 | What Is It / What Does It Do | 4/5 | 1/5 | 0/5 | 90% |
 | How Can I Use It | 4/5 | 1/5 | 0/5 | 90% |
-| Rule Configuration | 1/5 | 3/5 | 1/5 | 50% |
+| Rule Configuration | 0/5 | 4/5 | 1/5 | 40% |
 | Bring Your Own Rules | 0/4 | 3/4 | 1/4 | 38% |
 | Demonstrating Value | 1/5 | 1/5 | 3/5 | 30% |
 | Integration with Existing Tools | 2/10 | 0/10 | 8/10 | 20% |
@@ -38,7 +38,7 @@ The documentation has solid coverage of core functionality (installation, basic 
 | Q12 | Rule Configuration | How do I change rule severity? | ⚠ | [ADR-041](../../.sdlc/adrs/ADR-041-rule-catalog-override-architecture.md) |
 | Q13 | Rule Configuration | How do I suppress a rule for a specific line? | ✗ | No documentation found |
 | Q14 | Rule Configuration | How do I configure rules per-project? | ⚠ | [_rules_yml.py](../../src/apme_engine/cli/_rules_yml.py) (code only) |
-| Q15 | Rule Configuration | How do I enforce rules and ignore noqa comments? | ✓ | [ADR-041](../../.sdlc/adrs/ADR-041-rule-catalog-override-architecture.md) |
+| Q15 | Rule Configuration | How do I enforce rules and ignore noqa comments? | ⚠ | [ADR-041](../../.sdlc/adrs/ADR-041-rule-catalog-override-architecture.md) |
 | Q16 | Bring Your Own Rules | Can I add custom rules? | ⚠ | [ADR-042](../../.sdlc/adrs/ADR-042-third-party-plugin-services.md) |
 | Q17 | Bring Your Own Rules | How do I write a custom OPA/Rego rule? | ⚠ | [DEVELOPMENT.md](../guides/DEVELOPMENT.md) |
 | Q18 | Bring Your Own Rules | How do I add custom rules via plugins? | ⚠ | [ADR-042](../../.sdlc/adrs/ADR-042-third-party-plugin-services.md) |
@@ -66,9 +66,9 @@ The documentation has solid coverage of core functionality (installation, basic 
 - **ID**: Q13
 - **Question**: How do I suppress a rule for a specific line?
 - **Impact**: Users need to suppress false positives in specific locations without disabling the rule globally. This is a fundamental workflow.
-- **Suggested Location**: `docs/guides/CONFIGURATION.md` (new file) or README.md
-- **Research Notes**: ADR-041 mentions `# apme:ignore` annotations and `enforced` flag to ignore them, but there is no user-facing documentation explaining the syntax or usage.
-- **Draft Answer**: Add inline `# apme:ignore` comment to suppress violations on that line. Use `enforced: true` in `.apme/rules.yml` to make suppression impossible for compliance-critical rules.
+- **Suggested Location**: `docs/guides/RULE_CONFIGURATION.md` or README.md
+- **Research Notes**: The engine currently parses inline suppression via `# noqa: <RULE_ID>` comments in `graph_scanner.py`, and ADR-041 documents the `enforced` flag to ignore those suppressions. There is still no user-facing documentation explaining the syntax or usage.
+- **Draft Answer**: Add an inline `# noqa: <RULE_ID>` comment to suppress that rule for the node. Use `enforced: true` in `.apme/rules.yml` to make suppression impossible for compliance-critical rules.
 
 ### Gap 2: Rule ID Conventions for Custom Rules (Q19)
 
@@ -113,7 +113,7 @@ The documentation has solid coverage of core functionality (installation, basic 
 - **Impact**: GitHub Actions is the most common CI system. Without a guide, users must figure out integration themselves.
 - **Suggested Location**: `docs/guides/CI_INTEGRATION.md` (new file)
 - **Research Notes**: The CLI supports `--json` output and exit codes suitable for CI. No example workflow exists.
-- **Draft Answer**: Create example workflow using `pip install apme-engine@git+...` and `apme check --json .`.
+- **Draft Answer**: Create example workflow using `pip install apme-engine@git+https://github.com/ansible/apme.git@main` and `apme check --json .`.
 
 ### Gap 7: GitLab CI Integration (Q26)
 
@@ -183,19 +183,19 @@ The documentation has solid coverage of core functionality (installation, basic 
 
 - **Current Source**: Code in `_rules_yml.py`
 - **Gap**: The `.apme/rules.yml` format is only documented in code comments.
-- **Recommendation**: Create `docs/guides/CONFIGURATION.md` with examples.
+- **Recommendation**: Create `docs/guides/RULE_CONFIGURATION.md` with examples.
 
 ### Partial 4: Severity Override (Q12)
 
 - **Current Source**: ADR-041
 - **Gap**: ADR explains architecture, not user workflow.
-- **Recommendation**: Add user-facing examples to CONFIGURATION.md.
+- **Recommendation**: Add user-facing examples to `docs/guides/RULE_CONFIGURATION.md`.
 
 ### Partial 5: Per-project Config (Q14)
 
 - **Current Source**: Code in `_rules_yml.py`
 - **Gap**: No user documentation for `.apme/rules.yml`.
-- **Recommendation**: Document in CONFIGURATION.md.
+- **Recommendation**: Document in `docs/guides/RULE_CONFIGURATION.md`.
 
 ### Partial 6: Custom Rules Overview (Q16)
 
@@ -221,11 +221,17 @@ The documentation has solid coverage of core functionality (installation, basic 
 - **Gap**: API endpoints documented but no guide on generating stakeholder reports.
 - **Recommendation**: Create `docs/guides/REPORTING.md` with report examples.
 
+### Partial 10: Enforced Rules vs `noqa` (Q15)
+
+- **Current Source**: ADR-041
+- **Gap**: The behavior is documented architecturally, but there is no user-facing configuration guide explaining `enforced: true` or how it interacts with `# noqa: <RULE_ID>`.
+- **Recommendation**: Add an "Enforced Rules" section to `docs/guides/RULE_CONFIGURATION.md` with examples showing both inline suppression and rule-level enforcement.
+
 ## Action Items
 
 ### High Priority (Core User Workflows)
 
-- [ ] Create `docs/guides/CONFIGURATION.md` documenting `.apme/rules.yml` format, inline suppression (`# apme:ignore`), severity overrides, and `enforced` flag
+- [ ] Create `docs/guides/RULE_CONFIGURATION.md` documenting `.apme/rules.yml` format, inline suppression (`# noqa: <RULE_ID>`), severity overrides, and `enforced` flag
 - [ ] Create `docs/guides/CI_INTEGRATION.md` with examples for GitHub Actions, GitLab CI, Jenkins, Azure DevOps, and pre-commit hooks
 
 ### Medium Priority (Value Demonstration)
@@ -242,6 +248,6 @@ The documentation has solid coverage of core functionality (installation, basic 
 ## Next Steps
 
 1. Review gaps with stakeholders to prioritize based on customer frequency
-2. Create CONFIGURATION.md and CI_INTEGRATION.md as highest-impact additions
-3. Add inline suppression syntax to user-facing docs immediately
+2. Create `RULE_CONFIGURATION.md` and `CI_INTEGRATION.md` as highest-impact additions
+3. Add `# noqa: <RULE_ID>` suppression syntax to user-facing docs immediately
 4. Re-run audit after documentation updates

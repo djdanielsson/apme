@@ -26,7 +26,9 @@ Use when:
 
 ## Output
 
-Markdown report (`docs/reports/docs-qa-audit-YYYY-MM-DD.md`) containing:
+Markdown report written by default to `docs/reports/docs-qa-audit-YYYY-MM-DD.md`.
+If invoked with `--output path/to/report.md`, write the report to that path
+instead. The report contains:
 1. **Coverage Matrix** — Questions with status (✓ covered / ⚠ partial / ✗ gap)
 2. **Source References** — Links to docs/code that answer each question
 3. **Gap Analysis** — Missing answers with suggested doc locations
@@ -107,7 +109,7 @@ See [procedure.md](procedure.md) for the detailed step-by-step implementation gu
 | User guides | `docs/guides/*.md` |
 | README | `README.md` |
 | Rule docs | `docs/rules/*.md`, `src/**/rules/*.md` |
-| API docs | `docs/api/*.md`, `src/apme_gateway/api/` |
+| API docs | `docs/architecture/*.md`, `docs/design/*.md`, `src/apme_gateway/api/` |
 | ADRs | `.sdlc/adrs/*.md` |
 | CLI help | `src/apme_engine/cli/*.py` |
 | Config | `src/apme_engine/cli/_rules_yml.py`, `.apme/` patterns |

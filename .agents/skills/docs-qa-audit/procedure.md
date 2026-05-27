@@ -215,7 +215,9 @@ Create draft in `docs/drafts/` or suggest PR content.
 
 ## Step 6: Generate Report
 
-Write report to `docs/reports/docs-qa-audit-YYYY-MM-DD.md`:
+Write the report to `docs/reports/docs-qa-audit-YYYY-MM-DD.md` by default. If
+the user invoked the skill with `--output path/to/report.md`, write the report
+to that explicit path instead:
 
 ```markdown
 # Documentation Q&A Audit — YYYY-MM-DD
