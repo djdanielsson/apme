@@ -115,6 +115,28 @@ class TestEdaRulebookDetection:
         assert could_be_eda_rulebook(str(playbook)) is False
         assert could_be_playbook(str(playbook)) is True
 
+    def test_playbook_with_stray_sources_before_tasks_not_eda(self, tmp_path: Path) -> None:
+        """Verify a stray play-level ``sources`` key does not suppress L095.
+
+        Args:
+            tmp_path: Pytest fixture providing temporary directory.
+        """
+        content = """\
+---
+- name: Bad play
+  hosts: all
+  sources:
+    - not-an-eda-source
+  tasks:
+    - name: Debug task
+      ansible.builtin.debug:
+        msg: hello
+"""
+        playbook = tmp_path / "bad_sources_play.yml"
+        playbook.write_text(content)
+        assert could_be_eda_rulebook(str(playbook)) is False
+        assert could_be_playbook(str(playbook)) is True
+
     def test_is_eda_rulebook_path_relative_paths(self) -> None:
         """Verify path detection works without leading directory separators."""
         assert is_eda_rulebook_path("rulebooks/foo.yml") is True
@@ -231,8 +253,8 @@ class TestPlaybookDetailVsEdaExclusion:
         assert could_be_playbook_detail(body=body, data=data) is True
         assert could_be_eda_rulebook_detail(body=body, data=data) is True
 
-    def test_eda_rulebook_with_only_sources(self) -> None:
-        """Verify sources-only EDA is playbook-shaped but identified as EDA."""
+    def test_eda_rulebook_with_only_sources_not_classified_by_content(self) -> None:
+        """Verify content-only sources keys do not hide invalid playbooks."""
         body = """\
 - name: Event Source
   hosts: localhost
@@ -248,7 +270,7 @@ class TestPlaybookDetailVsEdaExclusion:
             }
         ]
         assert could_be_playbook_detail(body=body, data=data) is True
-        assert could_be_eda_rulebook_detail(body=body, data=data) is True
+        assert could_be_eda_rulebook_detail(body=body, data=data) is False
 
     def test_eda_rulebook_with_only_rules(self) -> None:
         """Verify rules-only EDA is playbook-shaped but identified as EDA."""

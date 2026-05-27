@@ -176,12 +176,13 @@ class TestEdaGraphIntegration:
     def test_eda_inline_content_detection(self, tmp_path: Path) -> None:
         """Verify EDA detection works with inline content variants.
 
-        The regex should handle: `sources: []`, `rules:  # comment`, etc.
+        Content-based detection should ignore inline keys without EDA rule
+        structure, but still recognize inline comments on real rulebooks.
 
         Args:
             tmp_path: Pytest fixture providing temporary directory.
         """
-        # Test inline empty list
+        # Inline empty lists are not enough to classify a non-path YAML file as EDA.
         inline_list = tmp_path / "inline_list.yml"
         inline_list.write_text("""\
 ---
@@ -190,10 +191,10 @@ class TestEdaGraphIntegration:
   sources: []
   rules: []
 """)
-        assert could_be_eda_rulebook(str(inline_list)) is True
-        assert could_be_playbook(str(inline_list)) is False
+        assert could_be_eda_rulebook(str(inline_list)) is False
+        assert could_be_playbook(str(inline_list)) is True
 
-        # Test with trailing comment
+        # Trailing comments should still work when the rulebook has EDA structure.
         with_comment = tmp_path / "with_comment.yml"
         with_comment.write_text("""\
 ---

@@ -71,15 +71,9 @@ def looks_like_eda_ruleset(ruleset: YAMLDict) -> bool:
     """
     if _PLAYBOOK_SECTION_KEYS & ruleset.keys():
         return False
-    if "sources" in ruleset:
-        sources = ruleset["sources"]
-        if sources is None or isinstance(sources, list):
-            return True
     if "rules" in ruleset:
         rules = ruleset["rules"]
         if isinstance(rules, list):
-            if not rules:
-                return "sources" in ruleset
             return any(isinstance(item, dict) and ("condition" in item or "action" in item) for item in rules)
     return False
 
@@ -146,18 +140,17 @@ def _eda_from_lines(lines: list[str]) -> bool:
     """
     saw_list_item = False
     saw_rules_key = False
+    saw_rule_structure = False
     for line in lines:
         if _eda_playbook_section_re.match(line):
             return False
         if _eda_list_item_re.match(line):
             saw_list_item = True
-        elif saw_list_item and _eda_sources_key_re.match(line):
-            return True
         elif saw_list_item and _eda_ruleset_key_re.match(line) and "rules:" in line:
             saw_rules_key = True
         elif saw_rules_key and _eda_rule_structure_re.match(line):
-            return True
-    return False
+            saw_rule_structure = True
+    return saw_rule_structure
 
 
 def _load_first_ruleset_from_lines(lines: list[str]) -> YAMLDict | None:
@@ -203,9 +196,10 @@ def could_be_eda_rulebook(fpath: str) -> bool:
        (absolute or relative) are assumed to be EDA content regardless of
        their internal structure.
     2. Content-based: For files outside those directories, requires EDA
-       rulebook structure: a list item (``- name: ...``) followed by
-       ``sources:`` or ``rules:`` at exactly 2-space indent (ruleset-level
-       keys, not nested in vars or module parameters).
+       rulebook structure with an actual rule definition (for example,
+       ``rules:`` entries containing ``condition`` or ``action``). A stray
+       ``sources:`` key alone is not enough because invalid playbooks should
+       still reach L095 validation.
 
     This tightened heuristic avoids false positives on Kubernetes manifests
     (``spec.rules:``) or playbooks with nested ``vars: {rules: ...}``.
