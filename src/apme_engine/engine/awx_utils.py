@@ -6,10 +6,12 @@ import re
 
 valid_playbook_re = re.compile(r"^\s*?-?\s*?(?:hosts|include|import_playbook):\s*?.*?$")
 
-# EDA rulebook detection: look for 'sources:' or 'rules:' at ruleset level
-# These keys are valid in EDA rulebooks but not in Ansible playbooks
-# Allow any trailing content (inline values like [], comments, etc.)
-_eda_rulebook_re = re.compile(r"^\s{1,8}(?:sources|rules):\s*(?:\S.*)?$")
+# EDA rulebook detection patterns:
+# 1. List item start: "- name:" at column 0 indicates ruleset definition
+# 2. Ruleset-level keys: "sources:" or "rules:" at exactly 2-space indent
+#    (child of the list item, not nested deeper in vars/module params)
+_eda_list_item_re = re.compile(r"^-\s+name:\s*\S")
+_eda_ruleset_key_re = re.compile(r"^  (?:sources|rules):\s*(?:\S.*)?$")
 
 
 def _normalize_eda_path(fpath: str) -> str:
@@ -52,8 +54,13 @@ def could_be_eda_rulebook(fpath: str) -> bool:
     1. Path-based: Files under ``rulebooks/`` or ``extensions/eda/`` directories
        (absolute or relative) are assumed to be EDA content regardless of
        their internal structure.
-    2. Content-based: For files outside those directories, looks for 'sources'
-       or 'rules' keys at ruleset level (indented 1-8 spaces).
+    2. Content-based: For files outside those directories, requires EDA
+       rulebook structure: a list item (``- name: ...``) followed by
+       ``sources:`` or ``rules:`` at exactly 2-space indent (ruleset-level
+       keys, not nested in vars or module parameters).
+
+    This tightened heuristic avoids false positives on Kubernetes manifests
+    (``spec.rules:``) or playbooks with nested ``vars: {rules: ...}``.
 
     This function is called before could_be_playbook() to prevent EDA files
     from being misclassified as playbooks (which would cause L095 false
@@ -73,13 +80,18 @@ def could_be_eda_rulebook(fpath: str) -> bool:
     if is_eda_rulebook_path(fpath):
         return True
 
-    # Content-based detection: look for EDA-specific keywords
+    # Content-based detection: look for EDA rulebook structure
+    # Requires seeing "- name:" list item followed by "sources:" or "rules:"
+    # at exactly 2-space indent (ruleset-level, not nested in vars/params)
     try:
+        saw_list_item = False
         with codecs.open(fpath, "r", encoding="utf-8", errors="ignore") as f:
             for n, line in enumerate(f):
                 if n > 100:
                     break
-                if _eda_rulebook_re.match(line):
+                if _eda_list_item_re.match(line):
+                    saw_list_item = True
+                elif saw_list_item and _eda_ruleset_key_re.match(line):
                     return True
     except OSError:
         return False
