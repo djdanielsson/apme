@@ -27,7 +27,7 @@ rules:
 |--------|------|---------|-------------|
 | `enabled` | bool | `true` | Set to `false` to skip this rule |
 | `severity` | string | (rule default) | Override: `info`, `low`, `medium`, `high`, `critical` |
-| `enforced` | bool | `false` | If `true`, ignores inline `# noqa` comments |
+| `enforced` | bool | `false` | If `true`, bypasses all fingerprint suppression modes from `.apme/suppressions.yml` during CLI suppression processing |
 
 ### Inline Suppression
 
@@ -38,7 +38,16 @@ Suppress rules on specific tasks using `# noqa`:
   ansible.builtin.shell: rm -rf /tmp/*
 ```
 
-**Note:** If a rule has `enforced: true` in `.apme/rules.yml`, inline suppressions are ignored.
+**Note:** `enforced: true` affects `.apme/suppressions.yml` fingerprint
+suppressions during CLI suppression processing. Native graph-rule `# noqa`
+comments are parsed earlier during scan-time evaluation, so this setting does
+not currently override those inline suppressions.
+
+Fingerprint suppressions live in `.apme/suppressions.yml`. The CLI can manage
+that file with `apme suppress add`, `apme suppress list`, and
+`apme suppress remove`. The file stores entries under a top-level
+`suppressions:` list with fields such as `fingerprint`, `rule_id`, `mode`,
+`reason`, and `created`.
 
 ### CLI Flags
 
