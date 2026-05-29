@@ -80,7 +80,7 @@ POD_YAML=$(sed "s|path: __APME_CACHE_PATH__|path: ${ESCAPED_PATH}|" containers/p
   | envsubst '$OPENROUTER_API_KEY $VERTEX_ANTHROPIC_API_KEY $APME_AI_MODEL $APME_ROOT $APME_FEEDBACK_ENABLED $APME_FEEDBACK_GITHUB_REPO $APME_FEEDBACK_GITHUB_TOKEN')
 
 # When a CA bundle is provided, inject the standard CA env vars and mounts for
-# the containers that make outbound HTTPS requests (gateway git/HTTP, Abbenay).
+# the containers that make outbound HTTPS requests (gateway, abbenay, galaxy-proxy).
 if [[ -n "$ABBENAY_CA_BUNDLE" ]]; then
   CA_MOUNT_PATH="/etc/ssl/certs/custom-ca-bundle.pem"
   POD_YAML=$(python3 -c "
@@ -94,11 +94,15 @@ abbenay_env_marker = '        - name: XDG_RUNTIME_DIR'
 abbenay_vol_marker = '          readOnly: true\n    - name: galaxy-proxy'
 gateway_env_marker = '        - name: APME_FEEDBACK_GITHUB_TOKEN'
 gateway_vol_marker = '      volumeMounts:\n        - name: gateway-data'
+galaxy_marker = '    - name: galaxy-proxy\n      image: apme-galaxy-proxy:latest'
+galaxy_vol_marker = '      volumeMounts:\n        - name: proxy-cache'
 if (
     abbenay_env_marker not in yaml
     or abbenay_vol_marker not in yaml
     or gateway_env_marker not in yaml
     or gateway_vol_marker not in yaml
+    or galaxy_marker not in yaml
+    or galaxy_vol_marker not in yaml
 ):
     print('ERROR: pod.yaml markers not found; CA bundle injection failed', file=sys.stderr)
     sys.exit(1)
@@ -134,6 +138,23 @@ yaml = yaml.replace(
     '          mountPath: ' + mount_yaml + '\n'
     '          readOnly: true\n'
     '        - name: gateway-data')
+# Galaxy Proxy: add env section + CA env vars
+yaml = yaml.replace(
+    galaxy_marker,
+    galaxy_marker + '\n'
+    '      env:\n'
+    '        - name: SSL_CERT_FILE\n'
+    '          value: ' + mount_yaml + '\n'
+    '        - name: REQUESTS_CA_BUNDLE\n'
+    '          value: ' + mount_yaml)
+# Galaxy Proxy: add CA volume mount
+yaml = yaml.replace(
+    galaxy_vol_marker,
+    '      volumeMounts:\n'
+    '        - name: galaxy-ca-bundle\n'
+    '          mountPath: ' + mount_yaml + '\n'
+    '          readOnly: true\n'
+    '        - name: proxy-cache')
 yaml = yaml.rstrip() + '\n' \
     '    - name: abbenay-ca-bundle\n' \
     '      hostPath:\n' \
@@ -142,10 +163,14 @@ yaml = yaml.rstrip() + '\n' \
     '    - name: gateway-ca-bundle\n' \
     '      hostPath:\n' \
     '        path: ' + ca_path_yaml + '\n' \
+    '        type: File\n' \
+    '    - name: galaxy-ca-bundle\n' \
+    '      hostPath:\n' \
+    '        path: ' + ca_path_yaml + '\n' \
     '        type: File\n'
 print(yaml)
 " <<< "$POD_YAML")
-  echo "CA bundle enabled for gateway/abbenay: $ABBENAY_CA_BUNDLE -> $CA_MOUNT_PATH (inside container)"
+  echo "CA bundle enabled for gateway/abbenay/galaxy-proxy: $ABBENAY_CA_BUNDLE -> $CA_MOUNT_PATH (inside container)"
 fi
 
 echo "$POD_YAML" | podman play kube -
