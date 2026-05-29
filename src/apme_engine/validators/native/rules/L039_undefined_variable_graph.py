@@ -30,6 +30,7 @@ _BARE_IDENT_RE = re.compile(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\b")
 # variable references.
 _JINJA_BUILTINS: frozenset[str] = frozenset(
     {
+        # Jinja2 keywords / operators
         "and",
         "or",
         "not",
@@ -42,6 +43,7 @@ _JINJA_BUILTINS: frozenset[str] = frozenset(
         "import",
         "as",
         "with",
+        # Jinja2 built-in types / functions
         "bool",
         "int",
         "float",
@@ -81,24 +83,40 @@ _JINJA_BUILTINS: frozenset[str] = frozenset(
         "combine",
         "mandatory",
         "ternary",
+        # Ansible serialization / encoding filters
         "from_json",
         "from_yaml",
         "to_json",
         "to_yaml",
         "to_nice_json",
         "to_nice_yaml",
+        "to_datetime",
+        "to_uuid",
         "b64encode",
         "b64decode",
         "hash",
         "type_debug",
+        # Ansible path / network filters
         "ipaddr",
+        "ipv4",
+        "ipv6",
         "basename",
         "dirname",
         "realpath",
         "relpath",
+        "expanduser",
+        "expandvars",
+        "fileglob",
+        "splitext",
+        "win_basename",
+        "win_dirname",
+        "win_splitdrive",
+        # Ansible regex filters
         "regex_replace",
         "regex_search",
         "regex_findall",
+        "regex_escape",
+        # Ansible data / collection filters
         "password_hash",
         "comment",
         "subelements",
@@ -106,6 +124,17 @@ _JINJA_BUILTINS: frozenset[str] = frozenset(
         "zip",
         "zip_longest",
         "json_query",
+        "items2dict",
+        "dict2items",
+        "groupby",
+        "selectattr",
+        "rejectattr",
+        "extract",
+        "symmetric_difference",
+        "difference",
+        "intersect",
+        "union",
+        # Ansible result tests / filters
         "community",
         "succeeded",
         "failed",
@@ -113,6 +142,39 @@ _JINJA_BUILTINS: frozenset[str] = frozenset(
         "skipped",
         "success",
         "failure",
+        "unreachable",
+        # Ansible misc filters
+        "human_readable",
+        "human_to_bytes",
+        "quote",
+        "shuffle",
+        "random",
+        "log",
+        "pow",
+        "root",
+        "urlsplit",
+        "urlencode",
+        "ansible_native",
+        "checksum",
+        "strftime",
+        "wordcount",
+        "center",
+        "capitalize",
+        "title",
+        "truncate",
+        "indent",
+        "format",
+        "attr",
+        "batch",
+        "slice",
+        "tojson",
+        "safe",
+        "escape",
+        "xmlattr",
+        "pprint",
+        "count",
+        "reverse",
+        "sum",
     }
 )
 
@@ -232,6 +294,7 @@ def _extract_jinja_refs(texts: list[str]) -> set[str]:
 
 _QUOTED_STRING_RE = re.compile(r"""(?:'[^']*'|"[^"]*")""")
 _DOTTED_ATTR_RE = re.compile(r"\.([a-zA-Z_][a-zA-Z0-9_]*)")
+_PIPE_FILTER_RE = re.compile(r"\|\s*([a-zA-Z_][a-zA-Z0-9_]*)")
 
 
 def _extract_bare_refs(texts: list[str]) -> set[str]:
@@ -241,8 +304,9 @@ def _extract_bare_refs(texts: list[str]) -> set[str]:
     implicitly Jinja — Ansible evaluates them as expressions without
     requiring ``{{ }}`` wrappers.
 
-    Strips quoted strings and dotted attribute names before extraction
-    so that ``'RedHat'`` and ``.rc`` are not treated as variables.
+    Strips quoted strings, dotted attribute names, and Jinja filter names
+    (identifiers following ``|``) before extraction so that ``'RedHat'``,
+    ``.rc``, and ``| to_datetime`` are not treated as variables.
 
     Args:
         texts: Bare expression strings.
@@ -254,8 +318,14 @@ def _extract_bare_refs(texts: list[str]) -> set[str]:
     for text in texts:
         stripped = _QUOTED_STRING_RE.sub("", text)
         dotted_attrs = {m.group(1) for m in _DOTTED_ATTR_RE.finditer(stripped)}
+        pipe_filters = {m.group(1) for m in _PIPE_FILTER_RE.finditer(stripped)}
         for ident in _BARE_IDENT_RE.findall(stripped):
-            if ident not in _JINJA_BUILTINS and ident not in dotted_attrs and not ident[0].isdigit():
+            if (
+                ident not in _JINJA_BUILTINS
+                and ident not in dotted_attrs
+                and ident not in pipe_filters
+                and not ident[0].isdigit()
+            ):
                 refs.add(ident)
     return refs
 

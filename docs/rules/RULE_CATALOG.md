@@ -55,7 +55,7 @@
 | L040 | Native | info | YAML should not contain tabs; use spaces. | Yes | Yes | Yes | — |
 | L041 | Native | low | Task keys should follow canonical order (e.g. name before module). | Yes | Yes | Yes | — |
 | L042 | Native | info | Play/block has high task count. | Yes | Yes | Yes | — |
-| L043 | Native | low | Avoid {{ foo }}; prefer explicit form. | Yes | Yes | Yes | Yes |
+| L043 | Native | low | Bare variable in with_* loop directive; use {{ var }}. | Yes | Yes | Yes | Yes |
 | L044 | Native | low | Set state explicitly where it matters. | Yes | Yes | Yes | — |
 | L045 | Native | low | Avoid inline environment in tasks. | Yes | Yes | Yes | — |
 | L046 | Native | low | Avoid raw/command/shell without args key. | Yes | Yes | Yes | Yes |
@@ -249,7 +249,7 @@
 | L040 | info | YAML should not contain tabs; use spaces. | Yes | Yes | Yes | — |
 | L041 | low | Task keys should follow canonical order (e.g. name before module). | Yes | Yes | Yes | — |
 | L042 | info | Play/block has high task count. | Yes | Yes | Yes | — |
-| L043 | low | Avoid {{ foo }}; prefer explicit form. | Yes | Yes | Yes | Yes |
+| L043 | low | Bare variable in with_* loop directive; use {{ var }}. | Yes | Yes | Yes | Yes |
 | L044 | low | Set state explicitly where it matters. | Yes | Yes | Yes | — |
 | L045 | low | Avoid inline environment in tasks. | Yes | Yes | Yes | — |
 | L046 | low | Avoid raw/command/shell without args key. | Yes | Yes | Yes | Yes |
@@ -427,7 +427,7 @@ Rules without fixers fall to Tier 2 (AI-proposable) or Tier 3 (manual review).
 | L022 | low | Shell with pipe should set set -o pipefail. |
 | L025 | low | Task/play name should start with uppercase. |
 | L026 | low | Tasks should use FQCN for modules. |
-| L043 | low | Avoid {{ foo }}; prefer explicit form. |
+| L043 | low | Bare variable in with_* loop directive; use {{ var }}. |
 | L046 | low | Avoid raw/command/shell without args key. |
 | M001 | high | FQCN resolution — module resolved to a different canonical name. |
 | M002 | high | Deprecated module — module has deprecation metadata. |

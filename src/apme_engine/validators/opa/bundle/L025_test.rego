@@ -23,3 +23,31 @@ test_L025_fires_when_play_name_lowercase if {
 	v := rules.name_casing(tree, node)
 	v.rule_id == "L025"
 }
+
+# Pipe-prefix convention: "filename | Description"
+# The filename portion is not checked — only the description after " | ".
+
+test_L025_no_fire_pipe_prefix_uppercase_description if {
+	tree := {"nodes": [{"type": "taskcall", "name": "handle_error | Show error and stop", "line": [1], "key": "k", "file": "f.yml"}]}
+	node := tree.nodes[0]
+	not rules.name_casing(tree, node)
+}
+
+test_L025_fires_pipe_prefix_lowercase_description if {
+	tree := {"nodes": [{"type": "taskcall", "name": "handle_error | show error and stop", "line": [1], "key": "k", "file": "f.yml"}]}
+	node := tree.nodes[0]
+	v := rules.name_casing(tree, node)
+	v.rule_id == "L025"
+}
+
+test_L025_no_fire_pipe_prefix_multiple_pipes if {
+	tree := {"nodes": [{"type": "taskcall", "name": "role | sub | Do the thing", "line": [1], "key": "k", "file": "f.yml"}]}
+	node := tree.nodes[0]
+	not rules.name_casing(tree, node)
+}
+
+test_L025_no_fire_play_pipe_prefix_uppercase if {
+	tree := {"nodes": [{"type": "playcall", "name": "setup | Configure hosts", "line": [1], "key": "k", "file": "f.yml"}]}
+	node := tree.nodes[0]
+	not rules.name_casing(tree, node)
+}
