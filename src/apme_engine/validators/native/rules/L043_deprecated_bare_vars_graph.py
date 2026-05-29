@@ -1,9 +1,19 @@
-"""GraphRule L043: detect deprecated bare variables (prefer explicit form).
+"""GraphRule L043: detect deprecated bare variables in loop directives.
 
-Graph-aware port of ``L043_deprecated_bare_vars.py``.
+A *bare variable* is a plain identifier used where Ansible historically
+allowed it without Jinja2 delimiters::
+
+    with_items: mylist          # bare — should be {{ mylist }}
+
+Using ``{{ var }}`` inside a string value (e.g. ``url: https://{{ host }}/``)
+is standard Jinja2 and is **not** a bare-variable violation.
+
+This rule only checks ``with_*`` directive values for bare identifiers
+that lack ``{{ }}`` wrapping.
 """
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import cast
 
@@ -14,70 +24,48 @@ from apme_engine.validators.native.rules.graph_rule_base import GraphRule, Graph
 
 _TASK_TYPES = frozenset({NodeType.TASK, NodeType.HANDLER})
 
-BARE_VAR_PATTERN = re.compile(r"\{\{\s*[\w.]+\s*\}\}")
+_BARE_VAR_RE = re.compile(r"^[a-zA-Z_]\w*(\.\w+)*$")
+
+_LOOP_KEYS = frozenset(
+    {
+        "with_items",
+        "with_list",
+        "with_dict",
+        "with_fileglob",
+        "with_subelements",
+        "with_sequence",
+        "with_nested",
+        "with_first_found",
+        "with_indexed_items",
+        "with_flattened",
+        "with_together",
+        "with_cartesian",
+        "with_random_choice",
+    }
+)
 
 
-def _find_bare_vars(text: str | None) -> list[str]:
-    """Find bare variable patterns (e.g. {{ var }}) in text.
+def _find_bare_loop_vars(options: Mapping[str, object]) -> list[tuple[str, str]]:
+    """Find ``with_*`` values that are bare variable names (no Jinja delimiters).
 
     Args:
-        text: Text to search for bare variables.
+        options: Task options dict (may contain ``with_items``, etc.).
 
     Returns:
-        List of matched bare variable strings.
+        List of ``(directive_key, bare_value)`` pairs.
     """
-    if not text or not isinstance(text, str):
-        return []
-    return BARE_VAR_PATTERN.findall(text)
-
-
-def _collect_strings_from_dict(d: object, out: list[str]) -> None:
-    """Recursively collect string values from dict into out list.
-
-    Args:
-        d: Dict or value to traverse.
-        out: List to append string values to.
-    """
-    if not isinstance(d, dict):
-        if isinstance(d, str):
-            out.append(d)
-        return
-    for v in d.values():
-        if isinstance(v, str):
-            out.append(v)
-        elif isinstance(v, dict):
-            _collect_strings_from_dict(v, out)
-        elif isinstance(v, list):
-            for item in v:
-                if isinstance(item, str):
-                    out.append(item)
-                elif isinstance(item, dict):
-                    _collect_strings_from_dict(item, out)
-
-
-def _sources_for_node(node: object) -> list[str]:
-    """Gather text sources from a task/handler node for bare-var scanning.
-
-    Args:
-        node: Content graph node (task or handler).
-
-    Returns:
-        List of string fragments to scan.
-    """
-    sources: list[str] = []
-    yaml_lines = getattr(node, "yaml_lines", "") or ""
-    if yaml_lines:
-        sources.append(yaml_lines)
-    options = getattr(node, "options", None) or {}
-    module_options = getattr(node, "module_options", None) or {}
-    _collect_strings_from_dict(options, sources)
-    _collect_strings_from_dict(module_options, sources)
-    return sources
+    bare: list[tuple[str, str]] = []
+    for key, val in options.items():
+        if key not in _LOOP_KEYS:
+            continue
+        if isinstance(val, str) and _BARE_VAR_RE.match(val.strip()):
+            bare.append((key, val.strip()))
+    return bare
 
 
 @dataclass
 class DeprecatedBareVarsGraphRule(GraphRule):
-    """Rule for deprecated bare variables (e.g. {{ foo }}); prefer explicit form.
+    """Detect bare variable names in ``with_*`` directives that need ``{{ }}`` wrapping.
 
     Attributes:
         rule_id: Rule identifier.
@@ -90,30 +78,31 @@ class DeprecatedBareVarsGraphRule(GraphRule):
     """
 
     rule_id: str = "L043"
-    description: str = "Deprecated bare variables (e.g. {{ foo }}); prefer explicit form"
+    description: str = "Deprecated bare variable in loop directive; use {{ var }}"
     enabled: bool = True
     name: str = "DeprecatedBareVars"
-    version: str = "v0.0.1"
+    version: str = "v0.0.2"
     severity: Severity = Severity.LOW
     tags: tuple[str, ...] = (Tag.VARIABLE,)
 
     def match(self, graph: ContentGraph, node_id: str) -> bool:
-        """Match task or handler nodes.
+        """Match task or handler nodes that use a ``with_*`` loop directive.
 
         Args:
             graph: The full ContentGraph.
             node_id: ID of the node to check.
 
         Returns:
-            True when the node is a task or handler.
+            True when the node is a task/handler with a ``with_*`` key in options.
         """
         node = graph.get_node(node_id)
-        if node is None:
+        if node is None or node.node_type not in _TASK_TYPES:
             return False
-        return node.node_type in _TASK_TYPES
+        opts = node.options or {}
+        return any(k in _LOOP_KEYS for k in opts)
 
     def process(self, graph: ContentGraph, node_id: str) -> GraphRuleResult | None:
-        """Check for deprecated bare variables and return result.
+        """Check ``with_*`` values for bare variable names missing ``{{ }}``.
 
         Args:
             graph: The full ContentGraph.
@@ -125,16 +114,19 @@ class DeprecatedBareVarsGraphRule(GraphRule):
         node = graph.get_node(node_id)
         if node is None:
             return None
-        bare_vars: list[str] = []
-        for s in _sources_for_node(node):
-            bare_vars.extend(_find_bare_vars(s))
-        bare_vars = list(dict.fromkeys(bare_vars))
-        verdict = len(bare_vars) > 0
-        detail: YAMLDict | None = None
-        if bare_vars:
-            detail = cast(YAMLDict, {"bare_vars": bare_vars})
+        bare = _find_bare_loop_vars(node.options or {})
+        if not bare:
+            return GraphRuleResult(
+                verdict=False,
+                node_id=node_id,
+                file=(node.file_path, node.line_start),
+            )
+        detail: YAMLDict = cast(
+            YAMLDict,
+            {"bare_vars": [f"{key}: {val}" for key, val in bare]},
+        )
         return GraphRuleResult(
-            verdict=verdict,
+            verdict=True,
             detail=detail,
             node_id=node_id,
             file=(node.file_path, node.line_start),

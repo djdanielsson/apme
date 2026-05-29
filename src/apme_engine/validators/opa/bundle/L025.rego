@@ -1,4 +1,8 @@
 # L025: Task/play name should start with uppercase letter
+#
+# Names following the "filename | Description" convention are checked on
+# the description portion only — the filename prefix is not required to
+# be uppercase.
 
 package apme.rules
 
@@ -11,10 +15,40 @@ violations contains v if {
 	v := name_casing(tree, node)
 }
 
+# Extract the meaningful portion of a name.
+# If the name contains " | " and the suffix is non-empty, use the suffix.
+# Otherwise fall back to the whole name so malformed names like "file | "
+# still evaluate deterministically instead of leaving the helper undefined.
+_name_subject(name) := subject if {
+	contains(name, " | ")
+	parts := split(name, " | ")
+	last := parts[count(parts) - 1]
+	last != ""
+	subject := last
+}
+
+_name_subject(name) := subject if {
+	not contains(name, " | ")
+	subject := name
+}
+
+_name_subject(name) := subject if {
+	contains(name, " | ")
+	parts := split(name, " | ")
+	last := parts[count(parts) - 1]
+	last == ""
+	subject := name
+}
+
+_effective_first(name) := first if {
+	subject := _name_subject(name)
+	first := substring(subject, 0, 1)
+}
+
 name_casing(tree, node) := v if {
 	node.type == "taskcall"
 	node.name != ""
-	first := substring(node.name, 0, 1)
+	first := _effective_first(node.name)
 	lower(first) == first
 	count(node.line) > 0
 	v := {
@@ -31,7 +65,7 @@ name_casing(tree, node) := v if {
 name_casing(tree, node) := v if {
 	node.type == "playcall"
 	node.name != ""
-	first := substring(node.name, 0, 1)
+	first := _effective_first(node.name)
 	lower(first) == first
 	count(node.line) > 0
 	v := {
