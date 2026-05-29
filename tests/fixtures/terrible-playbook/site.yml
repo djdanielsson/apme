@@ -195,10 +195,11 @@
         path: /tmp/installer.sh
         state: absent
 
-    # L043: deprecated bare vars
-    - name: Use bare variable
+    # L043: deprecated bare vars (bare name in with_items, should be {{ mylist }})
+    - name: Use bare variable in loop
       debug:
-        msg: "Port is $Server_Port"
+        msg: "{{ item }}"
+      with_items: mylist
 
     # community.general with argspec violations (P002/P003)
     - name: Manage INI file with wrong args
