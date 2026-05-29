@@ -143,12 +143,12 @@ _JINJA_BUILTINS: frozenset[str] = frozenset(
         "success",
         "failure",
         "unreachable",
-        # Ansible misc filters
+        # Ansible misc filters. Keep this list narrow: identifiers used after
+        # ``|`` are already excluded by ``_PIPE_FILTER_RE``, so common names
+        # like ``count`` or ``random`` should not be globally reserved here.
         "human_readable",
         "human_to_bytes",
-        "quote",
         "shuffle",
-        "random",
         "log",
         "pow",
         "root",
@@ -158,23 +158,7 @@ _JINJA_BUILTINS: frozenset[str] = frozenset(
         "checksum",
         "strftime",
         "wordcount",
-        "center",
-        "capitalize",
-        "title",
-        "truncate",
-        "indent",
-        "format",
-        "attr",
-        "batch",
-        "slice",
-        "tojson",
-        "safe",
-        "escape",
         "xmlattr",
-        "pprint",
-        "count",
-        "reverse",
-        "sum",
     }
 )
 

@@ -15,20 +15,34 @@ violations contains v if {
 	v := name_casing(tree, node)
 }
 
-# Extract the first character of the meaningful portion of a name.
-# If the name contains " | ", return the first char after the last " | ".
-# Otherwise return the first char of the whole name.
-_effective_first(name) := first if {
+# Extract the meaningful portion of a name.
+# If the name contains " | " and the suffix is non-empty, use the suffix.
+# Otherwise fall back to the whole name so malformed names like "file | "
+# still evaluate deterministically instead of leaving the helper undefined.
+_name_subject(name) := subject if {
 	contains(name, " | ")
 	parts := split(name, " | ")
 	last := parts[count(parts) - 1]
 	last != ""
-	first := substring(last, 0, 1)
+	subject := last
+}
+
+_name_subject(name) := subject if {
+	not contains(name, " | ")
+	subject := name
+}
+
+_name_subject(name) := subject if {
+	contains(name, " | ")
+	parts := split(name, " | ")
+	last := parts[count(parts) - 1]
+	last == ""
+	subject := name
 }
 
 _effective_first(name) := first if {
-	not contains(name, " | ")
-	first := substring(name, 0, 1)
+	subject := _name_subject(name)
+	first := substring(subject, 0, 1)
 }
 
 name_casing(tree, node) := v if {

@@ -51,3 +51,10 @@ test_L025_no_fire_play_pipe_prefix_uppercase if {
 	node := tree.nodes[0]
 	not rules.name_casing(tree, node)
 }
+
+test_L025_fires_trailing_pipe_by_falling_back_to_full_name if {
+	tree := {"nodes": [{"type": "taskcall", "name": "handle_error | ", "line": [1], "key": "k", "file": "f.yml"}]}
+	node := tree.nodes[0]
+	v := rules.name_casing(tree, node)
+	v.rule_id == "L025"
+}
