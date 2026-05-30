@@ -12,6 +12,7 @@ from apme_engine.engine.model_loader import (
     load_file,
     load_play,
     load_playbook,
+    load_playbooks,
     load_requirements,
     load_roleinplay,
     load_task,
@@ -642,3 +643,117 @@ class TestLoadCollection:
         coll = load_collection(str(col_root), basedir=str(tmp_path), load_children=False)
         assert coll.meta_runtime
         assert coll.meta_runtime.get("requires_ansible") == ">=2.14"
+
+
+class TestLoadPlaybooksNestedDirectories:
+    """Tests for load_playbooks with arbitrary subdirectory structures."""
+
+    def test_numbered_directories(self, tmp_path: Path) -> None:
+        """Playbooks in numbered directories are discovered.
+
+        Args:
+            tmp_path: Pytest temporary directory fixture.
+        """
+        # Create numbered directory structure
+        (tmp_path / "01_first").mkdir()
+        (tmp_path / "01_first" / "playbook.yml").write_text(SIMPLE_PLAYBOOK_YAML)
+        (tmp_path / "02_second").mkdir()
+        (tmp_path / "02_second" / "playbook.yml").write_text(SIMPLE_PLAYBOOK_YAML)
+
+        playbooks = load_playbooks(str(tmp_path), basedir=str(tmp_path), load_children=False)
+
+        assert len(playbooks) == 2
+        assert any("01_first" in str(p) for p in playbooks)
+        assert any("02_second" in str(p) for p in playbooks)
+
+    def test_deep_nesting(self, tmp_path: Path) -> None:
+        """Deeply nested playbooks are discovered.
+
+        Args:
+            tmp_path: Pytest temporary directory fixture.
+        """
+        deep_dir = tmp_path / "level1" / "level2" / "level3"
+        deep_dir.mkdir(parents=True)
+        (deep_dir / "playbook.yml").write_text(SIMPLE_PLAYBOOK_YAML)
+
+        playbooks = load_playbooks(str(tmp_path), basedir=str(tmp_path), load_children=False)
+
+        assert len(playbooks) == 1
+        assert "level1" in str(playbooks[0])
+        assert "level2" in str(playbooks[0])
+        assert "level3" in str(playbooks[0])
+
+    def test_no_duplicates_from_multiple_patterns(self, tmp_path: Path) -> None:
+        """Root-level playbooks aren't duplicated by recursive pattern.
+
+        Args:
+            tmp_path: Pytest temporary directory fixture.
+        """
+        (tmp_path / "site.yml").write_text(SIMPLE_PLAYBOOK_YAML)
+        (tmp_path / "playbooks").mkdir()
+        (tmp_path / "playbooks" / "deploy.yml").write_text(SIMPLE_PLAYBOOK_YAML)
+
+        playbooks = load_playbooks(str(tmp_path), basedir=str(tmp_path), load_children=False)
+
+        # Should find both, no duplicates
+        assert len(playbooks) == 2
+        playbook_paths = [str(p) for p in playbooks]
+        assert len(set(playbook_paths)) == 2  # All unique
+
+    def test_roles_still_excluded(self, tmp_path: Path) -> None:
+        """Playbooks inside roles/ are still excluded.
+
+        Args:
+            tmp_path: Pytest temporary directory fixture.
+        """
+        roles_dir = tmp_path / "roles" / "common" / "tasks"
+        roles_dir.mkdir(parents=True)
+        # Even if it looks like a playbook, it's in roles/ so should be excluded
+        (roles_dir / "main.yml").write_text(SIMPLE_PLAYBOOK_YAML)
+
+        playbooks = load_playbooks(str(tmp_path), basedir=str(tmp_path), load_children=False)
+
+        assert len(playbooks) == 0
+
+    def test_non_playbook_yaml_excluded(self, tmp_path: Path) -> None:
+        """YAML files that aren't playbooks are excluded.
+
+        Args:
+            tmp_path: Pytest temporary directory fixture.
+        """
+        (tmp_path / "config").mkdir()
+        # This is a vars file, not a playbook (no hosts/include/import_playbook)
+        (tmp_path / "config" / "settings.yml").write_text("---\nkey: value\n")
+
+        playbooks = load_playbooks(str(tmp_path), basedir=str(tmp_path), load_children=False)
+
+        assert len(playbooks) == 0
+
+    def test_mixed_structure(self, tmp_path: Path) -> None:
+        """Mixed standard and numbered directory structure works.
+
+        Args:
+            tmp_path: Pytest temporary directory fixture.
+        """
+        # Standard structure
+        (tmp_path / "site.yml").write_text(SIMPLE_PLAYBOOK_YAML)
+        (tmp_path / "playbooks").mkdir()
+        (tmp_path / "playbooks" / "deploy.yml").write_text(SIMPLE_PLAYBOOK_YAML)
+
+        # Numbered structure
+        (tmp_path / "01_setup").mkdir()
+        (tmp_path / "01_setup" / "setup.yml").write_text(SIMPLE_PLAYBOOK_YAML)
+
+        # Roles (should be excluded)
+        roles_dir = tmp_path / "roles" / "common" / "tasks"
+        roles_dir.mkdir(parents=True)
+        (roles_dir / "main.yml").write_text(SIMPLE_PLAYBOOK_YAML)
+
+        playbooks = load_playbooks(str(tmp_path), basedir=str(tmp_path), load_children=False)
+
+        assert len(playbooks) == 3
+        playbook_strs = [str(p) for p in playbooks]
+        assert any("site.yml" in p for p in playbook_strs)
+        assert any("playbooks" in p and "deploy.yml" in p for p in playbook_strs)
+        assert any("01_setup" in p and "setup.yml" in p for p in playbook_strs)
+        assert not any("roles" in p for p in playbook_strs)

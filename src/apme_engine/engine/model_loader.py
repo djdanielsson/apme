@@ -1095,6 +1095,8 @@ def load_playbooks(
     if include_test_contents:
         patterns.append(os.path.join(path, "tests/**/*.ya?ml"))
         patterns.append(os.path.join(path, "molecule/**/*.ya?ml"))
+    # Recursively search all subdirectories for playbooks (e.g., numbered directories)
+    patterns.append(os.path.join(path, "**/*.ya?ml"))
     glob_results = safe_glob(patterns, recursive=True)
     candidates_list: list[tuple[str, bool]] = [(c, False) for c in glob_results]
 
