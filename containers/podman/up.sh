@@ -146,7 +146,11 @@ yaml = yaml.replace(
     '        - name: SSL_CERT_FILE\n'
     '          value: ' + mount_yaml + '\n'
     '        - name: REQUESTS_CA_BUNDLE\n'
-    '          value: ' + mount_yaml)
+    '          value: ' + mount_yaml + '\n'
+    '        - name: CURL_CA_BUNDLE\n'
+    '          value: ' + mount_yaml + '\n'
+    '        - name: GIT_SSL_CAINFO\n'
+    '          value: ' + mount_yaml
 # Galaxy Proxy: add CA volume mount
 yaml = yaml.replace(
     galaxy_vol_marker,
