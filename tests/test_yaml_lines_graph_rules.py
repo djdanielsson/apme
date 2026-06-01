@@ -532,8 +532,8 @@ class TestL043DeprecatedBareVarsGraphRule:
         """
         return DeprecatedBareVarsGraphRule()
 
-    def test_violation_bare_jinja_var(self, rule: DeprecatedBareVarsGraphRule) -> None:
-        """Violation for bare ``{{ var }}`` without a filter.
+    def test_violation_bare_with_items(self, rule: DeprecatedBareVarsGraphRule) -> None:
+        """Violation when ``with_items`` has a bare variable name.
 
         Args:
             rule: Rule instance under test.
@@ -541,16 +541,16 @@ class TestL043DeprecatedBareVarsGraphRule:
         Returns:
             None
         """
-        g, tid = _make_task(yaml_lines='msg: "{{ myvar }}"\n')
+        g, tid = _make_task(options={"with_items": "mylist"})
         result = rule.process(g, tid)
         assert result is not None
         assert result.verdict is True
         assert result.detail is not None
         bare_vars = cast(list[str], result.detail.get("bare_vars") or [])
-        assert "{{ myvar }}" in bare_vars
+        assert any("mylist" in bv for bv in bare_vars)
 
-    def test_pass_jinja_with_filter(self, rule: DeprecatedBareVarsGraphRule) -> None:
-        """Pass when Jinja uses a filter (non-bare form).
+    def test_pass_with_items_jinja_wrapped(self, rule: DeprecatedBareVarsGraphRule) -> None:
+        """Pass when ``with_items`` uses ``{{ var }}``.
 
         Args:
             rule: Rule instance under test.
@@ -558,10 +558,52 @@ class TestL043DeprecatedBareVarsGraphRule:
         Returns:
             None
         """
-        g, tid = _make_task(yaml_lines="msg: \"{{ myvar | default('x') }}\"\n")
+        g, tid = _make_task(options={"with_items": "{{ mylist }}"})
         result = rule.process(g, tid)
         assert result is not None
         assert result.verdict is False
+
+    def test_pass_normal_jinja_in_string(self, rule: DeprecatedBareVarsGraphRule) -> None:
+        """Pass for standard ``{{ var }}`` usage in module args — not a bare variable.
+
+        Args:
+            rule: Rule instance under test.
+
+        Returns:
+            None
+        """
+        g, tid = _make_task(
+            yaml_lines='msg: "{{ myvar }}"\n',
+            module_options={"msg": "{{ myvar }}"},
+        )
+        result = rule.process(g, tid)
+        assert result is None or result.verdict is False
+
+    def test_pass_no_loop_directive(self, rule: DeprecatedBareVarsGraphRule) -> None:
+        """Pass when task has no ``with_*`` directive at all.
+
+        Args:
+            rule: Rule instance under test.
+
+        Returns:
+            None
+        """
+        g, tid = _make_task(options={"when": "some_condition"})
+        assert rule.match(g, tid) is False
+
+    def test_violation_bare_with_dict(self, rule: DeprecatedBareVarsGraphRule) -> None:
+        """Violation when ``with_dict`` has a bare variable name.
+
+        Args:
+            rule: Rule instance under test.
+
+        Returns:
+            None
+        """
+        g, tid = _make_task(options={"with_dict": "my_mapping"})
+        result = rule.process(g, tid)
+        assert result is not None
+        assert result.verdict is True
 
 
 # ---------------------------------------------------------------------------
@@ -924,7 +966,7 @@ class TestM014TopLevelFactVariablesGraphRule:
         return TopLevelFactVariablesGraphRule()
 
     def test_violation_deprecated_ansible_fact_var(self, rule: TopLevelFactVariablesGraphRule) -> None:
-        """Violation for ``ansible_*`` fact names removed in 2.24 (not magic vars).
+        """Violation for known deprecated setup-module facts (e.g. ``ansible_distribution``).
 
         Args:
             rule: Rule instance under test.
@@ -932,13 +974,13 @@ class TestM014TopLevelFactVariablesGraphRule:
         Returns:
             None
         """
-        g, tid = _make_task(yaml_lines="msg: {{ ansible_eth0 }}\n")
+        g, tid = _make_task(yaml_lines="msg: {{ ansible_distribution }}\n")
         result = rule.process(g, tid)
         assert result is not None
         assert result.verdict is True
         assert result.detail is not None
         m014_facts = cast(list[str], result.detail.get("found_facts") or [])
-        assert "ansible_eth0" in m014_facts
+        assert "ansible_distribution" in m014_facts
 
     def test_pass_magic_ansible_var_allowed(self, rule: TopLevelFactVariablesGraphRule) -> None:
         """Pass when only allowed magic ``ansible_*`` variables appear.
@@ -950,6 +992,20 @@ class TestM014TopLevelFactVariablesGraphRule:
             None
         """
         g, tid = _make_task(yaml_lines="msg: {{ ansible_play_name }}\n")
+        result = rule.process(g, tid)
+        assert result is not None
+        assert result.verdict is False
+
+    def test_pass_user_defined_ansible_prefix(self, rule: TopLevelFactVariablesGraphRule) -> None:
+        """Pass for user-defined variables that happen to start with ``ansible_``.
+
+        Args:
+            rule: Rule instance under test.
+
+        Returns:
+            None
+        """
+        g, tid = _make_task(yaml_lines="msg: {{ ansible_controller_collection_installed }}\n")
         result = rule.process(g, tid)
         assert result is not None
         assert result.verdict is False

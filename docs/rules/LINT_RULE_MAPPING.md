@@ -72,7 +72,7 @@ L002 was removed — its FQCN check (syntactic dot-count) is superseded by **M00
 | L040 | L040_no_tabs.py | No tabs in YAML |
 | L041 | L041_key_order.py | Key ordering (e.g. name before module) |
 | L042 | L042_complexity.py | Play/block task count (complexity) |
-| L043 | L043_deprecated_bare_vars.py | Deprecated bare variables {{ foo }} |
+| L043 | L043_deprecated_bare_vars.py | Bare variable in with_* loop directive; use {{ var }} |
 | L044 | L044_avoid_implicit.py | Avoid implicit state (set state explicitly) |
 | L045 | L045_inline_env_var.py | Avoid inline environment in tasks |
 | L046 | L046_no_free_form.py | Avoid raw/command/shell without args key |
