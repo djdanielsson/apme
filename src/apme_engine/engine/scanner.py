@@ -391,15 +391,10 @@ class AnsibleProjectLoader:
             self.register_findings_to_ram(findings)
             self.register_indices_to_ram(findings, include_test_contents)
 
-        if scandata.out_dir is not None and scandata.out_dir != "" and findings is not None:
-            self.save_rule_result(findings, scandata.out_dir)
+        if scandata.out_dir is not None and scandata.out_dir != "" and findings is not None and objects:
+            self.save_definitions(cast(dict[str, object], scandata.root_definitions), scandata.out_dir)
             if not self.silent:
-                print(f"The rule result is saved at {scandata.out_dir}")
-
-            if objects:
-                self.save_definitions(cast(dict[str, object], scandata.root_definitions), scandata.out_dir)
-                if not self.silent:
-                    print(f"The objects is saved at {scandata.out_dir}")
+                print(f"Object definitions saved to {scandata.out_dir}")
 
         if not self.silent and findings is not None:
             summary = summarize_findings(findings, self.show_all)
@@ -495,18 +490,6 @@ class AnsibleProjectLoader:
         """
         if self.ram_client is not None:
             self.ram_client.save_findings(findings, out_dir)
-
-    def save_rule_result(self, findings: Findings, out_dir: str) -> None:
-        """Save rule result JSON to out_dir.
-
-        Args:
-            findings: Findings containing rule results.
-            out_dir: Output directory path.
-
-        """
-        from .result_writer import save_rule_result
-
-        save_rule_result(findings, out_dir)
 
     def save_definitions(self, definitions: dict[str, object], out_dir: str) -> None:
         """Save definition objects to objects.json in out_dir.

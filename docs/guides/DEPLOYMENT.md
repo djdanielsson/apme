@@ -56,7 +56,7 @@ When the pod needs to trust an internal or self-signed CA for outbound HTTPS, se
 ABBENAY_CA_BUNDLE=/path/to/ca-bundle.pem
 ```
 
-The start script (`up.sh`) automatically mounts the bundle into the `abbenay` and `gateway` containers. It sets `NODE_EXTRA_CA_CERTS` for Abbenay and the standard git/HTTP CA variables (`SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, `GIT_SSL_CAINFO`) for the gateway so repo cloning and API calls trust the same bundle. This is only needed when your network uses non-public CAs.
+The start script (`up.sh`) automatically mounts the bundle into the `abbenay`, `gateway`, and `galaxy-proxy` containers. It sets `NODE_EXTRA_CA_CERTS` for Abbenay and the standard git/HTTP CA variables (`SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, `GIT_SSL_CAINFO`) for the gateway and Galaxy Proxy so repo cloning, Galaxy downloads, and API calls trust the same bundle. This is only needed when your network uses non-public CAs.
 
 ### Start the pod
 
@@ -177,14 +177,14 @@ The OPA binary runs internally on `localhost:8181`; the gRPC wrapper proxies to 
 | `APME_ABBENAY_TOKEN` | `apme-dev-token` | Consumer token (must match `config.yaml` consumers section) |
 | `NODE_EXTRA_CA_CERTS` | — | CA bundle path inside container (auto-set by `up.sh` when `ABBENAY_CA_BUNDLE` is configured) |
 
-#### Gateway outbound trust
+#### Gateway and Galaxy Proxy outbound trust
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `SSL_CERT_FILE` | — | CA bundle path inside the gateway container (auto-set by `up.sh` when `ABBENAY_CA_BUNDLE` is configured) |
-| `REQUESTS_CA_BUNDLE` | — | Shared CA bundle for Python HTTP clients in the gateway |
-| `CURL_CA_BUNDLE` | — | Shared CA bundle for curl/libcurl consumers |
-| `GIT_SSL_CAINFO` | — | Shared CA bundle for `git ls-remote` and `git clone` in project operations |
+| `SSL_CERT_FILE` | — | CA bundle path inside the gateway and galaxy-proxy containers (auto-set by `up.sh` when `ABBENAY_CA_BUNDLE` is configured) |
+| `REQUESTS_CA_BUNDLE` | — | Shared CA bundle for Python HTTP clients in the gateway and Galaxy Proxy |
+| `CURL_CA_BUNDLE` | — | Shared CA bundle for curl/libcurl consumers in the gateway and Galaxy Proxy |
+| `GIT_SSL_CAINFO` | — | Shared CA bundle for `git ls-remote`, `git clone`, and `ansible-galaxy` git fetches |
 
 Abbenay uses `containers/abbenay/config.yaml` volume-mounted at runtime. The config defines LLM providers and models. API keys are injected from environment variables — never committed to the config file. To add providers or models, edit the `providers` section of the config.
 
