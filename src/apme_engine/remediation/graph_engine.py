@@ -586,8 +586,7 @@ class GraphRemediationEngine:
                 continue
 
             proposed_node_ids.add(node_id)
-            node.update_from_yaml(fix.fixed_snippet)
-            graph._dirty_nodes.add(node_id)  # noqa: SLF001
+            graph.apply_yaml(node_id, fix.fixed_snippet)
             node.record_state(pass_num, "transformed", source="ai")
 
             proposals.append(

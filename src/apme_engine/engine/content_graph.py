@@ -730,6 +730,32 @@ class ContentGraph:
         """Reset the dirty-node set (called after a convergence pass)."""
         self._dirty_nodes.clear()
 
+    def apply_yaml(self, node_id: str, yaml_content: str) -> bool:
+        """Replace a node's YAML content and mark it dirty.
+
+        This is the public API for callers that already hold
+        fully-formed YAML (e.g. AI-generated fixes).  It applies
+        indentation correction consistent with ``apply_transform``.
+
+        Args:
+            node_id: Graph node identifier.
+            yaml_content: New YAML text for the node.
+
+        Returns:
+            True if the node was found and updated.
+        """
+        node = self.get_node(node_id)
+        if node is None:
+            return False
+
+        text = yaml_content
+        if node.indent_depth and _detect_indent(text) != node.indent_depth:
+            text = _reindent(text, node.indent_depth)
+
+        node.update_from_yaml(text)
+        self._dirty_nodes.add(node_id)
+        return True
+
     def collect_violations(self) -> list[ViolationDict]:
         """Collect all remaining (open) violations from the graph.
 
