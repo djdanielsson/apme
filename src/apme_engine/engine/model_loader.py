@@ -21,7 +21,7 @@ except Exception:
 import contextlib
 
 from . import logger
-from .awx_utils import could_be_playbook
+from .awx_utils import could_be_playbook, search_playbooks
 from .finder import (
     could_be_playbook_detail,
     could_be_taskfile,
@@ -1088,15 +1088,24 @@ def load_playbooks(
     """
     if path == "":
         return []
-    patterns = [
-        os.path.join(path, "*.ya?ml"),
-        os.path.join(path, "playbooks/**/*.ya?ml"),
-    ]
+
+    # Use AWX's recursive search_playbooks() for consistent directory filtering.
+    # This skips roles/, tasks/, molecule/, tests/integration/, group_vars/, host_vars/,
+    # and dot-prefixed directories while recursively discovering playbooks in
+    # arbitrary subdirectories (e.g., numbered directories like 01_*, 02_*).
+    candidates = search_playbooks(path)
+
+    # Optionally include test content (molecule/ and tests/ are excluded by default)
     if include_test_contents:
-        patterns.append(os.path.join(path, "tests/**/*.ya?ml"))
-        patterns.append(os.path.join(path, "molecule/**/*.ya?ml"))
-    glob_results = safe_glob(patterns, recursive=True)
-    candidates_list: list[tuple[str, bool]] = [(c, False) for c in glob_results]
+        test_patterns = [
+            os.path.join(path, "tests/**/*.ya?ml"),
+            os.path.join(path, "molecule/**/*.ya?ml"),
+        ]
+        test_results = safe_glob(test_patterns, recursive=True)
+        # Merge and deduplicate
+        candidates = list(set(candidates + test_results))
+
+    candidates_list: list[tuple[str, bool]] = [(c, False) for c in candidates]
 
     # add files if yaml_label_list is given
     if yaml_label_list:

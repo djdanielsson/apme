@@ -57,6 +57,9 @@ apme-cache/
 # Generated artifacts
 graph.html
 
+# Local Claude/Cursor settings
+.claude/settings.local.json
+
 # OS
 .DS_Store
 Thumbs.db
