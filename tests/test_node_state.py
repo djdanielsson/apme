@@ -1194,7 +1194,7 @@ class TestApplyYaml:
 
         result = graph.apply_yaml(node.node_id, "- name: test\n")
         assert result is False
-        assert node.node_id not in graph._dirty_nodes
+        assert node.node_id not in graph.dirty_nodes
 
     def test_content_change_returns_true(self) -> None:
         """apply_yaml returns True and marks dirty when content changes."""
@@ -1205,7 +1205,7 @@ class TestApplyYaml:
 
         result = graph.apply_yaml(node.node_id, "- name: new\n")
         assert result is True
-        assert node.node_id in graph._dirty_nodes
+        assert node.node_id in graph.dirty_nodes
         assert "new" in node.yaml_lines
 
     def test_indent_correction_at_zero(self) -> None:
