@@ -249,8 +249,11 @@ on PyPI, and the transitive deps (standard Python packages) resolve correctly
 from PyPI.
 
 If your environment has stricter dependency policies (e.g. air-gapped or
-internal registries), you can override the strategy by setting the
-`UV_INDEX_STRATEGY` environment variable in the Primary container.
+internal registries), note that the `UV_INDEX_STRATEGY` environment variable
+**will not** override this setting because the CLI flag takes precedence.
+To change the strategy, set the `APME_UV_INDEX_STRATEGY` environment variable
+in the Primary container — the venv manager reads this at runtime and passes
+it as the `--index-strategy` argument to `uv pip install`.
 
 ## Local development (daemon mode)
 

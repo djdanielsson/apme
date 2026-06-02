@@ -187,7 +187,7 @@ def _run_pip_install(
             "--extra-index-url",
             simple_url,
             "--index-strategy",
-            "unsafe-best-match",
+            os.environ.get("APME_UV_INDEX_STRATEGY", "unsafe-best-match"),
         ]
         if exclude_file is not None:
             cmd.extend(["--excludes", str(exclude_file)])
