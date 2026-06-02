@@ -18,13 +18,17 @@ log_level_map = {
 def set_logger_channel(channel: str = "") -> None:
     """Configure the module logger with a channel name and stdout handler.
 
+    Idempotent: subsequent calls reuse the existing handler rather than
+    adding duplicates.
+
     Args:
         channel: Logger name (e.g. module path). Empty for root logger.
     """
     global _logger
+    if _logger is not None:
+        return
     _logger = logging.getLogger(channel)
     handler = logging.StreamHandler(sys.stdout)
-    # default formatter
     formatter = logging.Formatter("%(levelname)s:%(name)s:%(message)s")
     handler.setFormatter(formatter)
     _logger.addHandler(handler)
