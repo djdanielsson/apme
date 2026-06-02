@@ -381,15 +381,17 @@ def _sort_key(rule: Rule) -> tuple[str, int]:
 
 
 def _escape_md_cell(text: str) -> str:
-    r"""Escape pipe characters for use inside markdown table cells.
+    r"""Escape unescaped pipe characters for use inside markdown table cells.
+
+    Idempotent: already-escaped pipes (``\|``) are left unchanged.
 
     Args:
         text: Raw cell text.
 
     Returns:
-        Text with ``|`` escaped as ``\|``.
+        Text with unescaped ``|`` escaped as ``\|``.
     """
-    return text.replace("|", "\\|")
+    return re.sub(r"(?<!\\)\|", r"\\|", text)
 
 
 def _status_icon(ok: bool) -> str:
