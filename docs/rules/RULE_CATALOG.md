@@ -103,7 +103,7 @@
 | L088 | Native | low | Collection README should document supported ansible-core versions. | Yes | Yes | Yes | — |
 | L089 | Native | low | Plugin Python files should include type hints. | Yes | Yes | Yes | — |
 | L090 | Native | low | Plugin entry files should be small; move helpers to module_utils. | Yes | Yes | Yes | — |
-| L091 | Native | low | Use | bool for bare variables in when conditions. | Yes | — | Yes | — |
+| L091 | Native | low | Use \| bool for bare variables in when conditions. | Yes | — | Yes | — |
 | L092 | Native | low | Avoid loop variable references in task names. | Yes | — | Yes | — |
 | L093 | Native | low | Do not override role defaults/vars with set_fact. | Yes | — | Yes | — |
 | L094 | Native | low | Do not put dynamic dates in templates; breaks change detection. | Yes | — | Yes | — |
@@ -282,7 +282,7 @@
 | L088 | low | Collection README should document supported ansible-core versions. | Yes | Yes | Yes | — |
 | L089 | low | Plugin Python files should include type hints. | Yes | Yes | Yes | — |
 | L090 | low | Plugin entry files should be small; move helpers to module_utils. | Yes | Yes | Yes | — |
-| L091 | low | Use | bool for bare variables in when conditions. | Yes | — | Yes | — |
+| L091 | low | Use \| bool for bare variables in when conditions. | Yes | — | Yes | — |
 | L092 | low | Avoid loop variable references in task names. | Yes | — | Yes | — |
 | L093 | low | Do not override role defaults/vars with set_fact. | Yes | — | Yes | — |
 | L094 | low | Do not put dynamic dates in templates; breaks change detection. | Yes | — | Yes | — |
