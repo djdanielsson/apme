@@ -1175,3 +1175,57 @@ class TestIndentPreservation:
 
         restored = _node_from_dict(d)
         assert restored.indent_depth == 4
+
+
+class TestApplyYaml:
+    """Tests for ContentGraph.apply_yaml public API."""
+
+    def test_nonexistent_node_returns_false(self) -> None:
+        """apply_yaml returns False for a node that doesn't exist."""
+        graph = ContentGraph()
+        assert graph.apply_yaml("no-such-node", "- name: test\n") is False
+
+    def test_noop_returns_false(self) -> None:
+        """apply_yaml returns False when content is identical (no dirty mark)."""
+        graph = ContentGraph()
+        node = _make_task(yaml_lines="- name: test\n")
+        node.indent_depth = 0
+        graph.add_node(node)
+
+        result = graph.apply_yaml(node.node_id, "- name: test\n")
+        assert result is False
+        assert node.node_id not in graph.dirty_nodes
+
+    def test_content_change_returns_true(self) -> None:
+        """apply_yaml returns True and marks dirty when content changes."""
+        graph = ContentGraph()
+        node = _make_task(yaml_lines="- name: old\n")
+        node.indent_depth = 0
+        graph.add_node(node)
+
+        result = graph.apply_yaml(node.node_id, "- name: new\n")
+        assert result is True
+        assert node.node_id in graph.dirty_nodes
+        assert "new" in node.yaml_lines
+
+    def test_indent_correction_at_zero(self) -> None:
+        """apply_yaml corrects indentation even when indent_depth is 0."""
+        graph = ContentGraph()
+        node = _make_task(yaml_lines="- name: test\n")
+        node.indent_depth = 0
+        graph.add_node(node)
+
+        result = graph.apply_yaml(node.node_id, "  - name: changed\n")
+        assert result is True
+        assert _detect_indent(node.yaml_lines) == 0
+
+    def test_indent_correction_at_depth(self) -> None:
+        """apply_yaml reindents to match node's indent_depth."""
+        graph = ContentGraph()
+        node = _make_task(yaml_lines="    - name: test\n")
+        node.indent_depth = 4
+        graph.add_node(node)
+
+        result = graph.apply_yaml(node.node_id, "- name: changed\n")
+        assert result is True
+        assert _detect_indent(node.yaml_lines) == 4

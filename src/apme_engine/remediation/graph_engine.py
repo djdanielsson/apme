@@ -585,9 +585,11 @@ class GraphRemediationEngine:
             if node is None:
                 continue
 
+            applied = graph.apply_yaml(node_id, fix.fixed_snippet)
+            if not applied:
+                logger.debug("AI apply_yaml was a no-op for node %s", node_id)
+                continue
             proposed_node_ids.add(node_id)
-            node.update_from_yaml(fix.fixed_snippet)
-            graph._dirty_nodes.add(node_id)  # noqa: SLF001
             node.record_state(pass_num, "transformed", source="ai")
 
             proposals.append(
@@ -595,7 +597,7 @@ class GraphRemediationEngine:
                     node_id=node_id,
                     file_path=node.file_path,
                     before_yaml=before_yaml,
-                    after_yaml=fix.fixed_snippet,
+                    after_yaml=node.yaml_lines,
                     rule_ids=fix.rule_ids,
                     explanation=fix.explanation,
                     confidence=fix.confidence,
