@@ -230,8 +230,8 @@ The Ansible validator requires a `venv_path` from the Primary orchestrator. If n
 ### Galaxy Proxy index strategy (`unsafe-best-match`)
 
 When the venv manager installs collections into session-scoped venvs via
-`uv pip install`, it uses `--index-strategy unsafe-best-match`.  This is a
-deliberate trade-off:
+`uv pip install`, it defaults to `--index-strategy unsafe-best-match`.  This is
+a deliberate trade-off:
 
 - Galaxy Proxy serves collection tarballs as Python wheels under
   collection-namespaced package names (e.g.

@@ -1,6 +1,7 @@
 """Tests for session-scoped venv manager (multi-version layout)."""
 
 import json
+import os
 import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -569,6 +570,68 @@ class TestProtoRoundTrip:
 
         opts = FixOptions(session_id="ci-job-42", ansible_core_version="2.17.0")
         assert opts.session_id == "ci-job-42"
+
+
+class TestRunPipInstallIndexStrategy:
+    """Tests for APME_UV_INDEX_STRATEGY env var override in _run_pip_install."""
+
+    def test_default_strategy(self) -> None:
+        """Default index strategy is unsafe-best-match when env var is unset."""
+        from apme_engine.venv_manager.session import _run_pip_install
+
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = ""
+        mock_result.stderr = ""
+
+        with (
+            patch.dict(os.environ, {}, clear=False),
+            patch("apme_engine.venv_manager.session.subprocess.run", return_value=mock_result) as mock_run,
+        ):
+            os.environ.pop("APME_UV_INDEX_STRATEGY", None)
+            _run_pip_install(Path("/venv/bin/python"), ["pkg"], "http://proxy", use_uv=True)
+
+        cmd = mock_run.call_args[0][0]
+        idx = cmd.index("--index-strategy")
+        assert cmd[idx + 1] == "unsafe-best-match"
+
+    def test_custom_strategy(self) -> None:
+        """APME_UV_INDEX_STRATEGY overrides the default strategy."""
+        from apme_engine.venv_manager.session import _run_pip_install
+
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = ""
+        mock_result.stderr = ""
+
+        with (
+            patch.dict(os.environ, {"APME_UV_INDEX_STRATEGY": "first-match"}),
+            patch("apme_engine.venv_manager.session.subprocess.run", return_value=mock_result) as mock_run,
+        ):
+            _run_pip_install(Path("/venv/bin/python"), ["pkg"], "http://proxy", use_uv=True)
+
+        cmd = mock_run.call_args[0][0]
+        idx = cmd.index("--index-strategy")
+        assert cmd[idx + 1] == "first-match"
+
+    def test_empty_env_var_falls_back_to_default(self) -> None:
+        """Empty or whitespace-only APME_UV_INDEX_STRATEGY falls back to default."""
+        from apme_engine.venv_manager.session import _run_pip_install
+
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = ""
+        mock_result.stderr = ""
+
+        with (
+            patch.dict(os.environ, {"APME_UV_INDEX_STRATEGY": "  "}),
+            patch("apme_engine.venv_manager.session.subprocess.run", return_value=mock_result) as mock_run,
+        ):
+            _run_pip_install(Path("/venv/bin/python"), ["pkg"], "http://proxy", use_uv=True)
+
+        cmd = mock_run.call_args[0][0]
+        idx = cmd.index("--index-strategy")
+        assert cmd[idx + 1] == "unsafe-best-match"
 
 
 class TestListInstalledPackages:
