@@ -26,9 +26,6 @@ from .utils import (
     summarize_findings,
 )
 
-logger.set_logger_channel("apme.loader")
-logger.set_log_level("info")
-
 
 @dataclass
 class AnsibleProjectLoader:
@@ -80,7 +77,9 @@ class AnsibleProjectLoader:
     _current: SingleScan | None = None
 
     def __post_init__(self) -> None:
-        """Initialize RAM client and parser."""
+        """Initialize RAM client, parser, and logger."""
+        logger.set_logger_channel("apme.loader")
+        logger.set_log_level("info")
         if not self.root_dir:
             self.root_dir = os.path.expanduser("~/.apme-data")
         if not self.ram_client:
