@@ -78,9 +78,7 @@ class AnsibleProjectLoader:
 
     def __post_init__(self) -> None:
         """Initialize RAM client, parser, and logger."""
-        from . import logger as _logger_mod
-
-        needs_level = _logger_mod._logger is None
+        needs_level = not logger.is_configured()
         logger.set_logger_channel("apme.loader")
         if needs_level:
             logger.set_log_level("info")

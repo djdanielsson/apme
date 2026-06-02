@@ -34,6 +34,15 @@ def set_logger_channel(channel: str = "") -> None:
     _logger.addHandler(handler)
 
 
+def is_configured() -> bool:
+    """Return whether the module logger has been initialized.
+
+    Returns:
+        True if the logger has been set up via set_logger_channel().
+    """
+    return _logger is not None
+
+
 def set_log_level(level_str: str = "info") -> None:
     """Set the log level for the module logger.
 
