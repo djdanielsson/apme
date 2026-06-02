@@ -227,6 +227,31 @@ Collections are installed into the venv's `site-packages/ansible_collections/` d
 
 The Ansible validator requires a `venv_path` from the Primary orchestrator. If none is provided (e.g., standalone testing without Primary), the validator returns an infrastructure error and skips validation.
 
+### Galaxy Proxy index strategy (`unsafe-best-match`)
+
+When the venv manager installs collections into session-scoped venvs via
+`uv pip install`, it uses `--index-strategy unsafe-best-match`.  This is a
+deliberate trade-off:
+
+- Galaxy Proxy serves collection tarballs as Python wheels under
+  collection-namespaced package names (e.g.
+  `ansible-collection-community-vmware`).  These names do not exist on PyPI,
+  so dependency-confusion risk is low in practice.
+- The alternative strategy (`first-match`) causes transitive dependencies to
+  fail resolution when they exist only on PyPI but not on the Galaxy Proxy
+  index.
+
+**Risk assessment:** Because the Galaxy Proxy acts as a `--extra-index-url`
+alongside PyPI, `unsafe-best-match` picks the highest version across both
+indexes.  In theory an attacker who registered matching package names on PyPI
+could hijack resolution.  In practice the collection-namespaced names are not
+on PyPI, and the transitive deps (standard Python packages) resolve correctly
+from PyPI.
+
+If your environment has stricter dependency policies (e.g. air-gapped or
+internal registries), you can override the strategy by setting the
+`UV_INDEX_STRATEGY` environment variable in the Primary container.
+
 ## Local development (daemon mode)
 
 For development and testing without the Podman pod, the CLI can start a
