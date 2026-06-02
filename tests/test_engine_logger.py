@@ -35,3 +35,25 @@ def test_set_logger_channel_idempotent() -> None:
     result = logger_mod.set_logger_channel("test.idempotent")
     assert result is False
     assert len(stdlib_logger.handlers) == handler_count
+
+
+def test_preconfigured_logger_preserved() -> None:
+    """When the stdlib logger already has handlers, set_logger_channel is a no-op."""
+    import apme_engine.engine.logger as logger_mod
+
+    importlib.reload(logger_mod)
+
+    channel = "test.preconfigured"
+    stdlib_logger = logging.getLogger(channel)
+    existing_handler = logging.StreamHandler(sys.stderr)
+    stdlib_logger.addHandler(existing_handler)
+    stdlib_logger.setLevel(logging.DEBUG)
+
+    try:
+        result = logger_mod.set_logger_channel(channel)
+        assert result is False
+        assert len(stdlib_logger.handlers) == 1
+        assert stdlib_logger.handlers[0] is existing_handler
+        assert stdlib_logger.level == logging.DEBUG
+    finally:
+        stdlib_logger.removeHandler(existing_handler)

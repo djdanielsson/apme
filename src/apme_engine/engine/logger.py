@@ -35,12 +35,13 @@ def set_logger_channel(channel: str = "") -> bool:
     if _logger is not None:
         return False
     _logger = logging.getLogger(channel)
-    if not _logger.handlers:
-        handler = logging.StreamHandler(sys.stdout)
-        formatter = logging.Formatter("%(levelname)s:%(name)s:%(message)s")
-        handler.setFormatter(formatter)
-        _logger.addHandler(handler)
-        _logger.propagate = False
+    if _logger.handlers:
+        return False
+    handler = logging.StreamHandler(sys.stdout)
+    formatter = logging.Formatter("%(levelname)s:%(name)s:%(message)s")
+    handler.setFormatter(formatter)
+    _logger.addHandler(handler)
+    _logger.propagate = False
     return True
 
 
