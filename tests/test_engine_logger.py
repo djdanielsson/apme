@@ -3,19 +3,22 @@
 from __future__ import annotations
 
 import importlib
+import sys
 
 
 def test_no_import_time_logger_setup() -> None:
     """Importing scanner does not configure the module logger."""
     import apme_engine.engine.logger as logger_mod
 
-    # Reset logger state then reload scanner to simulate a fresh import
+    # Reset logger state to simulate a clean slate
     importlib.reload(logger_mod)
     assert logger_mod._logger is None
 
+    # Evict scanner so the next import re-executes its module-level code
+    sys.modules.pop("apme_engine.engine.scanner", None)
     import apme_engine.engine.scanner  # noqa: F401
 
-    importlib.reload(logger_mod)
+    # Check _logger *without* reloading logger_mod — reload would reset it
     assert logger_mod._logger is None
 
 
