@@ -126,6 +126,31 @@ class TestProjectPage:
         assert resp.status_code == 200
         assert "<a href" not in resp.text
 
+    def test_empty_versions_cached_throttles_galaxy_calls(self, tmp_path: Path) -> None:
+        """Empty version list (negative result) is cached and prevents repeated Galaxy calls.
+
+        Args:
+            tmp_path: Pytest-provided temporary directory.
+        """
+        cache_dir = tmp_path / "cache"
+        application = create_app(cache_dir=cache_dir, enable_passthrough=False, metadata_ttl=600.0)
+
+        mock_download = AsyncMock(side_effect=RuntimeError("Galaxy unreachable"))
+        mock_versions = AsyncMock(return_value=[])
+
+        with (
+            TestClient(application) as client,
+            patch("galaxy_proxy.proxy.server.download_collections", mock_download),
+            patch("galaxy_proxy.proxy.server._fetch_galaxy_versions", mock_versions),
+        ):
+            resp1 = client.get("/simple/ansible-collection-ansible-posix/")
+            assert resp1.status_code == 200
+
+            resp2 = client.get("/simple/ansible-collection-ansible-posix/")
+            assert resp2.status_code == 200
+
+        assert mock_versions.call_count == 1
+
     def test_collection_with_cached_wheel(self, tmp_path: Path) -> None:
         """Collection with cached wheel lists it in the project page.
 
