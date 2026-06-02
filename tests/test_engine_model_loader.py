@@ -757,3 +757,68 @@ class TestLoadPlaybooksNestedDirectories:
         assert any("playbooks" in p and "deploy.yml" in p for p in playbook_strs)
         assert any("01_setup" in p and "setup.yml" in p for p in playbook_strs)
         assert not any("roles" in p for p in playbook_strs)
+
+    def test_molecule_excluded_by_default(self, tmp_path: Path) -> None:
+        """Molecule directory playbooks excluded when include_test_contents=False.
+
+        Args:
+            tmp_path: Pytest temporary directory fixture.
+        """
+        # Create molecule directory with playbook
+        molecule_dir = tmp_path / "molecule" / "default"
+        molecule_dir.mkdir(parents=True)
+        (molecule_dir / "converge.yml").write_text(SIMPLE_PLAYBOOK_YAML)
+
+        # Also add a valid playbook outside molecule
+        (tmp_path / "site.yml").write_text(SIMPLE_PLAYBOOK_YAML)
+
+        playbooks = load_playbooks(str(tmp_path), basedir=str(tmp_path), load_children=False)
+
+        assert len(playbooks) == 1
+        assert "site.yml" in str(playbooks[0])
+        assert not any("molecule" in str(p) for p in playbooks)
+
+    def test_tests_excluded_by_default(self, tmp_path: Path) -> None:
+        """Tests directory playbooks excluded when include_test_contents=False.
+
+        Args:
+            tmp_path: Pytest temporary directory fixture.
+        """
+        # Create tests/integration directory with playbook
+        tests_dir = tmp_path / "tests" / "integration"
+        tests_dir.mkdir(parents=True)
+        (tests_dir / "test.yml").write_text(SIMPLE_PLAYBOOK_YAML)
+
+        # Also add a valid playbook outside tests
+        (tmp_path / "site.yml").write_text(SIMPLE_PLAYBOOK_YAML)
+
+        playbooks = load_playbooks(str(tmp_path), basedir=str(tmp_path), load_children=False)
+
+        assert len(playbooks) == 1
+        assert "site.yml" in str(playbooks[0])
+        assert not any("tests" in str(p) for p in playbooks)
+
+    def test_tasks_directory_excluded(self, tmp_path: Path) -> None:
+        """Task files in tasks/ directories not promoted to playbooks.
+
+        Args:
+            tmp_path: Pytest temporary directory fixture.
+        """
+        # Create tasks directory with playbook-shaped YAML
+        tasks_dir = tmp_path / "tasks"
+        tasks_dir.mkdir()
+        (tasks_dir / "main.yml").write_text(SIMPLE_PLAYBOOK_YAML)
+
+        # Nested tasks directory
+        nested_tasks = tmp_path / "playbooks" / "tasks"
+        nested_tasks.mkdir(parents=True)
+        (nested_tasks / "setup.yml").write_text(SIMPLE_PLAYBOOK_YAML)
+
+        # Valid playbook outside tasks
+        (tmp_path / "site.yml").write_text(SIMPLE_PLAYBOOK_YAML)
+
+        playbooks = load_playbooks(str(tmp_path), basedir=str(tmp_path), load_children=False)
+
+        assert len(playbooks) == 1
+        assert "site.yml" in str(playbooks[0])
+        assert not any("tasks" in str(p) for p in playbooks)
