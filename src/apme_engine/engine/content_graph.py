@@ -737,20 +737,26 @@ class ContentGraph:
         fully-formed YAML (e.g. AI-generated fixes).  It applies
         indentation correction consistent with ``apply_transform``.
 
+        Returns False (no-op) when the node does not exist or the
+        resulting content is identical to the current ``yaml_lines``.
+
         Args:
             node_id: Graph node identifier.
             yaml_content: New YAML text for the node.
 
         Returns:
-            True if the node was found and updated.
+            True if the node content actually changed, False otherwise.
         """
         node = self.get_node(node_id)
         if node is None:
             return False
 
         text = yaml_content
-        if node.indent_depth and _detect_indent(text) != node.indent_depth:
+        if _detect_indent(text) != node.indent_depth:
             text = _reindent(text, node.indent_depth)
+
+        if text == node.yaml_lines:
+            return False
 
         node.update_from_yaml(text)
         self._dirty_nodes.add(node_id)
