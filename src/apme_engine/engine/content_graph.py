@@ -734,8 +734,10 @@ class ContentGraph:
         """Replace a node's YAML content and mark it dirty.
 
         This is the public API for callers that already hold
-        fully-formed YAML (e.g. AI-generated fixes).  It applies
-        indentation correction consistent with ``apply_transform``.
+        fully-formed YAML (e.g. AI-generated fixes).  It normalizes
+        indentation to match the node's ``indent_depth`` (including
+        depth 0, unlike ``apply_transform`` which skips depth 0
+        because ruamel already serializes at the correct base indent).
 
         Returns False (no-op) when the node does not exist or the
         resulting content is identical to the current ``yaml_lines``.

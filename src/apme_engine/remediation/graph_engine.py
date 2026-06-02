@@ -585,11 +585,11 @@ class GraphRemediationEngine:
             if node is None:
                 continue
 
-            proposed_node_ids.add(node_id)
             applied = graph.apply_yaml(node_id, fix.fixed_snippet)
             if not applied:
                 logger.debug("AI apply_yaml was a no-op for node %s", node_id)
                 continue
+            proposed_node_ids.add(node_id)
             node.record_state(pass_num, "transformed", source="ai")
 
             proposals.append(
