@@ -26,15 +26,23 @@ def test_set_logger_channel_idempotent() -> None:
 
     importlib.reload(logger_mod)
 
-    result = logger_mod.set_logger_channel("test.idempotent")
-    assert result is True
+    root = logging.getLogger()
+    saved_root_handlers = root.handlers[:]
+    root.handlers.clear()
+    try:
+        result = logger_mod.set_logger_channel("test.idempotent")
+        assert result is True
 
-    stdlib_logger = logging.getLogger("test.idempotent")
-    handler_count = len(stdlib_logger.handlers)
+        stdlib_logger = logging.getLogger("test.idempotent")
+        handler_count = len(stdlib_logger.handlers)
 
-    result = logger_mod.set_logger_channel("test.idempotent")
-    assert result is False
-    assert len(stdlib_logger.handlers) == handler_count
+        result = logger_mod.set_logger_channel("test.idempotent")
+        assert result is False
+        assert len(stdlib_logger.handlers) == handler_count
+    finally:
+        logging.getLogger("test.idempotent").handlers.clear()
+        logging.getLogger("test.idempotent").propagate = True
+        root.handlers = saved_root_handlers
 
 
 def test_preconfigured_logger_preserved() -> None:

@@ -19,23 +19,24 @@ def set_logger_channel(channel: str = "") -> bool:
     """Configure the module logger with a channel name and stdout handler.
 
     Idempotent: if the module logger has already been configured, subsequent
-    calls are no-ops. If the underlying stdlib logger already has handlers
-    (e.g. configured by the embedding application via dictConfig), no new
-    handler is added and the caller's configuration is preserved.
+    calls are no-ops. If the underlying stdlib logger (or any ancestor in the
+    hierarchy) already has handlers — e.g. configured by the embedding
+    application via basicConfig() or dictConfig() — no new handler is added
+    and the caller's configuration is preserved.
 
     Args:
         channel: Logger name (e.g. module path). Empty for root logger.
 
     Returns:
-        True if this call performed first-time initialization, False if
-        the logger was already configured (either by a prior call or by
-        the embedding application).
+        True if this call installed a fresh handler, False if the logger was
+        already configured (either by a prior call or by the embedding
+        application's hierarchy).
     """
     global _logger
     if _logger is not None:
         return False
     _logger = logging.getLogger(channel)
-    if _logger.handlers:
+    if _logger.hasHandlers():
         return False
     handler = logging.StreamHandler(sys.stdout)
     formatter = logging.Formatter("%(levelname)s:%(name)s:%(message)s")
