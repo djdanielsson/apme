@@ -15,23 +15,33 @@ log_level_map = {
 }
 
 
-def set_logger_channel(channel: str = "") -> None:
+def set_logger_channel(channel: str = "") -> bool:
     """Configure the module logger with a channel name and stdout handler.
 
-    Idempotent: if the logger has already been configured, subsequent calls
-    are no-ops (the channel, handler, and formatter are unchanged).
+    Idempotent: if the module logger has already been configured, subsequent
+    calls are no-ops. If the underlying stdlib logger already has handlers
+    (e.g. configured by the embedding application via dictConfig), no new
+    handler is added and the caller's configuration is preserved.
 
     Args:
         channel: Logger name (e.g. module path). Empty for root logger.
+
+    Returns:
+        True if this call performed first-time initialization, False if
+        the logger was already configured (either by a prior call or by
+        the embedding application).
     """
     global _logger
     if _logger is not None:
-        return
+        return False
     _logger = logging.getLogger(channel)
-    handler = logging.StreamHandler(sys.stdout)
-    formatter = logging.Formatter("%(levelname)s:%(name)s:%(message)s")
-    handler.setFormatter(formatter)
-    _logger.addHandler(handler)
+    if not _logger.handlers:
+        handler = logging.StreamHandler(sys.stdout)
+        formatter = logging.Formatter("%(levelname)s:%(name)s:%(message)s")
+        handler.setFormatter(formatter)
+        _logger.addHandler(handler)
+        _logger.propagate = False
+    return True
 
 
 def is_configured() -> bool:

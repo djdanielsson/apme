@@ -78,9 +78,8 @@ class AnsibleProjectLoader:
 
     def __post_init__(self) -> None:
         """Initialize RAM client, parser, and logger."""
-        needs_level = not logger.is_configured()
-        logger.set_logger_channel("apme.loader")
-        if needs_level:
+        first_init = logger.set_logger_channel("apme.loader")
+        if first_init:
             logger.set_log_level("info")
         if not self.root_dir:
             self.root_dir = os.path.expanduser("~/.apme-data")

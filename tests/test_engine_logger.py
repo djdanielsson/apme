@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import logging
 import sys
 
 
@@ -10,16 +11,13 @@ def test_no_import_time_logger_setup() -> None:
     """Importing scanner does not configure the module logger."""
     import apme_engine.engine.logger as logger_mod
 
-    # Reset logger state to simulate a clean slate
     importlib.reload(logger_mod)
-    assert logger_mod._logger is None
+    assert not logger_mod.is_configured()
 
-    # Evict scanner so the next import re-executes its module-level code
     sys.modules.pop("apme_engine.engine.scanner", None)
-    import apme_engine.engine.scanner  # noqa: F401
+    importlib.import_module("apme_engine.engine.scanner")
 
-    # Check _logger *without* reloading logger_mod — reload would reset it
-    assert logger_mod._logger is None
+    assert not logger_mod.is_configured()
 
 
 def test_set_logger_channel_idempotent() -> None:
@@ -28,10 +26,12 @@ def test_set_logger_channel_idempotent() -> None:
 
     importlib.reload(logger_mod)
 
-    logger_mod.set_logger_channel("test.channel")
-    assert logger_mod._logger is not None
-    handler_count = len(logger_mod._logger.handlers)
+    result = logger_mod.set_logger_channel("test.idempotent")
+    assert result is True
 
-    # Second call should be a no-op
-    logger_mod.set_logger_channel("test.channel")
-    assert len(logger_mod._logger.handlers) == handler_count
+    stdlib_logger = logging.getLogger("test.idempotent")
+    handler_count = len(stdlib_logger.handlers)
+
+    result = logger_mod.set_logger_channel("test.idempotent")
+    assert result is False
+    assert len(stdlib_logger.handlers) == handler_count
