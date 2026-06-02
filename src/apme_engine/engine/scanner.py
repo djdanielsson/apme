@@ -394,7 +394,7 @@ class AnsibleProjectLoader:
         if scandata.out_dir is not None and scandata.out_dir != "" and findings is not None and objects:
             self.save_definitions(cast(dict[str, object], scandata.root_definitions), scandata.out_dir)
             if not self.silent:
-                print(f"The objects is saved at {scandata.out_dir}")
+                print(f"Object definitions saved to {scandata.out_dir}")
 
         if not self.silent and findings is not None:
             summary = summarize_findings(findings, self.show_all)
