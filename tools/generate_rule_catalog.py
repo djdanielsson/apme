@@ -380,6 +380,20 @@ def _sort_key(rule: Rule) -> tuple[str, int]:
     return (prefix, num)
 
 
+def _escape_md_cell(text: str) -> str:
+    r"""Escape unescaped pipe characters for use inside markdown table cells.
+
+    Idempotent: already-escaped pipes (``\|``) are left unchanged.
+
+    Args:
+        text: Raw cell text.
+
+    Returns:
+        Text with unescaped ``|`` escaped as ``\|``.
+    """
+    return re.sub(r"(?<!\\)\|", r"\\|", text)
+
+
 def _status_icon(ok: bool) -> str:
     """Return a checkmark or X for boolean status.
 
@@ -439,7 +453,7 @@ def generate() -> str:
 
     for r in all_rules:
         lines.append(
-            f"| {r.rule_id} | {r.validator} | {r.severity} | {r.description} "
+            f"| {r.rule_id} | {r.validator} | {r.severity} | {_escape_md_cell(r.description)} "
             f"| {_status_icon(r.has_impl)} | {_status_icon(r.has_test)} "
             f"| {_status_icon(r.has_doc)} | {_status_icon(r.has_fixer)} |"
         )
@@ -465,7 +479,7 @@ def generate() -> str:
         lines.append("|---------|----------|-------------|------|--------|-----|-------|")
         for r in vrules:
             lines.append(
-                f"| {r.rule_id} | {r.severity} | {r.description} "
+                f"| {r.rule_id} | {r.severity} | {_escape_md_cell(r.description)} "
                 f"| {_status_icon(r.has_impl)} | {_status_icon(r.has_test)} "
                 f"| {_status_icon(r.has_doc)} | {_status_icon(r.has_fixer)} |"
             )
@@ -513,7 +527,7 @@ def generate() -> str:
 
     for r in all_rules:
         if r.has_fixer:
-            lines.append(f"| {r.rule_id} | {r.severity} | {r.description} |")
+            lines.append(f"| {r.rule_id} | {r.severity} | {_escape_md_cell(r.description)} |")
 
     lines.append("")
     return "\n".join(lines)
