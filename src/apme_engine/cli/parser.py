@@ -48,6 +48,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     check_p.add_argument(
         "--ansible-version",
+        "--ansible-core-version",
         default=None,
         help="ansible-core version for validation (e.g. 2.18, 2.20)",
     )
@@ -120,6 +121,7 @@ def build_parser() -> argparse.ArgumentParser:
     remediate_p.add_argument("--max-passes", type=int, default=5, help="Max convergence passes (default: 5)")
     remediate_p.add_argument(
         "--ansible-version",
+        "--ansible-core-version",
         default=None,
         help="ansible-core version for validation (e.g. 2.18, 2.20)",
     )
