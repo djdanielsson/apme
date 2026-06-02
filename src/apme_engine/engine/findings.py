@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from copy import deepcopy
 from dataclasses import dataclass, field
 
@@ -85,26 +84,6 @@ class Findings:
                 unlock_file(lock)
                 remove_lock_file(lock)
         return str(json_str)
-
-    def save_rule_result(self, fpath: str = "") -> str:
-        """Save the rule result from report as JSON to a file.
-
-        Creates parent directories if needed. Uses standard JSON (not jsonpickle).
-
-        Args:
-            fpath: Path to write the rule result JSON. If empty, only returns string.
-
-        Returns:
-            JSON string of the rule result.
-        """
-        json_str: str = jsonpickle.encode(self.report.get("ari_result", {}), make_refs=False, unpicklable=False)
-        if fpath:
-            rule_result_dir = os.path.dirname(fpath)
-            if not os.path.exists(rule_result_dir):
-                os.makedirs(rule_result_dir, exist_ok=True)
-            with open(fpath, "w") as file:
-                file.write(json_str)
-        return json_str
 
     @staticmethod
     def load(fpath: str = "", json_str: str = "") -> Findings:
