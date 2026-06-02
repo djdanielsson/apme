@@ -263,9 +263,8 @@ def create_app(
                 name,
                 servers=servers_cfg,
             )
-            if galaxy_versions:
-                cache.put_metadata(namespace, name, galaxy_versions)
-                versions = galaxy_versions
+            cache.put_metadata(namespace, name, galaxy_versions)
+            versions = galaxy_versions
 
         if not versions and not cached_wheel_set:
             lock_key = f"{namespace}.{name}:latest"
