@@ -53,6 +53,8 @@ def test_preconfigured_logger_preserved() -> None:
 
     channel = "test.preconfigured"
     stdlib_logger = logging.getLogger(channel)
+    saved_level = stdlib_logger.level
+    saved_propagate = stdlib_logger.propagate
     existing_handler = logging.StreamHandler(sys.stderr)
     stdlib_logger.addHandler(existing_handler)
     stdlib_logger.setLevel(logging.DEBUG)
@@ -65,3 +67,5 @@ def test_preconfigured_logger_preserved() -> None:
         assert stdlib_logger.level == logging.DEBUG
     finally:
         stdlib_logger.removeHandler(existing_handler)
+        stdlib_logger.setLevel(saved_level)
+        stdlib_logger.propagate = saved_propagate
