@@ -18,8 +18,8 @@ log_level_map = {
 def set_logger_channel(channel: str = "") -> None:
     """Configure the module logger with a channel name and stdout handler.
 
-    Idempotent: subsequent calls reuse the existing handler rather than
-    adding duplicates.
+    Idempotent: if the logger has already been configured, subsequent calls
+    are no-ops (the channel, handler, and formatter are unchanged).
 
     Args:
         channel: Logger name (e.g. module path). Empty for root logger.

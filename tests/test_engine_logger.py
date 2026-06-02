@@ -9,7 +9,12 @@ def test_no_import_time_logger_setup() -> None:
     """Importing scanner does not configure the module logger."""
     import apme_engine.engine.logger as logger_mod
 
-    # Reload to simulate fresh import
+    # Reset logger state then reload scanner to simulate a fresh import
+    importlib.reload(logger_mod)
+    assert logger_mod._logger is None
+
+    import apme_engine.engine.scanner  # noqa: F401
+
     importlib.reload(logger_mod)
     assert logger_mod._logger is None
 
