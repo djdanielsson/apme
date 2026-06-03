@@ -2,7 +2,7 @@
 
 ## Overview
 
-APME is a multi-container gRPC microservice deployed as a single Podman pod. The Primary service runs the engine (parse → annotate → hierarchy), then fans validation out in parallel to six independent validator backends over a unified gRPC contract. The CLI is ephemeral — run on-the-fly with the project directory mounted.
+APME is a multi-container gRPC microservice system. The reference deployment is a single Podman pod, but bootc (systemd-managed VM) and Helm (Kubernetes/OpenShift) topologies are also supported. The Primary service runs the engine (parse → annotate → hierarchy), then fans validation out in parallel to six independent validator backends over a unified gRPC contract. The CLI is ephemeral — run on-the-fly with the project directory mounted.
 
 **Key principles:**
 - Validator fan-out and engine orchestration use **gRPC**; Galaxy Proxy is HTTP (PEP 503); Gateway exposes REST (:8080) for external consumers
