@@ -785,8 +785,8 @@ class TestConvertTarballs:
         assert resp.status_code == 400
         assert "session or temp directory" in resp.json()["detail"]
 
-    def test_convert_rejects_symlink_in_path(self, tmp_path: Path) -> None:
-        """A symlink anywhere in the path is rejected with 400.
+    def test_convert_rejects_symlink_outside_allowed(self, tmp_path: Path) -> None:
+        """A symlink resolving outside allowed roots is rejected with 400.
 
         Args:
             tmp_path: Pytest-provided temporary directory.
@@ -798,11 +798,14 @@ class TestConvertTarballs:
         symlink = tmp_path / "link"
         symlink.symlink_to(real_dir)
 
-        with TestClient(application) as client:
+        with (
+            TestClient(application) as client,
+            patch("tempfile.gettempdir", return_value=str(tmp_path / "fake-tmp")),
+        ):
             resp = client.post("/convert-tarballs", params={"tarball_dir": str(symlink)})
 
         assert resp.status_code == 400
-        assert "Symlinks not allowed" in resp.json()["detail"]
+        assert "session or temp directory" in resp.json()["detail"]
 
     def test_convert_rejects_dotdot_traversal(self, tmp_path: Path) -> None:
         """Paths using ``..`` to escape allowed roots are rejected.
@@ -822,8 +825,8 @@ class TestConvertTarballs:
 
         assert resp.status_code == 400
 
-    def test_convert_rejects_symlink_parent(self, tmp_path: Path) -> None:
-        """A symlink used as a parent directory component is rejected.
+    def test_convert_rejects_symlink_parent_outside_allowed(self, tmp_path: Path) -> None:
+        """A symlink parent resolving outside allowed roots is rejected.
 
         Args:
             tmp_path: Pytest-provided temporary directory.
@@ -838,11 +841,14 @@ class TestConvertTarballs:
         link_parent = tmp_path / "link_parent"
         link_parent.symlink_to(real_parent)
 
-        with TestClient(application) as client:
+        with (
+            TestClient(application) as client,
+            patch("tempfile.gettempdir", return_value=str(tmp_path / "fake-tmp")),
+        ):
             resp = client.post(
                 "/convert-tarballs",
                 params={"tarball_dir": str(link_parent / "child")},
             )
 
         assert resp.status_code == 400
-        assert "Symlinks not allowed" in resp.json()["detail"]
+        assert "session or temp directory" in resp.json()["detail"]

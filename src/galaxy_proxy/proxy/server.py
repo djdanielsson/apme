@@ -456,8 +456,8 @@ def create_app(
 def _validate_tarball_dir(tarball_dir: str) -> Path:
     """Validate and resolve a tarball directory path.
 
-    Rejects symlinks anywhere in the path and restricts the resolved
-    path to known-safe roots (temp dir or ``/sessions``).
+    Resolves the path first (eliminating symlinks and ``..`` components),
+    then checks the canonical result against an allowlist of safe roots.
 
     Args:
         tarball_dir: Untrusted path string from the request.
@@ -466,16 +466,9 @@ def _validate_tarball_dir(tarball_dir: str) -> Path:
         The resolved, validated ``Path``.
 
     Raises:
-        HTTPException: On symlinks, disallowed roots, or non-directories.
+        HTTPException: On disallowed roots or non-directories.
     """
-    raw = Path(tarball_dir)
-    for component in (raw, *raw.parents):
-        try:
-            if component.is_symlink():
-                raise HTTPException(status_code=400, detail="Symlinks not allowed")
-        except FileNotFoundError:
-            continue
-    resolved = raw.resolve()
+    resolved = Path(os.path.realpath(tarball_dir))
 
     allowed_roots = (Path(tempfile.gettempdir()).resolve(), Path("/sessions").resolve())
     if not any(resolved.is_relative_to(root) for root in allowed_roots):
