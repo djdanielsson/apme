@@ -1,10 +1,12 @@
 # CLI Guide
 
-APME's CLI is a thin gRPC client that communicates with a local daemon process.
-For scan commands (`check`, `remediate`, `format`, `health-check`), the CLI
-auto-starts the daemon if it isn't already running. Commands like `sbom` and
-`suppress` do not use the daemon. No containers, no infrastructure — just
-`pip install` and go.
+APME's CLI is a thin gRPC client that connects to a Primary service. It
+discovers the Primary using a three-tier strategy: (1) `APME_PRIMARY_ADDRESS`
+env var, (2) a running local daemon, (3) auto-start a local daemon. For scan
+commands (`check`, `remediate`, `format`, `health-check`), this discovery
+happens automatically. Commands like `sbom` and `suppress` talk to the Gateway
+REST API or operate locally without a Primary. No containers, no
+infrastructure — just `pip install` and go.
 
 ## Installation
 

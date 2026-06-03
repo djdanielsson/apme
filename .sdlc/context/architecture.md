@@ -365,7 +365,7 @@ With `--json`, the `diagnostics` key is included when `-v` or `-vv` is set.
 The CLI `health-check` subcommand calls `Health` on all services and reports status:
 
 ```bash
-apme health-check --primary-addr 127.0.0.1:50051
+APME_PRIMARY_ADDRESS=127.0.0.1:50051 apme health-check
 ```
 
 Primary, Native, OPA, Ansible, Gitleaks, Collection Health, and Dep Audit all implement the `Health` RPC. A service returning `status: "ok"` is healthy; any gRPC error marks it degraded.

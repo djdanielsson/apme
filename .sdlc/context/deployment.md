@@ -84,7 +84,7 @@ tox -e wipe                             # stop pod and delete DB + session cache
 ### Health Check
 
 ```bash
-apme health-check --primary-addr 127.0.0.1:50051
+APME_PRIMARY_ADDRESS=127.0.0.1:50051 apme health-check
 ```
 
 Reports status of all services (Primary, Native, OPA, Ansible, Gitleaks, Collection Health, Dep Audit) with latency.
