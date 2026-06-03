@@ -121,10 +121,10 @@ apme health-check --timeout 5             # custom timeout (seconds)
 ### `apme suppress` — manage violation suppressions
 
 ```bash
-apme suppress add --rule-id L046 .                  # suppress a rule (full fingerprint)
-apme suppress add --rule-id L046 --mode rule_only . # suppress all instances of a rule
-apme suppress list .                                # show active suppressions
-apme suppress remove FINGERPRINT_PREFIX .           # remove a suppression
+apme suppress add --rule-id L046 --mode rule_only .                # suppress all instances of a rule
+apme suppress add --rule-id L046 --original-yaml 'name: example' . # suppress a specific occurrence (full mode)
+apme suppress list .                                               # show active suppressions
+apme suppress remove FINGERPRINT_PREFIX .                          # remove a suppression
 ```
 
 Suppressions are stored in `.apme/suppressions.yml` within your project.
