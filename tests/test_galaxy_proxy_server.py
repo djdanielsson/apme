@@ -807,6 +807,28 @@ class TestConvertTarballs:
         assert resp.status_code == 400
         assert "session or temp directory" in resp.json()["detail"]
 
+    def test_convert_accepts_symlink_within_allowed_root(self, tmp_path: Path) -> None:
+        """A symlink resolving to a directory under an allowed root is accepted.
+
+        Args:
+            tmp_path: Pytest-provided temporary directory.
+        """
+        cache_dir = tmp_path / "cache"
+        application = create_app(cache_dir=cache_dir)
+        real_dir = tmp_path / "real"
+        real_dir.mkdir()
+        symlink = tmp_path / "link"
+        symlink.symlink_to(real_dir)
+
+        with (
+            TestClient(application) as client,
+            patch("tempfile.gettempdir", return_value=str(tmp_path)),
+        ):
+            resp = client.post("/convert-tarballs", params={"tarball_dir": str(symlink)})
+
+        assert resp.status_code == 200
+        assert resp.json() == {"converted": [], "failed": []}
+
     def test_convert_rejects_dotdot_traversal(self, tmp_path: Path) -> None:
         """Paths using ``..`` to escape allowed roots are rejected.
 
