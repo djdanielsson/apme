@@ -786,21 +786,29 @@ class TestConvertTarballs:
         assert "session or temp directory" in resp.json()["detail"]
 
     def test_convert_rejects_symlink_outside_allowed(self, tmp_path: Path) -> None:
-        """A symlink resolving outside allowed roots is rejected with 400.
+        """A symlink under the allowed root that resolves outside is rejected.
+
+        The symlink is placed inside the allowed temp root but points to a
+        directory outside it, verifying that resolve-first validation catches
+        the escape.
 
         Args:
             tmp_path: Pytest-provided temporary directory.
         """
         cache_dir = tmp_path / "cache"
         application = create_app(cache_dir=cache_dir)
-        real_dir = tmp_path / "real"
-        real_dir.mkdir()
-        symlink = tmp_path / "link"
-        symlink.symlink_to(real_dir)
+
+        allowed_root = tmp_path / "allowed"
+        allowed_root.mkdir()
+        escape_target = tmp_path / "escaped"
+        escape_target.mkdir()
+
+        symlink = allowed_root / "link"
+        symlink.symlink_to(escape_target)
 
         with (
             TestClient(application) as client,
-            patch("tempfile.gettempdir", return_value=str(tmp_path / "fake-tmp")),
+            patch("tempfile.gettempdir", return_value=str(allowed_root)),
         ):
             resp = client.post("/convert-tarballs", params={"tarball_dir": str(symlink)})
 
@@ -848,24 +856,31 @@ class TestConvertTarballs:
         assert resp.status_code == 400
 
     def test_convert_rejects_symlink_parent_outside_allowed(self, tmp_path: Path) -> None:
-        """A symlink parent resolving outside allowed roots is rejected.
+        """A symlink parent component that escapes the allowed root is rejected.
+
+        The symlink is placed inside the allowed root as a parent directory
+        component, but resolves to a path outside it. Verifies the
+        resolve-first pattern catches traversal via symlinked parents.
 
         Args:
             tmp_path: Pytest-provided temporary directory.
         """
         cache_dir = tmp_path / "cache"
         application = create_app(cache_dir=cache_dir)
-        real_parent = tmp_path / "real_parent"
-        real_parent.mkdir()
-        child = real_parent / "child"
+
+        allowed_root = tmp_path / "allowed"
+        allowed_root.mkdir()
+        escape_target = tmp_path / "escaped"
+        escape_target.mkdir()
+        child = escape_target / "child"
         child.mkdir()
 
-        link_parent = tmp_path / "link_parent"
-        link_parent.symlink_to(real_parent)
+        link_parent = allowed_root / "link_parent"
+        link_parent.symlink_to(escape_target)
 
         with (
             TestClient(application) as client,
-            patch("tempfile.gettempdir", return_value=str(tmp_path / "fake-tmp")),
+            patch("tempfile.gettempdir", return_value=str(allowed_root)),
         ):
             resp = client.post(
                 "/convert-tarballs",
