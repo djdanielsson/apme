@@ -198,10 +198,12 @@ apme remediate .
 apme daemon stop
 ```
 
-**Daemon mode** starts a local Primary server with Native, OPA, Ansible, and
-Galaxy Proxy validators running in-process. Gitleaks is excluded (requires the
-gitleaks binary). OPA runs via the local `opa` binary; if `opa` is not
-installed, the OPA validator is automatically skipped.
+**Daemon mode** starts a local Primary server with Native, OPA, and Ansible
+validators as in-process gRPC servers, plus Galaxy Proxy as an HTTP service
+(uvicorn). Optional validators (Gitleaks, Collection Health, Dep Audit) are
+not started by the daemon. OPA uses Podman by default (`OPA_USE_PODMAN=1`);
+if Podman is unavailable it falls back to a local `opa` binary; if neither is
+available, OPA validation is skipped.
 
 The CLI is a **thin gRPC client** — it sends file bytes to the daemon and
 receives results. It does not import engine internals.

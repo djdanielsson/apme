@@ -22,15 +22,15 @@ Replace the tag with any [release version](https://github.com/ansible/apme/relea
 ### Requirements
 
 - Python 3.10+
-- OPA binary on `$PATH` (optional — OPA validator is skipped if not found)
+- Podman **or** `opa` binary on `$PATH` (optional — OPA uses Podman by default; falls back to local `opa`; skipped if neither is available)
 
 ## How it works
 
 The CLI uses a **daemon architecture**:
 
 1. On first use, `apme` starts a background daemon process
-2. The daemon runs Primary, Native, OPA, Ansible validators, and Galaxy Proxy as
-   in-process gRPC servers on localhost
+2. The daemon runs Primary, Native, OPA, and Ansible as in-process gRPC servers,
+   plus Galaxy Proxy as an HTTP service (uvicorn), all on localhost
 3. The CLI sends file bytes to the daemon over gRPC and receives results
 4. The daemon stays running between commands for fast subsequent scans
 
@@ -163,12 +163,14 @@ Upload the SARIF file to GitHub Code Scanning via the
 ```yaml
 # .pre-commit-config.yaml
 repos:
-  - repo: https://github.com/ansible/apme
-    rev: v2026.4.1
+  - repo: local
     hooks:
       - id: apme-check
+        name: APME check
         entry: apme check
+        language: system
         types: [yaml]
+        pass_filenames: false
 ```
 
 ### GitHub Actions example
@@ -210,7 +212,7 @@ production use or full feature access, use a [deployment method](DEPLOYMENT.md).
 | Check (scan for violations) | Yes | Yes |
 | Remediate (Tier 1 transforms) | Yes | Yes |
 | Format (YAML normalization) | Yes | Yes |
-| Secret scanning (Gitleaks) | Requires `gitleaks` binary | Built-in |
+| Secret scanning (Gitleaks) | Not available (daemon does not start gitleaks validator) | Built-in |
 | AI-assisted remediation | Requires Abbenay daemon | Built-in (pod) |
 | Web UI dashboard | No | Yes |
 | Persistent scan history | No | Yes (Gateway + SQLite) |

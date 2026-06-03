@@ -108,7 +108,7 @@ pip install apme-engine@git+https://github.com/ansible/apme.git@v2026.4.1
 apme check /path/to/your/project
 ```
 
-The CLI automatically starts a local daemon with all validators — no containers required. See the [CLI Guide](docs/guides/CLI.md) for full usage, CI integration, and limitations compared to deployment methods.
+The CLI automatically starts a local daemon with core validators (Native, OPA, Ansible) and Galaxy Proxy — no containers required. Optional validators (Gitleaks, Collection Health, Dep Audit) are not started by the daemon. See the [CLI Guide](docs/guides/CLI.md) for full usage, CI integration, and limitations compared to deployment methods.
 
 ### Remediation
 

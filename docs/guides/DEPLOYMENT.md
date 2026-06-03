@@ -273,8 +273,9 @@ it as the `--index-strategy` argument to `uv pip install`.
 ## Local development (daemon mode)
 
 For development and testing without the Podman pod, the CLI can start a
-local daemon that runs the Primary, Native, OPA, Ansible, and Galaxy Proxy services
-as localhost gRPC servers (ADR-024). Gitleaks is excluded (requires the gitleaks binary).
+local daemon that runs Primary, Native, OPA, and Ansible as localhost gRPC
+servers plus Galaxy Proxy as an HTTP service (ADR-024). Optional validators
+(Gitleaks, Collection Health, Dep Audit) are not started by the daemon.
 
 ```bash
 # Install tox + project (one-time)
@@ -293,7 +294,7 @@ apme remediate .
 apme daemon stop
 ```
 
-**Daemon mode** starts a local Primary server with Native, OPA, and Ansible validators plus the Galaxy Proxy running in-process. OPA runs via the local `opa` binary; if `opa` is not installed, the OPA validator is automatically skipped.
+**Daemon mode** starts a local Primary server with Native, OPA, and Ansible validators as in-process gRPC servers, plus Galaxy Proxy as an HTTP service (uvicorn). Optional validators (Gitleaks, Collection Health, Dep Audit) are not started. OPA uses Podman by default; falls back to a local `opa` binary if Podman is unavailable; skipped if neither is found.
 
 ## Troubleshooting
 
@@ -387,14 +388,15 @@ per ADR-012).
 - HPA for engine scaling, PDB for disruption budget
 - Ingress/Route support (OpenShift Routes included)
 - NetworkPolicy for pod isolation
-- PVC for Gateway persistence, emptyDir for session venvs
+- PVC for Gateway persistence; PVC for session venvs (single replica), emptyDir when scaling to multiple replicas
 
 ### Quick start
 
 ```bash
 helm install apme ./deploy/helm/apme/ \
   --set image.tag=sha-7cb2464 \
-  --set abbenay.apiKey=$OPENROUTER_API_KEY
+  --set abbenay.enabled=true \
+  --set abbenay.apiKeys.openrouterApiKey=$OPENROUTER_API_KEY
 ```
 
 ### Key values
@@ -403,8 +405,8 @@ helm install apme ./deploy/helm/apme/ \
 |-------|-------------|
 | `image.tag` | Image tag for all containers (required — no default) |
 | `engine.replicas` | Engine pod replicas (default: 1) |
-| `abbenay.enabled` | Enable AI provider (default: true) |
-| `abbenay.apiKey` | LLM provider API key |
+| `abbenay.enabled` | Enable AI provider (default: false) |
+| `abbenay.apiKeys.openrouterApiKey` | OpenRouter LLM provider API key |
 | `ingress.enabled` | Create Ingress resource (default: false) |
 | `route.enabled` | Create OpenShift Route (default: false) |
 

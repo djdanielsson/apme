@@ -57,7 +57,7 @@ APME provides:
 
 ## Architecture
 
-APME is deployed as a single pod (Podman, Kubernetes, or bootc VM) with 12 containers sharing localhost. The CLI can also run as a standalone daemon for quick evaluation.
+APME is deployed as a single pod (Podman, Kubernetes, or bootc VM) with 11 containers sharing localhost. The CLI can also run as a standalone daemon for quick evaluation.
 
 Key services:
 - **Primary** (:50051) — orchestrator, engine, session venv manager
