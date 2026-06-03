@@ -57,7 +57,7 @@ APME provides:
 
 ## Architecture
 
-APME is deployed as a single pod (Podman, Kubernetes, or bootc VM) with 11 containers sharing localhost. The CLI can also run as a standalone daemon for quick evaluation.
+APME runs as a set of cooperating containers. In **Podman** and **bootc**, all 11 containers share a single pod on localhost. In **Kubernetes** (Helm chart), the engine stack (Primary + validators + Galaxy Proxy) runs as a multi-container pod, while Gateway, UI, and Abbenay are separate Deployments with their own Services. The CLI can also run as a standalone daemon for quick evaluation.
 
 Key services:
 - **Primary** (:50051) — orchestrator, engine, session venv manager
