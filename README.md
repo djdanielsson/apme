@@ -90,7 +90,7 @@ For organizations managing hundreds of roles and collections across ansible-core
                             └───────────┘
 ```
 
-All inter-service communication is gRPC. The engine parses content once, then validators consume the hierarchy independently and in parallel. See the [architecture series](docs/architecture/) for the full pipeline walkthrough.
+Validator fan-out uses gRPC; Galaxy Proxy is HTTP (PEP 503). The engine parses content once, then validators consume the hierarchy independently and in parallel. See the [architecture series](docs/architecture/) for the full pipeline walkthrough.
 
 ## Getting started
 
@@ -126,7 +126,7 @@ apme remediate --ai /path/to/project
 src/apme_engine/
   ├── cli/              CLI (check, format, remediate, health-check, sbom, suppress)
   ├── engine/           Project loader (parse, annotate, hierarchy, graph)
-  ├── validators/       Rule implementations (native/, opa/, ansible/, gitleaks/)
+  ├── validators/       Rule implementations (native/, opa/, ansible/, gitleaks/, collection_health/, dep_audit/)
   ├── daemon/           gRPC server implementations
   ├── remediation/      Tier 1 transforms + AI escalation
   └── venv_manager/     Session-scoped venv lifecycle

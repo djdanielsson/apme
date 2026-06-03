@@ -242,7 +242,7 @@ tox -e wipe                             # stop + wipe DB/sessions
 | 50054 | OPA | `APME_OPA_VALIDATOR_LISTEN` |
 | 50055 | Native | `APME_NATIVE_VALIDATOR_LISTEN` |
 | 50056 | Gitleaks | `APME_GITLEAKS_VALIDATOR_LISTEN` |
-| 50057 | Abbenay AI | `--grpc-port` (CLI flag) |
+| 50057 | Abbenay AI | `--grpc-port` (Abbenay daemon flag) |
 | 50058 | Collection Health | `APME_COLLECTION_HEALTH_VALIDATOR_LISTEN` |
 | 50059 | Dep Audit | `APME_DEP_AUDIT_VALIDATOR_LISTEN` |
 | 50060 | Gateway (gRPC) | `APME_GATEWAY_GRPC_LISTEN` |

@@ -32,7 +32,7 @@ helm install apme ./deploy/helm/apme/ \
 ┌─────────── Engine Pod (scaled as unit) ──────────┐
 │  Primary  Native  OPA  Ansible  Gitleaks         │
 │  Collection-Health  Dep-Audit  Galaxy-Proxy      │
-│  (all communicate via localhost gRPC)            │
+│  (validators via localhost gRPC; Galaxy Proxy via HTTP) │
 └──────────────────────────────────────────────────┘
 
 ┌──────────┐   ┌──────────┐   ┌──────────┐

@@ -1,8 +1,10 @@
 # CLI Guide
 
 APME's CLI is a thin gRPC client that communicates with a local daemon process.
-When you run any command, the CLI auto-starts the daemon if it isn't already
-running. No containers, no infrastructure — just `pip install` and go.
+For scan commands (`check`, `remediate`, `format`, `health-check`), the CLI
+auto-starts the daemon if it isn't already running. Commands like `sbom` and
+`suppress` do not use the daemon. No containers, no infrastructure — just
+`pip install` and go.
 
 ## Installation
 
@@ -129,7 +131,6 @@ Suppressions are stored in `.apme/suppressions.yml` within your project.
 
 ```bash
 apme sbom PROJECT_ID                      # CycloneDX SBOM (requires Gateway)
-apme sbom PROJECT_ID --format json        # JSON format
 apme sbom PROJECT_ID -o sbom.json         # write to file
 ```
 
@@ -217,8 +218,8 @@ production use or full feature access, use a [deployment method](DEPLOYMENT.md).
 | Web UI dashboard | No | Yes |
 | Persistent scan history | No | Yes (Gateway + SQLite) |
 | Multi-user / shared service | No (single-user) | Yes |
-| Collection Health scanning | Yes | Yes |
-| Python CVE audit | Yes | Yes |
+| Collection Health scanning | Not available (daemon does not start optional validators) | Yes |
+| Python CVE audit | Not available (daemon does not start optional validators) | Yes |
 | SBOM generation | Requires Gateway | Yes |
 | Atomic upgrades / rollback | No | Yes (bootc) |
 | Horizontal scaling | No | Yes (Helm) |
