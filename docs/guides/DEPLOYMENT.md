@@ -397,6 +397,7 @@ per ADR-012).
 helm install apme ./deploy/helm/apme/ \
   --set image.tag=sha-7cb2464 \
   --set abbenay.enabled=true \
+  --set abbenay.token=$APME_ABBENAY_TOKEN \
   --set abbenay.apiKeys.openrouterApiKey=$OPENROUTER_API_KEY
 ```
 
@@ -407,6 +408,7 @@ helm install apme ./deploy/helm/apme/ \
 | `image.tag` | Image tag for all containers (required — no default) |
 | `engine.replicas` | Engine pod replicas (default: 1) |
 | `abbenay.enabled` | Enable AI provider (default: false) |
+| `abbenay.token` | Abbenay service token (required when `abbenay.enabled=true`) |
 | `abbenay.apiKeys.openrouterApiKey` | OpenRouter LLM provider API key |
 | `ingress.enabled` | Create Ingress resource (default: false) |
 | `route.enabled` | Create OpenShift Route (default: false) |

@@ -23,6 +23,7 @@ helm install apme ./deploy/helm/apme/ \
 helm install apme ./deploy/helm/apme/ \
   --set image.tag=sha-7cb2464 \
   --set abbenay.enabled=true \
+  --set abbenay.token=$APME_ABBENAY_TOKEN \
   --set abbenay.apiKeys.openrouterApiKey=$OPENROUTER_API_KEY
 ```
 
@@ -59,6 +60,7 @@ helm install apme ./deploy/helm/apme/ \
 | `depAudit.enabled` | `true` | Enable Dependency Audit validator |
 | `gateway.replicas` | `1` | Gateway replicas |
 | `abbenay.enabled` | `false` | Enable AI provider |
+| `abbenay.token` | `""` | Abbenay service token (required when `abbenay.enabled=true`) |
 | `abbenay.image` | `ghcr.io/redhat-developer/abbenay:2026.4.1-alpha` | Abbenay image |
 | `abbenay.apiKeys.openrouterApiKey` | `""` | OpenRouter API key |
 | `abbenay.aiModel` | `""` | Default AI model ID |
