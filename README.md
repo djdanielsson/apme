@@ -14,7 +14,7 @@
 > commits. If you are evaluating this project, expect things to move fast
 > and break often.
 
-Ansible Policy & Modernization Engine — a multi-validator static analysis platform for Ansible content. It parses playbooks, roles, collections, and task files into a structured hierarchy, then fans validation out in parallel across four independent backends (OPA/Rego, native Python, Ansible-runtime, and Gitleaks) to produce a single, unified list of violations.
+Ansible Policy & Modernization Engine — a multi-validator static analysis platform for Ansible content. It parses playbooks, roles, collections, and task files into a structured hierarchy, then fans validation out in parallel across independent backends to produce a single, unified list of violations.
 
 ## What APME is
 
@@ -33,9 +33,18 @@ It answers questions like:
 
 APME is not a test framework, a deployment tool, or a runtime verification system.
 
-It cannot tell you whether a playbook will **achieve its desired outcome** on your infrastructure. A playbook's intended outcome — packages installed, services configured, files in the right state — depends on target host state, inventory variables, network reachability, external APIs, and runtime facts that only exist during execution. No static analysis tool can evaluate those.
+It cannot tell you whether a playbook will **achieve its desired outcome** on your infrastructure — that depends on target host state, inventory variables, network reachability, and runtime facts that only exist during execution. A clean APME scan means no *known* incompatibilities were detected — not that every runtime path will succeed.
 
-APME also cannot guarantee a playbook will **run successfully**, even if it reports zero violations. A clean APME scan means no *known* incompatibilities were detected — not that every runtime path will succeed.
+**What still requires execution-time tools:**
+
+| Concern | Tool |
+|---------|------|
+| Does the playbook produce the correct end state? | Molecule, integration tests |
+| Is the playbook idempotent? | `--check` mode, Molecule |
+| Do templates render correctly with real variables? | Integration tests |
+| Does it work with my specific inventory and vault? | Staging dry-run |
+
+APME and these tools are complementary. APME runs in seconds without infrastructure; execution-time tools validate behavior against real systems. Use both.
 
 ## Where APME fits
 
@@ -49,443 +58,103 @@ APME provides a **compatibility and quality floor**. It catches the preventable 
 
 For organizations managing hundreds of roles and collections across ansible-core version upgrades, this shift-left is the difference between a planned migration and an emergency one.
 
-**What still requires execution-time tools:**
+## Key features
 
-| Concern | Tool |
-|---------|------|
-| Does the playbook produce the correct end state? | Molecule, integration tests |
-| Is the playbook idempotent (safe to run twice)? | `--check` mode, Molecule converge+idempotence |
-| Do templates render correctly with real variables? | Integration tests against test inventory |
-| Does the playbook handle failure paths gracefully? | Molecule verify, side-effect testing |
-| Does it work with my specific inventory and vault? | Staging environment dry-run |
-
-APME and these tools are complementary. APME runs in seconds without infrastructure and catches structural and compatibility issues early. Execution-time tools validate behavior and correctness against real systems. Use both.
+- **Single parse, multiple validators** — parse once, fan out to independent backends
+- **Parallel validation** — Native (Python), OPA (Rego), Ansible (runtime), Gitleaks (secrets), Collection Health, and Dependency Audit run concurrently; latency = max, not sum
+- **100+ rules** — lint (L), modernize (M), risk (R), policy (P), and secrets (SEC) categories
+- **Secret scanning** — 800+ patterns via Gitleaks with vault/Jinja filtering
+- **Dependency health** — collection quality checks + Python CVE audit via pip-audit
+- **Multi ansible-core version support** — session-scoped venvs per target version
+- **Automated remediation** — deterministic Tier 1 transforms with multi-pass convergence
+- **AI-assisted fixes** — optional Tier 2 escalation via [Abbenay](https://github.com/redhat-developer/abbenay) for violations without deterministic transforms
+- **YAML formatter** — normalize indentation, key ordering, Jinja spacing with comment preservation
+- **Structured diagnostics** — per-rule timing data (`-v` summary, `-vv` full breakdown)
+- **Unified gRPC contract** — adding a validator means implementing one RPC
 
 ## Architecture at a glance
 
 ```
 ┌─────────┐      gRPC       ┌────────────┐      gRPC (parallel)      ┌────────────┐
-│   CLI   │ ──────────────► │  Primary   │ ──────────────────────►   │   Native   │ :50055
-│ (on-the │  ScanRequest    │ (orchestr) │   ValidateRequest         │  (Python)  │
-│  -fly)  │  chunked fs     │            │ ┌─────────────────────►   ├────────────┤
-└─────────┘                 │   Engine   │ │                         │    OPA     │ :50054
-     ▲                      │  ┌──────┐  │ │  ┌──────────────────►   │  (Rego)    │
-     │   ScanResponse       │  │parse │  │ │  │                      ├────────────┤
-     │   violations         │  │annot.│  │ │  │  ┌───────────────►   │  Ansible   │ :50053
-     └──────────────────────│  │hier. │  ├─┘  │  │                   │ (runtime)  │
-                            │  └──────┘  ├────┘  │                   ├────────────┤
-                            └────────────┘───────┘                   │  Gitleaks  │ :50056
-                                 │                                   │ (secrets)  │
-                            ┌────┴────┐                              └────────────┘
-                            │ Galaxy  │ :8765
-                            │ Proxy   │ (PEP 503)
-                            └─────────┘
+│   CLI   │ ──────────────► │  Primary   │ ──────────────────────►   │   Native   │
+│         │                 │ (orchestr) │                           │    OPA     │
+└─────────┘                 │   Engine   │                           │  Ansible   │
+                            │  parse →   │                           │  Gitleaks  │
+                            │  annotate →│                           │  Coll.Hlth │
+                            │  fan-out   │                           │  Dep.Audit │
+                            └─────┬──────┘                           └────────────┘
+                                  │
+                            ┌─────┴─────┐
+                            │  Galaxy   │
+                            │  Proxy    │ (PEP 503)
+                            └───────────┘
 ```
 
-Six app containers, one pod. All inter-service communication is gRPC. The Galaxy Proxy serves Ansible collections as Python wheels (PEP 503). The CLI is run on-the-fly with the project directory mounted. See [docs/architecture/](docs/architecture/) for the full design.
+All inter-service communication is gRPC. The engine parses content once, then validators consume the hierarchy independently and in parallel. See the [architecture series](docs/architecture/) for the full pipeline walkthrough.
 
-## Key features
+## Getting started
 
-- **Single parse, multiple validators** — the engine parses Ansible content once and produces a hierarchy payload + scandata; validators consume it independently.
-- **Parallel fan-out** — Primary calls Native, OPA, Ansible, and Gitleaks validators concurrently via `asyncio.gather()`; total latency = max(validators), not sum.
-- **Unified gRPC contract** — every validator implements the same `Validator` service (`validate.proto`); adding a new validator means implementing one RPC.
-- **100+ rules** across four backends: OPA Rego (L003–L025, L061–L072, M006/M008/M009/M011, R118), native Python (L026–L105, M005/M010, R101–R501), Ansible runtime (L057–L059, M001–M004), Gitleaks (SEC:* — 800+ secret patterns).
-- **Secret scanning** — Gitleaks binary wrapped in gRPC; scans all project files for hardcoded credentials, API keys, private keys. Vault-encrypted files and Jinja2 expressions are automatically filtered.
-- **Dependency health scanning** — Two optional validators assess supply-chain risk inline during `apme check`: the Collection Health Validator scans installed Ansible collections for quality issues (deprecated modules, missing argument specs, FQCN violations), and the Python Dependency Auditor checks packages against CVE databases via pip-audit. Findings are grouped separately from project violations, and collection scans are cached by FQCN+version for fast subsequent runs.
-- **Multi ansible-core version support** — the Primary orchestrator builds session-scoped venvs per ansible-core version (UV-cached); argspec and deprecation checks run against the requested version. Venvs are shared read-only with validators via a `/sessions` volume.
-- **Structured diagnostics** — every validator reports per-rule timing data via the gRPC contract; use `-v` for summaries or `-vv` for full per-rule breakdowns.
-- **Galaxy Proxy** — converts Ansible Galaxy collection tarballs into pip-installable Python wheels (PEP 503/427); collections are `uv pip install`'d into session venvs, leveraging standard Python caching and dependency resolution.
-- **YAML formatter** — normalize indentation, key ordering, Jinja spacing, and tab removal with comment preservation. Idempotent by design; runs as a pre-pass before semantic fixes.
-- **Colocated tests** — every rule has a `*_test.py` (native), `*_test.rego` (OPA), or `.md` doc with violation/pass examples usable as integration tests.
+| Method | Best for | Guide |
+|--------|----------|-------|
+| **CLI** (`pip install`) | Quick evaluation, CI pipelines, single-user | [CLI Guide](docs/guides/CLI.md) |
+| **Podman pod** | Development, full feature set (UI, AI, persistence) | [Deployment Guide](docs/guides/DEPLOYMENT.md) |
+| **bootc VM** | Production single-node, atomic upgrades, systemd lifecycle | [bootc Guide](deploy/bootc/README.md) |
+| **Helm chart** | Kubernetes / OpenShift production | [Helm Guide](deploy/helm/apme/README.md) |
 
-## Quick start
-
-### Install
+### Try it now
 
 ```bash
-# Install a specific release (recommended)
 pip install apme-engine@git+https://github.com/ansible/apme.git@v2026.4.1
-
-# Install with AI escalation support
-pip install "apme-engine[ai] @ git+https://github.com/ansible/apme.git@v2026.4.1"
-
-# Install the latest development version (main branch)
-pip install apme-engine@git+https://github.com/ansible/apme.git@main
+apme check /path/to/your/project
 ```
 
-Replace the tag with any [release version](https://github.com/ansible/apme/releases).
-The CLI automatically starts a local daemon with all validators when you run a
-command. No containers required for basic usage.
+The CLI automatically starts a local daemon with all validators — no containers required. See the [CLI Guide](docs/guides/CLI.md) for full usage, CI integration, and limitations compared to deployment methods.
 
-### Basic usage
+### Remediation
 
 ```bash
-# Scan a playbook or project
-apme check /path/to/playbook-or-project
+# Deterministic transforms (Tier 1)
+apme remediate /path/to/project
 
-# JSON output
-apme check --json .
-
-# Diagnostics: summary + top 10 slowest rules
-apme check -v .
-
-# Diagnostics: full per-rule breakdown
-apme check -vv .
-
-# Skip all dependency scanning (collection health + Python CVE)
-apme check --skip-dep-scan .
-
-# Skip only collection health scanning
-apme check --skip-collection-scan .
-
-# Skip only Python CVE audit
-apme check --skip-python-audit .
-
-# Format YAML files (show diff)
-apme format /path/to/project
-
-# Format and apply changes in place
-apme format --apply /path/to/project
-
-# CI check mode (exit 1 if changes needed)
-apme format --check /path/to/project
-
-# Full remediate pipeline: format → idempotency check → re-scan → modernize
-apme remediate /path/to/playbook-or-project
-
-# AI-assisted remediation (requires Abbenay daemon)
-apme remediate --ai /path/to/playbook-or-project
-
-# AI with auto-approve (no interactive review)
-apme remediate --ai --auto-approve /path/to/playbook-or-project
+# Include AI-assisted fixes (Tier 2, requires Abbenay)
+apme remediate --ai /path/to/project
 ```
-
-### Container deployment (Podman)
-
-For the web UI, persistent scan history, or AI-assisted remediation, run the
-full pod. This is also required for APME development.
-
-The pod runs 9 containers: engine services (Primary, Native, OPA, Ansible,
-Gitleaks, Galaxy Proxy), Gateway (REST API + persistence), UI (React dashboard),
-and Abbenay (AI provider).
-
-```
-Container        Port   Role
-─────────────────────────────────────────────────────
-primary          50051  Engine orchestrator (gRPC)
-native           50055  Python rule validator (gRPC)
-opa              50054  Rego rule validator (gRPC)
-ansible          50053  Ansible runtime validator (gRPC)
-gitleaks         50056  Secret scanner (gRPC)
-galaxy-proxy      8765  Collection → wheel proxy (PEP 503)
-gateway     8080/50060  REST API + WebSocket + persistence
-ui                8081  React dashboard (nginx)
-abbenay          50057  AI provider (gRPC)
-```
-
-#### Build and start
-
-```bash
-tox -e up                    # build all images and start the pod
-tox -e up -- --no-cache      # rebuild from scratch
-tox -e up-clean              # wipe state + rebuild + start (clean slate)
-```
-
-This builds a shared base image, nine service images, pulls the Abbenay AI
-image, then starts all containers. Cache defaults to
-`${XDG_CACHE_HOME:-$HOME/.cache}/apme` (override with `APME_CACHE_HOST_PATH`).
-
-#### Pod architecture
-
-```
-                                 APME Pod Architecture
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                                  apme-pod                                       │
-│                                                                                 │
-│   ┌─────────────────────────────────────────────────────────────────────────┐   │
-│   │                         User Entry Points                               │   │
-│   │                                                                         │   │
-│   │    Browser ──► http://localhost:8081 ──► UI (React/nginx)               │   │
-│   │                                              │                          │   │
-│   │    Terminal ──► tox -e cli ────────────────┐ │ REST/WebSocket           │   │
-│   │                      │                     │ ▼                          │   │
-│   │                      │              ┌──────────────┐                    │   │
-│   │                      │              │   Gateway    │ ◄── SQLite DB      │   │
-│   │                      │              │  :8080/:50060│     /data/apme.db  │   │
-│   │                      │              └──────┬───────┘                    │   │
-│   │                      │                     │ gRPC                       │   │
-│   └──────────────────────┼─────────────────────┼────────────────────────────┘   │
-│                          │                     │                                │
-│                          ▼                     ▼                                │
-│   ┌──────────────────────────────────────────────────────────────────────────┐  │
-│   │                        Engine Layer                                      │  │
-│   │                                                                          │  │
-│   │    ┌────────────────────────────────────────────────────────────────┐    │  │
-│   │    │                      Primary :50051                            │    │  │
-│   │    │    • Orchestrator: parse → annotate → fan-out → aggregate     │    │  │
-│   │    │    • Session venv management (ansible-core versions)          │    │  │
-│   │    └────────────────────────────┬───────────────────────────────────┘    │  │
-│   │                                 │                                        │  │
-│   │              gRPC parallel fan-out (asyncio.gather)                      │  │
-│   │                 ┌────────┬──────┴──────┬─────────┐                       │  │
-│   │                 ▼        ▼             ▼         ▼                       │  │
-│   │    ┌─────────┐ ┌─────────┐ ┌──────────┐ ┌─────────────┐                  │  │
-│   │    │ Native  │ │   OPA   │ │ Ansible  │ │  Gitleaks   │                  │  │
-│   │    │ :50055  │ │ :50054  │ │  :50053  │ │   :50056    │                  │  │
-│   │    │         │ │         │ │          │ │             │                  │  │
-│   │    │ Python  │ │  Rego   │ │ Runtime  │ │  Secrets    │                  │  │
-│   │    │  rules  │ │  rules  │ │  checks  │ │   scan      │                  │  │
-│   │    │ L026+   │ │ L003+   │ │ L057-59  │ │   SEC:*     │                  │  │
-│   │    │ R101+   │ │ R118    │ │ M001-04  │ │ 800+ rules  │                  │  │
-│   │    └─────────┘ └─────────┘ └──────────┘ └─────────────┘                  │  │
-│   │                                                                          │  │
-│   └──────────────────────────────────────────────────────────────────────────┘  │
-│                                                                                 │
-│   ┌──────────────────────────────────────────────────────────────────────────┐  │
-│   │                      Supporting Services                                 │  │
-│   │                                                                          │  │
-│   │    ┌────────────────────┐              ┌─────────────────────┐           │  │
-│   │    │   Galaxy Proxy    │              │      Abbenay        │           │  │
-│   │    │      :8765        │              │       :50057        │           │  │
-│   │    │                   │              │                     │           │  │
-│   │    │ Collections → PEP │              │   AI Provider for   │           │  │
-│   │    │ 503 Python wheels │              │   Tier 2 remediation│           │  │
-│   │    └────────────────────┘              └─────────────────────┘           │  │
-│   │                                                                          │  │
-│   └──────────────────────────────────────────────────────────────────────────┘  │
-│                                                                                 │
-│   Shared Volumes:                                                               │
-│   • /sessions  ─ Session venvs (Primary ↔ Ansible validator)                    │
-│   • /cache     ─ UV cache + Galaxy collections (~/.cache/apme on host)          │
-│   • /data      ─ Gateway SQLite database                                        │
-│                                                                                 │
-└─────────────────────────────────────────────────────────────────────────────────┘
-
-CLI Container (ephemeral, joins pod network on each invocation)
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│  tox -e cli -- [command]                                                        │
-│  • Mounts $(pwd) → /workspace                                                   │
-│  • Connects to Primary at 127.0.0.1:50051                                       │
-│  • Commands: check, remediate, format, health-check                             │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
-
-**Data flow:**
-1. **Check/Scan**: CLI or UI → Gateway → Primary → validators (parallel) → aggregated violations
-2. **Remediate**: Check + Tier 1 transforms in Primary + Tier 2 AI proposals via Abbenay
-3. **Collections**: Primary/Ansible → Galaxy Proxy → galaxy.ansible.com → wheels
-
-#### Access the UI
-
-Once the pod is running, open **http://localhost:8081** in your browser.
-The UI proxies API calls to the Gateway on port 8080. No authentication
-is required for local development.
-
-The dashboard provides project management, live scan/remediate operations
-with real-time progress, interactive AI proposal review, dependency
-tracking, and cross-project analytics. See
-[.sdlc/research/ui-capabilities-assessment.md](.sdlc/research/ui-capabilities-assessment.md)
-for a full capabilities inventory.
-
-#### Run CLI scans (on-the-fly container)
-
-The CLI container is **not** part of the pod — it joins the pod network
-on each invocation with your current directory mounted at `/workspace`.
-
-```bash
-tox -e cli                              # default: check .
-tox -e cli -- check --json .            # JSON output
-tox -e cli -- remediate .               # Tier 1 deterministic fixes
-tox -e cli -- remediate --ai .          # include AI proposals (Tier 2)
-tox -e cli -- format --check .          # YAML format dry-run
-tox -e cli -- health-check              # health check all services
-```
-
-#### AI setup (optional)
-
-To enable AI-assisted remediation, create `containers/abbenay/.env` from
-the example and add your API key:
-
-```bash
-cp containers/abbenay/.env.example containers/abbenay/.env
-# Edit .env: set OPENROUTER_API_KEY=your-key
-```
-
-The `up.sh` script sources this file automatically. The Abbenay container
-starts on port 50057 and Primary connects to it for Tier 2 AI proposals.
-
-#### Stop the pod
-
-```bash
-tox -e down                              # stop and remove pod
-tox -e wipe                              # also delete database + session cache
-```
-
-#### Health check
-
-```bash
-apme health-check                        # local daemon
-tox -e cli -- health-check               # from pod
-```
-
-## AI escalation
-
-APME can escalate Tier 2 violations (no deterministic transform) to an AI provider for proposed fixes. This requires the [Abbenay](https://github.com/redhat-developer/abbenay) daemon.
-
-### Prerequisites
-
-```bash
-pip install apme-engine[ai]
-
-# Consumer auth token (required for inline policy)
-export APME_ABBENAY_TOKEN="your-token"
-```
-
-### Binary daemon
-
-```bash
-# Start Abbenay daemon (auto-discovers socket at $XDG_RUNTIME_DIR/abbenay/)
-abbenay daemon start
-# Or from a Sea binary:
-./abbenay-daemon-linux-x64 start
-
-# Set consumer auth token for inline policy (required)
-export APME_ABBENAY_TOKEN="your-token"
-
-# Remediate with AI
-apme remediate --ai /path/to/playbook-or-project
-```
-
-### Container daemon
-
-See the [Abbenay container documentation](https://github.com/redhat-developer/abbenay/blob/main/docs/CONTAINER.md) for full container setup instructions.
-
-```bash
-# Pull the pre-built multi-arch image (amd64 + arm64)
-podman pull ghcr.io/redhat-developer/abbenay:latest
-
-# Standalone: Abbenay defaults to gRPC on :50051.
-# When running inside the APME pod, use -p 50057:50051 to avoid
-# colliding with APME Primary (also :50051).
-podman run -d --name abbenay \
-  -v ./config.yaml:/home/abbenay/.config/abbenay/config.yaml:ro \
-  -e OPENROUTER_API_KEY="$OPENROUTER_API_KEY" \
-  -p 8787:8787 -p 50057:50051 \
-  ghcr.io/redhat-developer/abbenay:latest
-
-# Point APME at the Abbenay container via gRPC TCP
-APME_ABBENAY_ADDR=localhost:50057 apme remediate --ai .
-```
-
-### CLI flags
-
-| Flag | Description |
-|------|-------------|
-| `--ai` | Enable AI escalation (opt-in) |
-| `--auto-approve` | Approve all AI proposals without prompting (CI mode) |
-| `--max-passes N` | Max convergence passes (default: 5) |
-| `--json` | Output structured data payloads as JSON |
-| `--session ID` | Explicit session ID for venv reuse (default: auto-derived from project root) |
-
-### Remediation flow
-
-1. **Tier 1 (deterministic)**: convergence loop applies transforms until stable
-2. **Tier 2 (AI)**: remaining violations are sent to the AI provider one at a time; each proposal is re-validated, cleaned with Tier 1 transforms, and retried with feedback if needed
-3. **Interactive review**: accepted proposals are applied (or previewed with `check --diff`)
-4. **Tier 3 (manual)**: violations that neither transforms nor AI can fix are reported for human review
-
-## Scaling
-
-Scale pods, not services within a pod. Each pod is a self-contained stack that can process check and remediate workloads end-to-end. For more throughput, run multiple pods behind a load balancer. See [docs/architecture/17-scaling-and-deployment.md](docs/architecture/17-scaling-and-deployment.md).
-
-## Tests
-
-```bash
-# Install tox (one-time setup)
-uv tool install tox --with tox-uv
-
-# Unit tests with coverage
-tox -e unit
-
-# Integration tests (requires OPA binary)
-tox -e integration
-
-# All default environments (lint + unit + integration + ai + ui)
-tox
-```
-
-See [docs/guides/DEVELOPMENT.md](docs/guides/DEVELOPMENT.md) for the full tox environment reference.
 
 ## Project layout
 
 ```
-proto/apme/v1/          gRPC service definitions (.proto)
-src/apme/v1/            generated Python gRPC stubs
 src/apme_engine/
-  ├── engine/           project loader (parse, annotate, hierarchy)
-  │   └── annotators/   per-module risk annotators
-  ├── validators/
-  │   ├── base.py       Validator protocol + ScanContext
-  │   ├── native/       Python rules (L026–L105, M005/M010, R101–R501)
-  │   ├── opa/          Rego bundle (L003–L025, L061–L072, M006/M008/M009/M011, R118)
-  │   ├── ansible/      Ansible-runtime rules (L057–L059, M001–M004)
-  │   └── gitleaks/     Gitleaks wrapper (SEC:* — secret detection)
+  ├── cli/              CLI (check, format, remediate, health-check, sbom, suppress)
+  ├── engine/           Project loader (parse, annotate, hierarchy, graph)
+  ├── validators/       Rule implementations (native/, opa/, ansible/, gitleaks/)
   ├── daemon/           gRPC server implementations
-  ├── venv_manager/     Session-scoped venv lifecycle (VenvSessionManager)
   ├── remediation/      Tier 1 transforms + AI escalation
-  ├── formatter.py      YAML formatter (phase 1 remediation)
-  ├── cli/              CLI entry point (check, format, remediate, health-check)
-  └── runner.py         scan orchestration (engine-internal pipeline)
+  └── venv_manager/     Session-scoped venv lifecycle
 src/apme_gateway/       API gateway (FastAPI, REST/WebSocket, SQLite)
 src/galaxy_proxy/       Galaxy → PEP 503 wheel proxy
 frontend/               React operator UI (Vite + TypeScript)
+deploy/                 Helm chart + bootc VM image
 containers/             Containerfiles + Podman pod config
-docs/                   architecture, design, rule mapping
-tests/                  unit, integration, rule doc coverage
+docs/                   Architecture, design, guides, rule reference
 ```
 
 ## Documentation
 
 | Document | Description |
 |----------|-------------|
-| [Architecture series](docs/architecture/) | Pipeline walkthrough, container topology, gRPC contracts, data flow, scaling model |
-| [Design docs](docs/design/) | Remediation engine, AI escalation, validator abstraction — design rationale |
-| [Guides](docs/guides/) | Development setup, deployment, troubleshooting |
-| [Rule reference](docs/rules/) | Rule catalog, ID mapping, doc format, ansible-lint coverage |
-| [ADRs](.sdlc/adrs/) | Architecture Decision Records — key design decisions with context, alternatives, and rationale |
+| [CLI Guide](docs/guides/CLI.md) | Installation, commands, daemon mode, CI usage, limitations |
+| [Deployment Guide](docs/guides/DEPLOYMENT.md) | Podman pod setup, configuration, troubleshooting |
+| [bootc Deployment](deploy/bootc/README.md) | Atomic VM image with systemd quadlets |
+| [Helm Chart](deploy/helm/apme/README.md) | Kubernetes/OpenShift deployment |
+| [Architecture series](docs/architecture/) | Pipeline walkthrough, container topology, gRPC contracts, scaling |
+| [Design docs](docs/design/) | Remediation engine, AI escalation, validator abstraction |
+| [Rule reference](docs/rules/) | Rule catalog, ID mapping, ansible-lint coverage |
+| [Development guide](docs/guides/DEVELOPMENT.md) | Local setup, tox environments, testing |
+| [ADRs](.sdlc/adrs/) | Architecture Decision Records |
 
-## Roadmap
+## Contributing
 
-### Phase 1 — YAML Formatter (done)
-
-`format` subcommand with `--diff`/`--apply`/`--check` modes, idempotency guarantees, gRPC `Format` RPC.
-
-### Phase 2 — Modernization Engine
-
-- `remediate` subcommand: format → idempotency gate → re-scan → semantic transforms.
-- **`is_finding_resolvable()` partition**: each rule declares a `fixable` attribute; the remediate pipeline splits findings into auto-fixable vs manual/AI.
-- **Multi-pass convergence loop**: remediate applies transforms and re-runs the internal scan pipeline until stable or oscillation detected (max N passes).
-- **`module_metadata.json`**: machine-readable module lifecycle data (introduced, deprecated, removed, parameter renames) generated from `ansible-doc` across core versions. M-series rules become data-driven lookups instead of per-rule hardcoded logic.
-
-### Phase 2a — New Rules
-
-- **Secret scanning** (done) — Gitleaks validator: 800+ patterns for credentials, API keys, private keys via dedicated container + gRPC wrapper. Vault and Jinja filtering built in.
-- **EE compatibility rules** (R505–R507): undeclared collections, system path assumptions, undeclared Python deps. Requires static `ee_baseline.json` from `ee-supported-rhel9` inspection.
-- **Version auto-detection**: infer source Ansible version from playbook signals (short-form module names → ≤2.9, `include:` → ≤2.7, `tower_*` → ≤2.13). Auto-scope M-rules without an explicit `--ansible-core-version` flag.
-
-### Phase 3 — AI Integration (in progress)
-
-- **Abbenay daemon** as the AI backend via gRPC: `pip install apme-engine[ai]`.
-- **AIProvider Protocol** (`ADR-024`): pluggable abstraction for LLM providers; `AbbenayProvider` is the default.
-- **Hybrid validation loop**: AI proposals are re-scanned through APME validators, cleaned up with Tier 1 transforms, and retried with feedback if issues persist (max 2 attempts).
-- **Interactive review** (`--ai` flag): per-fix diff review (y/n/skip) like `git add -p`, or `--auto-approve` for automatic application.
-- **Structured best practices**: curated Ansible guidelines injected into prompts for higher-quality fixes.
-- **Preflight checks**: auto-discover Abbenay daemon socket, health check before AI calls.
-- See [DESIGN_AI_ESCALATION.md](docs/design/DESIGN_AI_ESCALATION.md) for the full design.
-
-### Phase 4 — Web UI (in progress)
-
-Operator UI for **check** and **remediate** sessions, **Activity** (history), health monitoring, and findings management. API gateway (FastAPI), REST/WebSocket API (`/api/v1/activity`, etc.), persistence (SQLite), and React frontend. Operation streaming uses `FixSession` gRPC (ADR-039). See [docs/architecture/13-gateway-and-persistence.md](docs/architecture/13-gateway-and-persistence.md) and [14-ui-integration.md](docs/architecture/14-ui-integration.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development workflow, coding standards, and PR process.
 
 ## License
 

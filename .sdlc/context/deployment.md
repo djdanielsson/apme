@@ -1,6 +1,21 @@
 # Deployment
 
-## Podman Pod (Recommended)
+> **Canonical user-facing guide:** [docs/guides/DEPLOYMENT.md](/docs/guides/DEPLOYMENT.md)
+>
+> This file provides AI-agent context. For the most complete and current
+> deployment instructions (including bootc VM and Helm chart), see the
+> canonical guide linked above.
+
+## Deployment Methods
+
+| Method | Best for | Guide |
+|--------|----------|-------|
+| CLI daemon | Quick evaluation, CI | [docs/guides/CLI.md](/docs/guides/CLI.md) |
+| Podman pod | Development, full features | [docs/guides/DEPLOYMENT.md](/docs/guides/DEPLOYMENT.md) |
+| bootc VM | Production single-node | [deploy/bootc/README.md](/deploy/bootc/README.md) |
+| Helm chart | Kubernetes / OpenShift | [deploy/helm/apme/README.md](/deploy/helm/apme/README.md) |
+
+## Podman Pod
 
 The primary deployment target is a **Podman pod**. All backend services run in a single pod sharing localhost; the CLI is run on-the-fly outside the pod with the project directory mounted.
 
@@ -18,7 +33,7 @@ From the repo root:
 tox -e build
 ```
 
-This builds nine images:
+This builds eleven images:
 
 | Image | Dockerfile | Purpose |
 |-------|------------|---------|
@@ -27,10 +42,14 @@ This builds nine images:
 | `apme-opa:latest` | `containers/opa/Dockerfile` | OPA + gRPC wrapper |
 | `apme-ansible:latest` | `containers/ansible/Dockerfile` | Ansible validator (reads session venvs) |
 | `apme-gitleaks:latest` | `containers/gitleaks/Dockerfile` | Gitleaks secret scanner + gRPC wrapper |
+| `apme-collection-health:latest` | `containers/collection-health/Dockerfile` | Installed collection health scanner |
+| `apme-dep-audit:latest` | `containers/dep-audit/Dockerfile` | Python CVE scanner (pip-audit) |
 | `apme-galaxy-proxy:latest` | `containers/galaxy-proxy/Dockerfile` | PEP 503 proxy: Galaxy tarballs → Python wheels |
 | `apme-gateway:latest` | `containers/gateway/Dockerfile` | REST/gRPC gateway + SQLite persistence |
 | `apme-ui:latest` | `containers/ui/Dockerfile` | React SPA dashboard (nginx) |
 | `apme-cli:latest` | `containers/cli/Dockerfile` | CLI client |
+
+The Abbenay AI image (`ghcr.io/redhat-developer/abbenay`) is pulled from the registry.
 
 ### Start the Pod
 
@@ -38,7 +57,7 @@ This builds nine images:
 tox -e up
 ```
 
-This runs `podman play kube containers/podman/pod.yaml`, which starts the pod `apme-pod` with eight containers (Primary, Native, OPA, Ansible, Gitleaks, Galaxy Proxy, Gateway, UI). A sessions directory and gateway data directory are created for session-scoped venvs and persistent activity data.
+This runs `podman play kube containers/podman/pod.yaml`, which starts the pod `apme-pod` with all service containers (Primary, Native, OPA, Ansible, Gitleaks, Collection Health, Dep Audit, Galaxy Proxy, Gateway, UI, Abbenay). A sessions directory and gateway data directory are created for session-scoped venvs and persistent activity data.
 
 ### Run CLI Commands
 
@@ -68,7 +87,7 @@ tox -e wipe                             # stop pod and delete DB + session cache
 apme health-check --primary-addr 127.0.0.1:50051
 ```
 
-Reports status of all services (Primary, Native, OPA, Ansible, Gitleaks) with latency.
+Reports status of all services (Primary, Native, OPA, Ansible, Gitleaks, Collection Health, Dep Audit) with latency.
 
 ---
 
@@ -84,6 +103,11 @@ Reports status of all services (Primary, Native, OPA, Ansible, Gitleaks) with la
 | `NATIVE_GRPC_ADDRESS` | — | Native validator address (e.g., `127.0.0.1:50055`) |
 | `OPA_GRPC_ADDRESS` | — | OPA validator address (e.g., `127.0.0.1:50054`) |
 | `ANSIBLE_GRPC_ADDRESS` | — | Ansible validator address (e.g., `127.0.0.1:50053`) |
+| `GITLEAKS_GRPC_ADDRESS` | — | Gitleaks validator address (e.g., `127.0.0.1:50056`) |
+| `COLLECTION_HEALTH_GRPC_ADDRESS` | — | Collection Health validator address (e.g., `127.0.0.1:50058`) |
+| `DEP_AUDIT_GRPC_ADDRESS` | — | Dep Audit validator address (e.g., `127.0.0.1:50059`) |
+| `APME_ABBENAY_ADDR` | — | Abbenay AI daemon address (e.g., `127.0.0.1:50057`) |
+| `APME_REPORTING_ENDPOINT` | — | Gateway gRPC Reporting address (e.g., `127.0.0.1:50060`) |
 
 > If a validator address is unset, that validator is skipped during fan-out.
 
@@ -174,9 +198,10 @@ apme remediate .
 apme daemon stop
 ```
 
-**Daemon mode** starts a local Primary server with Native, OPA, and Ansible
-validators running in-process. Gitleaks is excluded (requires the gitleaks binary). OPA runs via the local `opa` binary (no container
-needed); skip it with `--no-opa` if `opa` is not installed.
+**Daemon mode** starts a local Primary server with Native, OPA, Ansible, and
+Galaxy Proxy validators running in-process. Gitleaks is excluded (requires the
+gitleaks binary). OPA runs via the local `opa` binary; if `opa` is not
+installed, the OPA validator is automatically skipped.
 
 The CLI is a **thin gRPC client** — it sends file bytes to the daemon and
 receives results. It does not import engine internals.
@@ -215,8 +240,11 @@ tox -e wipe                             # stop + wipe DB/sessions
 | 50054 | OPA | `APME_OPA_VALIDATOR_LISTEN` |
 | 50055 | Native | `APME_NATIVE_VALIDATOR_LISTEN` |
 | 50056 | Gitleaks | `APME_GITLEAKS_VALIDATOR_LISTEN` |
+| 50057 | Abbenay AI | `--grpc-port` (CLI flag) |
+| 50058 | Collection Health | `APME_COLLECTION_HEALTH_VALIDATOR_LISTEN` |
+| 50059 | Dep Audit | `APME_DEP_AUDIT_VALIDATOR_LISTEN` |
 | 50060 | Gateway (gRPC) | `APME_GATEWAY_GRPC_LISTEN` |
-| 8080 | Gateway (HTTP) | `APME_GATEWAY_HTTP_LISTEN` |
+| 8080 | Gateway (HTTP) | `APME_GATEWAY_HTTP_PORT` |
 | 8081 | UI (nginx) | — |
 | 8765 | Galaxy Proxy | `APME_GALAXY_PROXY_URL` |
 

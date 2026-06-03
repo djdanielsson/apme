@@ -1,6 +1,21 @@
-# Deployment
+# Deployment Guide
 
-## Podman pod (recommended)
+APME supports multiple deployment methods depending on your environment and needs.
+
+| Method | Best for | Details |
+|--------|----------|---------|
+| **Podman pod** | Development, full feature set | [Below](#podman-pod) |
+| **bootc VM** | Production single-node, atomic upgrades | [bootc section](#bootc-vm) / [full guide](../../deploy/bootc/README.md) |
+| **Helm chart** | Kubernetes / OpenShift | [Helm section](#helm--kubernetes) / [full guide](../../deploy/helm/apme/README.md) |
+| **CLI daemon** | Quick evaluation, CI | [CLI Guide](CLI.md) |
+
+All deployment methods run the same engine stack (Primary + validators + Galaxy
+Proxy). The difference is lifecycle management, persistence, and additional
+services (UI, Gateway, Abbenay AI).
+
+---
+
+## Podman pod
 
 The primary deployment target is a Podman pod. All backend services run in a single pod sharing `localhost`; the CLI is run on-the-fly outside the pod with the project directory mounted.
 
@@ -307,4 +322,91 @@ See [PODMAN_OPA_ISSUES.md](PODMAN_OPA_ISSUES.md) for common Podman rootless issu
 
 ## Related Documents
 
-- [ADR-006](../.sdlc/adrs/ADR-006-ephemeral-venvs.md) — Ephemeral venvs for Ansible (superseded by ADR-022/ADR-031)
+- [CLI Guide](CLI.md) — CLI installation, commands, and limitations
+- [bootc full guide](../../deploy/bootc/README.md) — Complete bootc VM documentation
+- [Helm chart full guide](../../deploy/helm/apme/README.md) — Complete Helm documentation
+- [ADR-006](../../.sdlc/adrs/ADR-006-ephemeral-venvs.md) — Ephemeral venvs for Ansible (superseded by ADR-022/ADR-031)
+- [ADR-054](../../.sdlc/adrs/ADR-054-production-deployment.md) — Production Deployment (Helm + bootc)
+
+---
+
+## bootc VM
+
+Deploy APME as an atomic, image-based Linux VM using
+[bootc](https://containers.github.io/bootc/). The VM ships Podman and quadlet
+definitions for all APME services. Container images are pulled from the registry
+on first boot. Systemd manages automatic startup and lifecycle.
+
+**Highlights:**
+
+- CentOS Stream 10 base image
+- Systemd quadlet files for each service (automatic restart, dependency ordering)
+- Atomic upgrades with automatic rollback on failure (`bootc switch`)
+- Persistent storage at `/var/lib/apme/`
+- Firewall rules expose only ports 8080 (REST), 8081 (UI), 50051 (gRPC)
+
+### Quick start
+
+```bash
+# Build the bootc OCI image
+podman build -f deploy/bootc/Containerfile -t apme-bootc:latest .
+
+# Convert to disk image (qcow2, raw, or AMI)
+sudo podman run --rm -it --privileged \
+  -v ./output:/output \
+  -v /var/lib/containers/storage:/var/lib/containers/storage \
+  quay.io/centos-bootc/bootc-image-builder:latest \
+  --type qcow2 --local apme-bootc:latest
+
+# Boot the VM — APME starts automatically
+```
+
+### Upgrading
+
+```bash
+sudo bootc switch --transport containers-storage apme-bootc:latest
+sudo systemctl reboot
+```
+
+See [deploy/bootc/README.md](../../deploy/bootc/README.md) for full
+configuration, service management, and troubleshooting.
+
+---
+
+## Helm / Kubernetes
+
+Deploy APME on Kubernetes or OpenShift using the Helm chart at
+`deploy/helm/apme/`. The chart models the engine stack as sidecar containers
+in a single pod (preserving localhost networking per ADR-005 and pod scaling
+per ADR-012).
+
+**Highlights:**
+
+- Engine pod: Primary + Native + OPA + Ansible + Gitleaks + Collection Health + Dep Audit + Galaxy Proxy as sidecars
+- Separate deployments for Gateway, UI, and Abbenay (AI)
+- HPA for engine scaling, PDB for disruption budget
+- Ingress/Route support (OpenShift Routes included)
+- NetworkPolicy for pod isolation
+- PVC for Gateway persistence, emptyDir for session venvs
+
+### Quick start
+
+```bash
+helm install apme ./deploy/helm/apme/ \
+  --set image.tag=sha-7cb2464 \
+  --set abbenay.apiKey=$OPENROUTER_API_KEY
+```
+
+### Key values
+
+| Value | Description |
+|-------|-------------|
+| `image.tag` | Image tag for all containers (required — no default) |
+| `engine.replicas` | Engine pod replicas (default: 1) |
+| `abbenay.enabled` | Enable AI provider (default: true) |
+| `abbenay.apiKey` | LLM provider API key |
+| `ingress.enabled` | Create Ingress resource (default: false) |
+| `route.enabled` | Create OpenShift Route (default: false) |
+
+See [deploy/helm/apme/README.md](../../deploy/helm/apme/README.md) for the
+full values reference and architecture details.
