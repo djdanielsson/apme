@@ -27,6 +27,7 @@ from apme_gateway.db.models import (
     ScanPatch,
     ScanPythonPackage,
     Session,
+    Suppression,
     Violation,
 )
 
@@ -1350,6 +1351,8 @@ async def python_package_detail(
 
 async def collection_health_counts(
     db: AsyncSession,
+    *,
+    exclude_ids: set[int] | None = None,
 ) -> list[dict[str, object]]:
     """Return violation counts per collection FQCN from latest scans.
 
@@ -1359,6 +1362,7 @@ async def collection_health_counts(
 
     Args:
         db: Active async database session.
+        exclude_ids: Violation PKs to exclude (e.g. suppressed).
 
     Returns:
         List of dicts with fqcn, finding_count, and severity breakdown.
@@ -1373,6 +1377,13 @@ async def collection_health_counts(
     )
     latest = select(latest_scans.c.scan_id).where(latest_scans.c.rn == 1).subquery()
 
+    conditions = [
+        Violation.validator_source == "collection_health",
+        Violation.scan_id.in_(select(latest.c.scan_id)),
+    ]
+    if exclude_ids:
+        conditions.append(Violation.id.not_in(exclude_ids))
+
     stmt = (
         select(
             Violation.path.label("fqcn"),
@@ -1384,10 +1395,7 @@ async def collection_health_counts(
             func.sum(case((Violation.level == "low", 1), else_=0)).label("low"),
             func.sum(case((Violation.level.in_(["info", "none", "very_low"]), 1), else_=0)).label("info"),
         )
-        .where(
-            Violation.validator_source == "collection_health",
-            Violation.scan_id.in_(select(latest.c.scan_id)),
-        )
+        .where(*conditions)
         .group_by(Violation.path)
         .order_by(func.count().desc())
     )
@@ -1409,6 +1417,8 @@ async def collection_health_counts(
 
 async def python_cve_counts(
     db: AsyncSession,
+    *,
+    exclude_ids: set[int] | None = None,
 ) -> list[dict[str, object]]:
     """Return CVE violation counts per unique CVE finding from latest scans.
 
@@ -1417,6 +1427,7 @@ async def python_cve_counts(
 
     Args:
         db: Active async database session.
+        exclude_ids: Violation PKs to exclude (e.g. suppressed).
 
     Returns:
         List of dicts with rule_id, level, message, count.
@@ -1431,6 +1442,13 @@ async def python_cve_counts(
     )
     latest = select(latest_scans.c.scan_id).where(latest_scans.c.rn == 1).subquery()
 
+    conditions = [
+        Violation.validator_source == "dep_audit",
+        Violation.scan_id.in_(select(latest.c.scan_id)),
+    ]
+    if exclude_ids:
+        conditions.append(Violation.id.not_in(exclude_ids))
+
     stmt = (
         select(
             Violation.rule_id,
@@ -1438,10 +1456,7 @@ async def python_cve_counts(
             Violation.message,
             func.count().label("occurrence_count"),
         )
-        .where(
-            Violation.validator_source == "dep_audit",
-            Violation.scan_id.in_(select(latest.c.scan_id)),
-        )
+        .where(*conditions)
         .group_by(Violation.rule_id, Violation.level, Violation.message)
         .order_by(func.count().desc())
     )
@@ -1460,6 +1475,8 @@ async def python_cve_counts(
 async def project_collection_health_counts(
     db: AsyncSession,
     project_id: str,
+    *,
+    exclude_ids: set[int] | None = None,
 ) -> list[dict[str, object]]:
     """Return collection health violation counts for a specific project.
 
@@ -1468,6 +1485,7 @@ async def project_collection_health_counts(
     Args:
         db: Active async database session.
         project_id: UUID of the project.
+        exclude_ids: Violation PKs to exclude (e.g. suppressed).
 
     Returns:
         List of dicts with fqcn, finding_count, and severity breakdown.
@@ -1480,6 +1498,13 @@ async def project_collection_health_counts(
         .scalar_subquery()
     )
 
+    conditions = [
+        Violation.validator_source == "collection_health",
+        Violation.scan_id == latest_scan,
+    ]
+    if exclude_ids:
+        conditions.append(Violation.id.not_in(exclude_ids))
+
     stmt = (
         select(
             Violation.path.label("fqcn"),
@@ -1491,10 +1516,7 @@ async def project_collection_health_counts(
             func.sum(case((Violation.level == "low", 1), else_=0)).label("low"),
             func.sum(case((Violation.level.in_(["info", "none", "very_low"]), 1), else_=0)).label("info"),
         )
-        .where(
-            Violation.validator_source == "collection_health",
-            Violation.scan_id == latest_scan,
-        )
+        .where(*conditions)
         .group_by(Violation.path)
         .order_by(func.count().desc())
     )
@@ -1517,6 +1539,8 @@ async def project_collection_health_counts(
 async def project_python_cve_counts(
     db: AsyncSession,
     project_id: str,
+    *,
+    exclude_ids: set[int] | None = None,
 ) -> list[dict[str, object]]:
     """Return Python CVE counts for a specific project.
 
@@ -1525,6 +1549,7 @@ async def project_python_cve_counts(
     Args:
         db: Active async database session.
         project_id: UUID of the project.
+        exclude_ids: Violation PKs to exclude (e.g. suppressed).
 
     Returns:
         List of dicts with rule_id, level, message, count.
@@ -1537,6 +1562,13 @@ async def project_python_cve_counts(
         .scalar_subquery()
     )
 
+    conditions = [
+        Violation.validator_source == "dep_audit",
+        Violation.scan_id == latest_scan,
+    ]
+    if exclude_ids:
+        conditions.append(Violation.id.not_in(exclude_ids))
+
     stmt = (
         select(
             Violation.rule_id,
@@ -1544,10 +1576,7 @@ async def project_python_cve_counts(
             Violation.message,
             func.count().label("occurrence_count"),
         )
-        .where(
-            Violation.validator_source == "dep_audit",
-            Violation.scan_id == latest_scan,
-        )
+        .where(*conditions)
         .group_by(Violation.rule_id, Violation.level, Violation.message)
         .order_by(func.count().desc())
     )
@@ -2095,6 +2124,202 @@ async def delete_notification(db: AsyncSession, notification_id: int) -> bool:
         True if the row was found and deleted.
     """
     stmt = select(Notification).where(Notification.id == notification_id)
+    result = await db.execute(stmt)
+    row = result.scalar_one_or_none()
+    if row is None:
+        return False
+    await db.delete(row)
+    await db.commit()
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Suppression queries (ADR-055)
+# ---------------------------------------------------------------------------
+
+
+async def create_suppression(
+    db: AsyncSession,
+    *,
+    fingerprint_hash: str,
+    fingerprint_mode: str,
+    rule_id: str,
+    scope: str = "global",
+    reason: str = "",
+    created_by: str = "",
+) -> Suppression:
+    """Create a new suppression record.
+
+    Args:
+        db: Active async database session.
+        fingerprint_hash: SHA-256 hex digest.
+        fingerprint_mode: ``full``, ``rule_module``, or ``rule_only``.
+        rule_id: Canonical rule identifier.
+        scope: ``global`` or ``project:<uuid>``.
+        reason: Human justification.
+        created_by: Author of the suppression.
+
+    Returns:
+        The created Suppression row.
+    """
+    row = Suppression(
+        fingerprint_hash=fingerprint_hash,
+        fingerprint_mode=fingerprint_mode,
+        rule_id=rule_id,
+        scope=scope,
+        reason=reason,
+        created_by=created_by,
+        created_at=datetime.now(tz=timezone.utc).isoformat(),
+    )
+    db.add(row)
+    await db.commit()
+    await db.refresh(row)
+    return row
+
+
+async def list_suppressions(
+    db: AsyncSession,
+    *,
+    scope: str | None = None,
+) -> list[Suppression]:
+    """List suppression records, optionally filtered by scope.
+
+    Args:
+        db: Active async database session.
+        scope: Optional scope filter (``global``, ``project:<uuid>``).
+
+    Returns:
+        List of matching Suppression rows.
+    """
+    stmt = select(Suppression).order_by(Suppression.created_at.desc())
+    if scope is not None:
+        stmt = stmt.where(Suppression.scope == scope)
+    result = await db.execute(stmt)
+    return list(result.scalars().all())
+
+
+async def get_suppression_hashes(
+    db: AsyncSession,
+    *,
+    project_id: str | None = None,
+) -> set[str]:
+    """Return the set of suppressed fingerprint hashes.
+
+    Includes both global suppressions and project-scoped ones if a
+    ``project_id`` is given.
+
+    Args:
+        db: Active async database session.
+        project_id: Optional project UUID for scoped suppression lookup.
+
+    Returns:
+        Set of fingerprint hash strings that are currently suppressed.
+    """
+    conditions = [Suppression.scope == "global"]
+    if project_id:
+        conditions.append(Suppression.scope == f"project:{project_id}")
+    from sqlalchemy import or_
+
+    stmt = select(Suppression.fingerprint_hash).where(or_(*conditions))
+    result = await db.execute(stmt)
+    return {row[0] for row in result.all()}
+
+
+async def latest_project_scan_ids(
+    db: AsyncSession,
+    *,
+    project_id: str | None = None,
+) -> list[str]:
+    """Return the most recent scan ID per project.
+
+    When ``project_id`` is given, returns only that project's latest scan.
+    Otherwise returns one scan ID per project across all projects.
+
+    Args:
+        db: Active async database session.
+        project_id: Optional project UUID to scope.
+
+    Returns:
+        List of scan ID strings.
+    """
+    if project_id:
+        stmt = select(Scan.scan_id).where(Scan.project_id == project_id).order_by(Scan.created_at.desc()).limit(1)
+        result = await db.execute(stmt)
+        row = result.scalar_one_or_none()
+        return [row] if row else []
+
+    ranked = (
+        select(
+            Scan.scan_id,
+            func.row_number().over(partition_by=Scan.project_id, order_by=Scan.created_at.desc()).label("rn"),
+        )
+        .where(Scan.project_id.is_not(None))
+        .subquery()
+    )
+    stmt = select(ranked.c.scan_id).where(ranked.c.rn == 1)
+    result = await db.execute(stmt)
+    return [row[0] for row in result.all()]
+
+
+async def suppressed_violation_ids(
+    db: AsyncSession,
+    scan_ids: list[str],
+    *,
+    project_id: str | None = None,
+) -> set[int]:
+    """Return IDs of dep-health violations that match an active suppression.
+
+    Fetches all ``collection_health`` / ``dep_audit`` violations from the
+    given scans, computes their client-compatible fingerprint, and checks
+    against stored suppression hashes.
+
+    Args:
+        db: Active async database session.
+        scan_ids: Scan IDs to check.
+        project_id: Optional project for scoped suppression lookup.
+
+    Returns:
+        Set of Violation PKs that are currently suppressed.
+    """
+    if not scan_ids:
+        return set()
+
+    hashes = await get_suppression_hashes(db, project_id=project_id)
+    if not hashes:
+        return set()
+
+    import hashlib  # noqa: PLC0415
+    import re  # noqa: PLC0415
+
+    legacy_re = re.compile(r"^(native|opa|ansible|gitleaks):")
+
+    stmt = select(Violation.id, Violation.rule_id, Violation.original_yaml).where(
+        Violation.scan_id.in_(scan_ids),
+        Violation.validator_source.in_(["collection_health", "dep_audit"]),
+    )
+    result = await db.execute(stmt)
+
+    excluded: set[int] = set()
+    for vid, rule_id, original_yaml in result.all():
+        canonical = legacy_re.sub("", (rule_id or "").strip())
+        payload = canonical + "\x00" + (original_yaml or "")
+        fp = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+        if fp in hashes:
+            excluded.add(vid)
+    return excluded
+
+
+async def delete_suppression(db: AsyncSession, suppression_id: int) -> bool:
+    """Delete a suppression by its ID.
+
+    Args:
+        db: Active async database session.
+        suppression_id: PK of the suppression.
+
+    Returns:
+        True if the row was found and deleted.
+    """
+    stmt = select(Suppression).where(Suppression.id == suppression_id)
     result = await db.execute(stmt)
     row = result.scalar_one_or_none()
     if row is None:

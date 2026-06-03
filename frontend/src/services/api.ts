@@ -303,6 +303,30 @@ export async function deleteGalaxyServer(serverId: number): Promise<void> {
   if (!res.ok) throw new Error(`${res.status}`);
 }
 
+// ── Suppressions (ADR-055) ──────────────────────────────────────────────
+
+export function listSuppressions(
+  scope?: string,
+): Promise<import("../types/api").SuppressionRecord[]> {
+  const params = scope ? `?scope=${encodeURIComponent(scope)}` : "";
+  return request(`/suppressions${params}`);
+}
+
+export function createSuppression(
+  body: import("../types/api").CreateSuppressionRequest,
+): Promise<import("../types/api").SuppressionRecord> {
+  return request("/suppressions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function deleteSuppression(id: number): Promise<void> {
+  const res = await fetch(`${BASE}/suppressions/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(`${res.status}`);
+}
+
 // ── Feedback (POC) ─────────────────────────────────────────────────────
 
 export function getFeedbackEnabled(): Promise<{ enabled: boolean }> {

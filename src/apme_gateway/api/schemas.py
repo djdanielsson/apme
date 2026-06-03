@@ -80,6 +80,7 @@ class ViolationDetail(BaseModel):  # type: ignore[misc]
         node_line_start: File line where the node starts.
         ai_reason: Why the AI could not fix this violation (ai_abstained only).
         ai_suggestion: Manual remediation guidance from the AI (ai_abstained only).
+        suppressed: True if this violation matches an active suppression (ADR-055).
     """
 
     id: int
@@ -99,6 +100,7 @@ class ViolationDetail(BaseModel):  # type: ignore[misc]
     node_line_start: int = 0
     ai_reason: str = ""
     ai_suggestion: str = ""
+    suppressed: bool = False
 
 
 class ProposalDetail(BaseModel):  # type: ignore[misc]
@@ -812,6 +814,51 @@ class ProjectRanking(BaseModel):  # type: ignore[misc]
     scan_count: int
     last_scanned_at: str | None = None
     days_since_last_scan: int | None = None
+
+
+# ── Suppression schemas (ADR-055) ─────────────────────────────────────
+
+
+class SuppressionSchema(BaseModel):  # type: ignore[misc]
+    """A fingerprint-based violation suppression (ADR-055).
+
+    Attributes:
+        id: Auto-increment PK.
+        fingerprint_hash: SHA-256 hex digest.
+        fingerprint_mode: Granularity — ``full``, ``rule_module``, or ``rule_only``.
+        rule_id: Canonical rule identifier.
+        scope: ``global`` or ``project:<uuid>``.
+        reason: Human justification.
+        created_by: Author of the suppression.
+        created_at: ISO 8601 creation timestamp.
+    """
+
+    id: int
+    fingerprint_hash: str
+    fingerprint_mode: str
+    rule_id: str
+    scope: str
+    reason: str
+    created_by: str
+    created_at: str
+
+
+class CreateSuppressionRequest(BaseModel):  # type: ignore[misc]
+    """Request body for acknowledging/suppressing a violation (ADR-055).
+
+    Attributes:
+        fingerprint_hash: SHA-256 hex digest computed from rule_id + normalized YAML.
+        fingerprint_mode: Granularity — ``full``, ``rule_module``, or ``rule_only``.
+        rule_id: Canonical rule identifier.
+        scope: ``global`` or ``project:<uuid>``.
+        reason: Human justification for the acknowledgment.
+    """
+
+    fingerprint_hash: str
+    fingerprint_mode: str = "full"
+    rule_id: str
+    scope: str = "global"
+    reason: str = ""
 
 
 class NotificationSchema(BaseModel):  # type: ignore[misc]

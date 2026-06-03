@@ -18,9 +18,10 @@ import {
   FlexItem,
 } from '@patternfly/react-core';
 import { ExternalLinkAltIcon } from '@patternfly/react-icons';
-import { createPullRequest, deleteActivity, getActivity } from '../services/api';
+import { createPullRequest, createSuppression, deleteActivity, getActivity } from '../services/api';
 import { useFeedbackEnabled } from '../hooks/useFeedbackEnabled';
-import type { ActivityDetail } from '../types/api';
+import { computeFingerprint } from '../utils/fingerprint';
+import type { ActivityDetail, ViolationDetail } from '../types/api';
 
 
 function displayType(scanType: string): string {
@@ -44,6 +45,7 @@ export function ActivityDetailPage() {
   const [resultsOpen, setResultsOpen] = useState(true);
   const [prCreating, setPrCreating] = useState(false);
   const [prError, setPrError] = useState<string | null>(null);
+  const [acknowledgedIds, setAcknowledgedIds] = useState<Set<number>>(new Set());
 
   useEffect(() => {
     if (!activityId) return;
@@ -56,13 +58,15 @@ export function ActivityDetailPage() {
 
   const projectViolations = useMemo(() => {
     if (!detail) return [];
-    return detail.violations.filter((v) => !isDepHealthViolation(v));
+    return detail.violations.filter((v) => !isDepHealthViolation(v) && !v.suppressed);
   }, [detail]);
 
   const depHealthCount = useMemo(() => {
     if (!detail) return 0;
-    return detail.violations.filter(isDepHealthViolation).length;
-  }, [detail]);
+    return detail.violations.filter(
+      (v) => isDepHealthViolation(v) && !v.suppressed && !acknowledgedIds.has(v.id),
+    ).length;
+  }, [detail, acknowledgedIds]);
 
   const sevCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -161,6 +165,20 @@ export function ActivityDetailPage() {
     }
   };
 
+  const handleAcknowledge = async (violation: ViolationDetail) => {
+    try {
+      const fp = await computeFingerprint(violation.rule_id, violation.original_yaml ?? '');
+      await createSuppression({
+        fingerprint_hash: fp,
+        rule_id: violation.rule_id,
+        reason: 'Acknowledged via activity detail',
+      });
+      setAcknowledgedIds(prev => new Set(prev).add(violation.id));
+    } catch (err) {
+      console.error('Failed to acknowledge violation:', err);
+    }
+  };
+
   const isRemediate = detail.scan_type === 'fix' || detail.scan_type === 'remediate';
   const canCreatePR = isRemediate && detail.patches.length > 0 && !detail.pr_url;
 
@@ -230,7 +248,7 @@ export function ActivityDetailPage() {
       <div className="apme-activity-layout">
         {/* Status bar + severity bar (fixed height, always visible) */}
         <ViolationStatusBar
-          detail={detail}
+          detail={{ ...detail, total_violations: projectViolations.length + depHealthCount }}
           depHealthCount={depHealthCount}
         />
         <SeverityStatusBar sevCounts={sevCounts} />
@@ -267,7 +285,14 @@ export function ActivityDetailPage() {
         </div>
 
         {/* Dependencies panel */}
-        <DependencyHealthOutput violations={detail.violations} />
+        <DependencyHealthOutput
+          violations={detail.violations}
+          scanType={detail.scan_type}
+          scanId={activityId}
+          feedbackEnabled={feedbackEnabled}
+          onAcknowledge={handleAcknowledge}
+          acknowledgedIds={acknowledgedIds}
+        />
 
         {/* Pipeline log panel */}
         <PipelineLogOutput logs={detail.logs} />

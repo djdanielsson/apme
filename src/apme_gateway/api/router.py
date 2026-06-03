@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import logging
 import os
+import re
 import uuid
 from collections.abc import AsyncIterator, Sequence
 from typing import cast
@@ -39,6 +41,7 @@ from apme_gateway.api.schemas import (
     CreateProjectRequest,
     CreatePullRequestRequest,
     CreatePullRequestResponse,
+    CreateSuppressionRequest,
     DashboardSummary,
     DepHealthSummary,
     GalaxyServerSchema,
@@ -60,6 +63,7 @@ from apme_gateway.api.schemas import (
     RemediationRateEntry,
     SessionDetail,
     SessionSummary,
+    SuppressionSchema,
     TopViolation,
     TrendPoint,
     UpdateGalaxyServerRequest,
@@ -1104,12 +1108,16 @@ async def get_python_package_detail(name: str) -> PythonPackageDetail:
 async def dep_health_summary() -> DepHealthSummary:
     """Return aggregated dependency health findings from latest scans.
 
+    Suppressed violations (ADR-055) are excluded from counts.
+
     Returns:
         Summary of collection health findings and Python CVEs.
     """
     async with get_session() as db:
-        coll_rows = await q.collection_health_counts(db)
-        cve_rows = await q.python_cve_counts(db)
+        latest_ids = await q.latest_project_scan_ids(db)
+        excluded = await q.suppressed_violation_ids(db, latest_ids)
+        coll_rows = await q.collection_health_counts(db, exclude_ids=excluded)
+        cve_rows = await q.python_cve_counts(db, exclude_ids=excluded)
     return DepHealthSummary(
         collection_findings=[
             CollectionHealthSummary(
@@ -1153,8 +1161,10 @@ async def project_dep_health_summary(project_id: str) -> DepHealthSummary:
         proj = await q.get_project(db, project_id)
         if proj is None:
             raise HTTPException(status_code=404, detail="Project not found")
-        coll_rows = await q.project_collection_health_counts(db, proj.id)
-        cve_rows = await q.project_python_cve_counts(db, proj.id)
+        latest_ids = await q.latest_project_scan_ids(db, project_id=proj.id)
+        excluded = await q.suppressed_violation_ids(db, latest_ids, project_id=proj.id)
+        coll_rows = await q.project_collection_health_counts(db, proj.id, exclude_ids=excluded)
+        cve_rows = await q.project_python_cve_counts(db, proj.id, exclude_ids=excluded)
     return DepHealthSummary(
         collection_findings=[
             CollectionHealthSummary(
@@ -1337,9 +1347,73 @@ async def list_activity(
     return PaginatedResponse(total=total, limit=limit, offset=offset, items=items)
 
 
+_LEGACY_PREFIX_RE = re.compile(r"^(native|opa|ansible|gitleaks):")
+
+
+def _violation_fingerprint(rule_id: str, original_yaml: str) -> str:
+    """Compute a SHA-256 fingerprint matching the UI client formula.
+
+    Uses raw (un-normalized) YAML to stay consistent with the hashes
+    the browser stores when the user clicks *Acknowledge*.
+
+    Args:
+        rule_id: Rule identifier (may carry a legacy prefix).
+        original_yaml: Raw node YAML from the violation row.
+
+    Returns:
+        SHA-256 hex digest.
+    """
+    canonical = _LEGACY_PREFIX_RE.sub("", rule_id.strip())
+    payload = canonical + "\x00" + (original_yaml or "")
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _to_violation_detail(
+    v: object,
+    suppressed_hashes: set[str],
+) -> ViolationDetail:
+    """Build a ViolationDetail from an ORM Violation row.
+
+    Computes a content fingerprint and checks it against known
+    suppression hashes so the ``suppressed`` flag is authoritative.
+
+    Args:
+        v: Violation ORM instance.
+        suppressed_hashes: Set of fingerprint hex digests that are suppressed.
+
+    Returns:
+        Populated ViolationDetail schema.
+    """
+    fp = _violation_fingerprint(v.rule_id, v.original_yaml)  # type: ignore[attr-defined]
+    return ViolationDetail(
+        id=v.id,  # type: ignore[attr-defined]
+        rule_id=v.rule_id,  # type: ignore[attr-defined]
+        level=v.level,  # type: ignore[attr-defined]
+        message=v.message,  # type: ignore[attr-defined]
+        file=v.file,  # type: ignore[attr-defined]
+        line=v.line,  # type: ignore[attr-defined]
+        path=v.path,  # type: ignore[attr-defined]
+        remediation_class=v.remediation_class,  # type: ignore[attr-defined]
+        remediation_resolution=v.remediation_resolution,  # type: ignore[attr-defined]
+        scope=v.scope,  # type: ignore[attr-defined]
+        validator_source=v.validator_source,  # type: ignore[attr-defined]
+        original_yaml=v.original_yaml,  # type: ignore[attr-defined]
+        fixed_yaml=v.fixed_yaml,  # type: ignore[attr-defined]
+        co_fixes=[r for r in v.co_fixes.split(",") if r],  # type: ignore[attr-defined]
+        node_line_start=v.node_line_start,  # type: ignore[attr-defined]
+        ai_reason=v.ai_reason,  # type: ignore[attr-defined]
+        ai_suggestion=v.ai_suggestion,  # type: ignore[attr-defined]
+        suppressed=fp in suppressed_hashes,
+    )
+
+
 @router.get("/activity/{activity_id}")  # type: ignore[untyped-decorator]
 async def get_activity_detail(activity_id: str) -> ActivityDetail:
     """Fetch one activity run with violations, proposals, and logs.
+
+    Violations matched by an active suppression (ADR-055) are annotated
+    with ``suppressed=True``.  Fingerprints are computed using the same
+    raw-YAML formula the UI client uses so stored hashes match.
 
     Args:
         activity_id: UUID of the run (``scans.scan_id``).
@@ -1352,8 +1426,12 @@ async def get_activity_detail(activity_id: str) -> ActivityDetail:
     """
     async with get_session() as db:
         scan = await q.get_scan(db, activity_id)
-    if scan is None:
-        raise HTTPException(status_code=404, detail="Activity not found")
+        if scan is None:
+            raise HTTPException(status_code=404, detail="Activity not found")
+        suppressed_hashes = await q.get_suppression_hashes(
+            db,
+            project_id=scan.project_id,
+        )
     display_path = scan.project.name if scan.project is not None else scan.project_path
     return ActivityDetail(
         scan_id=scan.scan_id,
@@ -1372,28 +1450,7 @@ async def get_activity_detail(activity_id: str) -> ActivityDetail:
         remediated_count=scan.fixed_count if scan.scan_type == "remediate" else 0,
         pr_url=scan.pr_url,
         diagnostics_json=scan.diagnostics_json,
-        violations=[
-            ViolationDetail(
-                id=v.id,
-                rule_id=v.rule_id,
-                level=v.level,
-                message=v.message,
-                file=v.file,
-                line=v.line,
-                path=v.path,
-                remediation_class=v.remediation_class,
-                remediation_resolution=v.remediation_resolution,
-                scope=v.scope,
-                validator_source=v.validator_source,
-                original_yaml=v.original_yaml,
-                fixed_yaml=v.fixed_yaml,
-                co_fixes=[r for r in v.co_fixes.split(",") if r],
-                node_line_start=v.node_line_start,
-                ai_reason=v.ai_reason,
-                ai_suggestion=v.ai_suggestion,
-            )
-            for v in scan.violations
-        ],
+        violations=[_to_violation_detail(v, suppressed_hashes) for v in scan.violations],
         proposals=[
             ProposalDetail(
                 id=p.id,
@@ -2509,6 +2566,85 @@ async def project_operate_ws(
     finally:
         with contextlib.suppress(Exception):
             await websocket.close()
+
+
+# ── Suppression endpoints (ADR-055) ───────────────────────────────────
+
+
+@router.post("/suppressions", status_code=201)  # type: ignore[untyped-decorator]
+async def create_suppression_endpoint(body: CreateSuppressionRequest) -> SuppressionSchema:
+    """Create a suppression (acknowledge a violation).
+
+    Args:
+        body: Suppression creation payload with fingerprint and reason.
+
+    Returns:
+        The created suppression record.
+    """
+    async with get_session() as db:
+        row = await q.create_suppression(
+            db,
+            fingerprint_hash=body.fingerprint_hash,
+            fingerprint_mode=body.fingerprint_mode,
+            rule_id=body.rule_id,
+            scope=body.scope,
+            reason=body.reason,
+        )
+        return SuppressionSchema(
+            id=row.id,
+            fingerprint_hash=row.fingerprint_hash,
+            fingerprint_mode=row.fingerprint_mode,
+            rule_id=row.rule_id,
+            scope=row.scope,
+            reason=row.reason,
+            created_by=row.created_by,
+            created_at=row.created_at,
+        )
+
+
+@router.get("/suppressions")  # type: ignore[untyped-decorator]
+async def list_suppressions_endpoint(
+    scope: str | None = Query(default=None),
+) -> list[SuppressionSchema]:
+    """List all suppressions, optionally filtered by scope.
+
+    Args:
+        scope: Optional scope filter (``global``, ``project:<uuid>``).
+
+    Returns:
+        List of suppression records.
+    """
+    async with get_session() as db:
+        rows = await q.list_suppressions(db, scope=scope)
+        return [
+            SuppressionSchema(
+                id=r.id,
+                fingerprint_hash=r.fingerprint_hash,
+                fingerprint_mode=r.fingerprint_mode,
+                rule_id=r.rule_id,
+                scope=r.scope,
+                reason=r.reason,
+                created_by=r.created_by,
+                created_at=r.created_at,
+            )
+            for r in rows
+        ]
+
+
+@router.delete("/suppressions/{suppression_id}", status_code=204)  # type: ignore[untyped-decorator]
+async def delete_suppression_endpoint(suppression_id: int) -> None:
+    """Delete a suppression (un-acknowledge a violation).
+
+    Args:
+        suppression_id: PK of the suppression to remove.
+
+    Raises:
+        HTTPException: If the suppression is not found (404).
+    """
+    async with get_session() as db:
+        found = await q.delete_suppression(db, suppression_id)
+    if not found:
+        raise HTTPException(status_code=404, detail="Suppression not found")
 
 
 # ── Playground WebSocket (ADR-028 / ADR-029) ─────────────────────────

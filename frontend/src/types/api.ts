@@ -16,6 +16,7 @@ export interface ViolationDetail {
   node_line_start?: number;
   ai_reason?: string;
   ai_suggestion?: string;
+  suppressed?: boolean;
 }
 
 export interface LogEntry {
@@ -360,6 +361,27 @@ export interface RuleStats {
   by_category: Record<string, number>;
   by_source: Record<string, number>;
   override_count: number;
+}
+
+// ── Suppression types (ADR-055) ──────────────────────────────────────
+
+export interface SuppressionRecord {
+  id: number;
+  fingerprint_hash: string;
+  fingerprint_mode: string;
+  rule_id: string;
+  scope: string;
+  reason: string;
+  created_by: string;
+  created_at: string;
+}
+
+export interface CreateSuppressionRequest {
+  fingerprint_hash: string;
+  fingerprint_mode?: string;
+  rule_id: string;
+  scope?: string;
+  reason?: string;
 }
 
 // ── Notification types ───────────────────────────────────────────────
