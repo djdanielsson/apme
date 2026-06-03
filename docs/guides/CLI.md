@@ -5,8 +5,10 @@ discovers the Primary using a three-tier strategy: (1) `APME_PRIMARY_ADDRESS`
 env var, (2) a running local daemon, (3) auto-start a local daemon. For scan
 commands (`check`, `remediate`, `format`, `health-check`), this discovery
 happens automatically. Commands like `sbom` and `suppress` talk to the Gateway
-REST API or operate locally without a Primary. No containers, no
-infrastructure — just `pip install` and go.
+REST API or operate locally without a Primary. No full pod required — just
+`pip install` and go (OPA uses a Podman container by default; set
+`OPA_USE_PODMAN=0` for a local binary, or OPA is skipped if neither is
+available).
 
 ## Installation
 

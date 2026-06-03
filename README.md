@@ -108,7 +108,7 @@ pip install apme-engine@git+https://github.com/ansible/apme.git@v2026.4.1
 apme check /path/to/your/project
 ```
 
-The CLI automatically starts a local daemon with core validators (Native, OPA, Ansible) and Galaxy Proxy — no containers required. Optional validators (Gitleaks, Collection Health, Dep Audit) are not started by the daemon. See the [CLI Guide](docs/guides/CLI.md) for full usage, CI integration, and limitations compared to deployment methods.
+The CLI automatically starts a local daemon with core validators (Native, OPA, Ansible) and Galaxy Proxy — no full pod required. OPA uses a Podman container by default; set `OPA_USE_PODMAN=0` to use a local `opa` binary, or it is skipped if neither is available. Optional validators (Gitleaks, Collection Health, Dep Audit) are not started by the daemon. See the [CLI Guide](docs/guides/CLI.md) for full usage, CI integration, and limitations compared to deployment methods.
 
 ### Remediation
 
@@ -123,6 +123,8 @@ apme remediate --ai /path/to/project
 ## Project layout
 
 ```
+proto/                  gRPC protobuf definitions (.proto files)
+src/apme/v1/           Generated Python gRPC stubs (do not edit by hand)
 src/apme_engine/
   ├── cli/              CLI (check, format, remediate, health-check, sbom, suppress)
   ├── engine/           Project loader (parse, annotate, hierarchy, graph)
