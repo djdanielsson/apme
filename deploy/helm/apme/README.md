@@ -1,7 +1,7 @@
 # APME Helm Chart
 
 Deploy APME on Kubernetes or OpenShift. The chart models the architecture
-as defined in [ADR-054](../../.sdlc/adrs/ADR-054-production-deployment.md):
+as defined in [ADR-054](../../../.sdlc/adrs/ADR-054-production-deployment.md):
 the engine stack runs as sidecar containers in a single pod (preserving
 localhost networking per ADR-005 and pod-level scaling per ADR-012).
 
@@ -167,6 +167,6 @@ kubectl delete pvc -l app.kubernetes.io/instance=apme
 
 ## Related
 
-- [Deployment Guide](../../docs/guides/DEPLOYMENT.md) — Overview of all deployment methods
-- [ADR-054](../../.sdlc/adrs/ADR-054-production-deployment.md) — Architecture rationale
-- [Scaling docs](../../docs/architecture/17-scaling-and-deployment.md) — Scaling model
+- [Deployment Guide](../../../docs/guides/DEPLOYMENT.md) — Overview of all deployment methods
+- [ADR-054](../../../.sdlc/adrs/ADR-054-production-deployment.md) — Architecture rationale
+- [Scaling docs](../../../docs/architecture/17-scaling-and-deployment.md) — Scaling model
