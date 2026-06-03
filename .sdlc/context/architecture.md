@@ -5,7 +5,7 @@
 APME is a multi-container gRPC microservice deployed as a single Podman pod. The Primary service runs the engine (parse → annotate → hierarchy), then fans validation out in parallel to six independent validator backends over a unified gRPC contract. The CLI is ephemeral — run on-the-fly with the project directory mounted.
 
 **Key principles:**
-- All inter-service communication is **gRPC** — no REST, no message queue, no service discovery
+- Validator fan-out and engine orchestration use **gRPC**; Galaxy Proxy is HTTP (PEP 503); Gateway exposes REST (:8080) for external consumers
 - Containers in the same pod share **localhost**; addresses are fixed by convention
 - All gRPC servers use **grpc.aio** (fully async)
 - Blocking work is dispatched via `asyncio.get_event_loop().run_in_executor()`

@@ -143,7 +143,7 @@ docs/                   Architecture, design, guides, rule reference
 | Document | Description |
 |----------|-------------|
 | [CLI Guide](docs/guides/CLI.md) | Installation, commands, daemon mode, CI usage, limitations |
-| [Deployment Guide](docs/guides/DEPLOYMENT.md) | Podman pod setup, configuration, troubleshooting |
+| [Deployment Guide](docs/guides/DEPLOYMENT.md) | Podman, bootc, Helm, and CLI daemon deployment |
 | [bootc Deployment](deploy/bootc/README.md) | Atomic VM image with systemd quadlets |
 | [Helm Chart](deploy/helm/apme/README.md) | Kubernetes/OpenShift deployment |
 | [Architecture series](docs/architecture/) | Pipeline walkthrough, container topology, gRPC contracts, scaling |
