@@ -1,6 +1,22 @@
-# Deployment
+# Deployment Guide
 
-## Podman pod (recommended)
+APME supports multiple deployment methods depending on your environment and needs.
+
+| Method | Best for | Details |
+|--------|----------|---------|
+| **Podman pod** | Development, full feature set | [Below](#podman-pod) |
+| **bootc VM** | Production single-node, atomic upgrades | [bootc section](#bootc-vm) / [full guide](../../deploy/bootc/README.md) |
+| **Helm chart** | Kubernetes / OpenShift | [Helm section](#helm--kubernetes) / [full guide](../../deploy/helm/apme/README.md) |
+| **CLI daemon** | Quick evaluation, CI | [CLI Guide](CLI.md) |
+
+Full deployment methods (Podman, bootc, Helm) run the complete engine stack
+(Primary + all validators + Galaxy Proxy). The CLI daemon runs only core
+validators (Native, OPA, Ansible) + Galaxy Proxy. The difference is lifecycle
+management, persistence, and additional services (UI, Gateway, Abbenay AI).
+
+---
+
+## Podman pod
 
 The primary deployment target is a Podman pod. All backend services run in a single pod sharing `localhost`; the CLI is run on-the-fly outside the pod with the project directory mounted.
 
@@ -258,8 +274,9 @@ it as the `--index-strategy` argument to `uv pip install`.
 ## Local development (daemon mode)
 
 For development and testing without the Podman pod, the CLI can start a
-local daemon that runs the Primary, Native, OPA, Ansible, and Galaxy Proxy services
-as localhost gRPC servers (ADR-024). Gitleaks is excluded (requires the gitleaks binary).
+local daemon that runs Primary, Native, OPA, and Ansible as localhost gRPC
+servers plus Galaxy Proxy as an HTTP service (ADR-024). Optional validators
+(Gitleaks, Collection Health, Dep Audit) are not started by the daemon.
 
 ```bash
 # Install tox + project (one-time)
@@ -278,7 +295,7 @@ apme remediate .
 apme daemon stop
 ```
 
-**Daemon mode** starts a local Primary server with Native, OPA, and Ansible validators plus the Galaxy Proxy running in-process. OPA runs via the local `opa` binary; if `opa` is not installed, the OPA validator is automatically skipped.
+**Daemon mode** starts a local Primary server with Native, OPA, and Ansible validators as in-process gRPC servers, plus Galaxy Proxy as an HTTP service (uvicorn). Optional validators (Gitleaks, Collection Health, Dep Audit) are not started. OPA uses Podman by default; falls back to a local `opa` binary if Podman is unavailable; skipped if neither is found.
 
 ## Troubleshooting
 
@@ -297,7 +314,7 @@ See [PODMAN_OPA_ISSUES.md](PODMAN_OPA_ISSUES.md) for common Podman rootless issu
 | 50054 | OPA | `APME_OPA_VALIDATOR_LISTEN` |
 | 50055 | Native | `APME_NATIVE_VALIDATOR_LISTEN` |
 | 50056 | Gitleaks | `APME_GITLEAKS_VALIDATOR_LISTEN` |
-| 50057 | Abbenay AI | `--grpc-port` (CLI flag) |
+| 50057 | Abbenay AI | `--grpc-port` (Abbenay daemon flag) |
 | 50058 | Collection Health | `APME_COLLECTION_HEALTH_VALIDATOR_LISTEN` |
 | 50059 | Dep Audit | `APME_DEP_AUDIT_VALIDATOR_LISTEN` |
 | 50060 | Gateway (gRPC) | `APME_GATEWAY_GRPC_LISTEN` |
@@ -307,4 +324,94 @@ See [PODMAN_OPA_ISSUES.md](PODMAN_OPA_ISSUES.md) for common Podman rootless issu
 
 ## Related Documents
 
-- [ADR-006](../.sdlc/adrs/ADR-006-ephemeral-venvs.md) — Ephemeral venvs for Ansible (superseded by ADR-022/ADR-031)
+- [CLI Guide](CLI.md) — CLI installation, commands, and limitations
+- [bootc full guide](../../deploy/bootc/README.md) — Complete bootc VM documentation
+- [Helm chart full guide](../../deploy/helm/apme/README.md) — Complete Helm documentation
+- [ADR-006](../../.sdlc/adrs/ADR-006-ephemeral-venvs.md) — Ephemeral venvs for Ansible (superseded by ADR-022/ADR-031)
+- [ADR-054](../../.sdlc/adrs/ADR-054-production-deployment.md) — Production Deployment (Helm + bootc)
+
+---
+
+## bootc VM
+
+Deploy APME as an atomic, image-based Linux VM using
+[bootc](https://containers.github.io/bootc/). The VM ships Podman and quadlet
+definitions for all APME services. Container images are pulled from the registry
+on first boot. Systemd manages automatic startup and lifecycle.
+
+**Highlights:**
+
+- CentOS Stream 10 base image
+- Systemd quadlet files for each service (automatic restart, dependency ordering)
+- Atomic upgrades with automatic rollback on failure (`bootc switch`)
+- Persistent storage at `/var/lib/apme/`
+- Firewall rules expose only ports 8080 (REST), 8081 (UI), 50051 (gRPC)
+
+### Quick start
+
+```bash
+# Build the bootc OCI image
+podman build -f deploy/bootc/Containerfile -t apme-bootc:latest .
+
+# Convert to disk image (qcow2, raw, or AMI)
+sudo podman run --rm -it --privileged \
+  -v ./output:/output \
+  -v /var/lib/containers/storage:/var/lib/containers/storage \
+  quay.io/centos-bootc/bootc-image-builder:latest \
+  --type qcow2 --local apme-bootc:latest
+
+# Boot the VM — APME starts automatically
+```
+
+### Upgrading
+
+```bash
+sudo bootc switch --transport containers-storage apme-bootc:latest
+sudo systemctl reboot
+```
+
+See [deploy/bootc/README.md](../../deploy/bootc/README.md) for full
+configuration, service management, and troubleshooting.
+
+---
+
+## Helm / Kubernetes
+
+Deploy APME on Kubernetes or OpenShift using the Helm chart at
+`deploy/helm/apme/`. The chart models the engine stack as sidecar containers
+in a single pod (preserving localhost networking per ADR-005 and pod scaling
+per ADR-012).
+
+**Highlights:**
+
+- Engine pod: Primary + Native + OPA + Ansible + Gitleaks + Collection Health + Dep Audit + Galaxy Proxy as sidecars
+- Separate deployments for Gateway, UI, and Abbenay (AI)
+- HPA for engine scaling, PDB for disruption budget
+- Ingress/Route support (OpenShift Routes included)
+- NetworkPolicy for pod isolation
+- PVC for Gateway persistence; PVC for session venvs (single replica), emptyDir when scaling to multiple replicas
+
+### Quick start
+
+```bash
+helm install apme ./deploy/helm/apme/ \
+  --set image.tag=sha-7cb2464 \
+  --set abbenay.enabled=true \
+  --set abbenay.token=$APME_ABBENAY_TOKEN \
+  --set abbenay.apiKeys.openrouterApiKey=$OPENROUTER_API_KEY
+```
+
+### Key values
+
+| Value | Description |
+|-------|-------------|
+| `image.tag` | Image tag for all containers (required — no default) |
+| `engine.replicas` | Engine pod replicas (default: 1) |
+| `abbenay.enabled` | Enable AI provider (default: false) |
+| `abbenay.token` | Abbenay service token (required when `abbenay.enabled=true`) |
+| `abbenay.apiKeys.openrouterApiKey` | OpenRouter LLM provider API key |
+| `ingress.enabled` | Create Ingress resource (default: false) |
+| `route.enabled` | Create OpenShift Route (default: false) |
+
+See [deploy/helm/apme/README.md](../../deploy/helm/apme/README.md) for the
+full values reference and architecture details.

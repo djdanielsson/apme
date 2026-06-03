@@ -2,66 +2,80 @@
 
 ## What is APME?
 
-The **Ansible Playbook Modernization Engine (APME)** is an automated tool designed to help organizations modernize their Ansible playbooks for compatibility with Ansible Automation Platform (AAP) 2.5 and beyond.
+The **Ansible Policy & Modernization Engine (APME)** is a multi-validator static analysis platform for Ansible content. It parses playbooks, roles, collections, and task files into a structured hierarchy, then fans validation out in parallel across independent backends to produce a unified list of violations — with optional automated remediation.
 
 ## Problem Statement
 
-Organizations with large Ansible codebases face significant challenges when upgrading to AAP 2.5+:
+Organizations with large Ansible codebases face significant challenges when upgrading across ansible-core versions:
 
-1. **FQCN Requirements**: AAP 2.5 requires Fully Qualified Collection Names for all modules
-2. **Deprecated Modules**: Many legacy modules are deprecated or removed
-3. **Syntax Changes**: Various syntax changes between Ansible versions
-4. **Scale**: Manual remediation doesn't scale for thousands of playbooks
+1. **Module lifecycle**: Modules are deprecated, removed, or redirected across versions; argument specs change
+2. **Syntax evolution**: Includes become imports, short-form module names require FQCNs, connection plugins change
+3. **Security compliance**: Hardcoded credentials, policy violations, and supply-chain risks in dependencies
+4. **Scale**: Manual audit and remediation does not scale for hundreds of roles and collections
 
 ## Solution
 
 APME provides:
 
-1. **Automated checking**: Wraps ARI so the engine scans content and surfaces compatibility issues
-2. **Intelligent remediation**: Uses LangGraph agents to apply appropriate fixes
-3. **Progress Tracking**: Dashboard showing modernization status
-4. **CI/CD Integration**: Automated pre-flight checks
+1. **Multi-backend static analysis**: Six validators (Native Python, OPA/Rego, Ansible runtime, Gitleaks secrets, Collection Health, Dependency Audit) run in parallel behind a unified gRPC contract
+2. **Automated remediation**: Deterministic Tier 1 transforms with multi-pass convergence, plus optional AI-assisted Tier 2 fixes via Abbenay
+3. **YAML formatting**: Comment-preserving normalization (indentation, key ordering, Jinja spacing)
+4. **Web UI**: React dashboard for project management, live operations, and cross-project analytics
+5. **CI/CD integration**: JSON, SARIF output; pre-commit hooks; GitHub Actions workflows
+6. **Multiple deployment targets**: CLI (pip install), Podman pod, bootc VM, Helm chart
 
 ## Scope
 
 ### In Scope
 
-- FQCN detection and automatic conversion
-- Deprecated module detection and replacement suggestions
-- Syntax modernization for AAP 2.5 compatibility
-- Check result aggregation and reporting
-- Interactive dashboard for progress tracking
-- GitHub Actions integration
-- AAP pre-flight check integration
+- Module compatibility checking (deprecated, removed, redirected, argspec validation)
+- FQCN detection and conversion
+- Syntax modernization across ansible-core versions
+- Secret scanning (800+ patterns via Gitleaks)
+- Dependency health (collection quality + Python CVE audit)
+- Organizational policy enforcement (OPA/Rego rules)
+- Automated remediation (deterministic transforms + AI-assisted fixes)
+- YAML formatting with comment preservation
+- Web dashboard with persistent scan history
+- CI/CD integration (JSON, SARIF, pre-commit, GitHub Actions)
+- Multiple deployment methods (CLI, Podman, bootc, Helm)
 
 ### Out of Scope
 
 - Custom module development
-- Playbook logic changes (only syntax/module updates)
+- Playbook logic changes (only structural/compatibility)
 - Performance optimization of playbooks
-- Secret management or vault handling
+- Runtime verification (whether playbooks achieve desired state)
 - Inventory management
 
 ## Target Users
 
-1. **Platform Engineers**: Managing AAP infrastructure upgrades
-2. **DevOps Teams**: Maintaining playbook repositories
-3. **Automation Architects**: Planning migration strategies
+1. **Platform Engineers**: Managing AAP infrastructure upgrades across ansible-core versions
+2. **DevOps Teams**: Maintaining playbook repositories with quality gates in CI
+3. **Automation Architects**: Planning migration strategies with full project visibility
+4. **Security Teams**: Enforcing credential hygiene and dependency health policies
 
-## Success Metrics
+## Architecture
 
-- Check accuracy matches ARI baseline
-- 90%+ of FQCN issues automatically fixable
-- Dashboard loads 1000+ results in < 3 seconds
-- CI integration runs in < 60 seconds per playbook
+APME runs as a set of cooperating containers. In **Podman** and **bootc**, all 11 containers share a single pod on localhost. In **Kubernetes** (Helm chart), the engine stack (Primary + validators + Galaxy Proxy) runs as a multi-container pod, while Gateway, UI, and Abbenay are separate Deployments with their own Services. The CLI can also run as a standalone daemon for quick evaluation.
 
-## Project Timeline
+Key services:
+- **Primary** (:50051) — orchestrator, engine, session venv manager
+- **Native** (:50055) — Python rule validator
+- **OPA** (:50054) — Rego rule validator (subprocess, not REST)
+- **Ansible** (:50053) — runtime checks against session venvs
+- **Gitleaks** (:50056) — secret scanner
+- **Collection Health** (:50058) — installed collection quality checks
+- **Dep Audit** (:50059) — Python CVE audit via pip-audit
+- **Galaxy Proxy** (:8765) — PEP 503 collection → wheel proxy
+- **Gateway** (:8080/:50060) — REST API + persistence
+- **UI** (:8081) — React dashboard
+- **Abbenay** (:50057) — AI provider for Tier 2 remediation
 
-- **Week 1**: Foundation + Scanner implementation
-- **Week 2**: Rewriter + Dashboard + Integration
+See [architecture.md](architecture.md) for the full topology and contracts.
 
 ## Related Projects
 
-- **ARI (Ansible Risk Insights)**: The underlying scanning engine
-- **x2a-convertor**: Reference implementation for conversion patterns
-- **ansible-lint**: Complementary linting tool
+- **ansible-lint**: Complementary linting tool (different rule set and approach)
+- **Abbenay**: AI provider daemon for Tier 2 remediation
+- **Molecule**: Execution-time testing (complementary to APME's static analysis)

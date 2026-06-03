@@ -2,10 +2,10 @@
 
 ## Overview
 
-APME is a multi-container gRPC microservice deployed as a single Podman pod. The Primary service runs the engine (parse → annotate → hierarchy), then fans validation out in parallel to four independent validator backends over a unified gRPC contract. The CLI is ephemeral — run on-the-fly with the project directory mounted.
+APME is a multi-container gRPC microservice system. The reference deployment is a single Podman pod, but bootc (systemd-managed VM) and Helm (Kubernetes/OpenShift) topologies are also supported. The Primary service runs the engine (parse → annotate → hierarchy), then fans validation out in parallel to six independent validator backends over a unified gRPC contract. The CLI is ephemeral — run on-the-fly with the project directory mounted.
 
 **Key principles:**
-- All inter-service communication is **gRPC** — no REST, no message queue, no service discovery
+- Validator fan-out and engine orchestration use **gRPC**; Galaxy Proxy is HTTP (PEP 503); Gateway exposes REST (:8080) for external consumers
 - Containers in the same pod share **localhost**; addresses are fixed by convention
 - All gRPC servers use **grpc.aio** (fully async)
 - Blocking work is dispatched via `asyncio.get_event_loop().run_in_executor()`
@@ -14,28 +14,33 @@ APME is a multi-container gRPC microservice deployed as a single Podman pod. The
 ## Container Topology
 
 ```
-┌──────────────────────────────── apme-pod ─────────────────────────────┐
-│                                                                        │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐ │
-│  │ Primary  │  │  Native  │  │   OPA    │  │ Ansible  │  │ Gitleaks │ │
-│  │  :50051  │  │  :50055  │  │  :50054  │  │  :50053  │  │  :50056  │ │
-│  │          │  │          │  │          │  │          │  │          │ │
-│  │ engine + │  │ Python   │  │ OPA bin  │  │ ansible- │  │ gitleaks │ │
-│  │ orchestr │  │ rules on │  │ + gRPC   │  │ core     │  │ + gRPC   │ │
-│  │ session  │  │ scandata │  │ wrapper  │  │ venvs    │  │ wrapper  │ │
-│  │  venvs   │  │          │  │          │  │ (ro)     │  │          │ │
-│  └────┬─────┘  └──────────┘  └──────────┘  └──────────┘  └──────────┘ │
-│       │                                                                │
-│  ┌────┴─────────────────────────────────────┐  ┌──────────┐          │
-│  │      Galaxy Proxy :8765 (PEP 503)       │  │ Abbenay  │          │
-│  │  Ansible Galaxy → Python wheels on      │  │  :50057  │          │
-│  │  demand; caching handled by proxy + uv  │  └──────────┘          │
-│  └──────────────────────────────────────────┘                         │
-│  ┌──────────────────────┐  ┌──────────┐                              │
-│  │ Gateway :50060/:8080 │  │ UI :8081 │                              │
-│  │ REST + gRPC + DB     │  │ (nginx)  │                              │
-│  └──────────────────────┘  └──────────┘                              │
-└────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────── apme-pod ──────────────────────────────────┐
+│                                                                                 │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐        │
+│  │ Primary  │  │  Native  │  │   OPA    │  │ Ansible  │  │ Gitleaks │        │
+│  │  :50051  │  │  :50055  │  │  :50054  │  │  :50053  │  │  :50056  │        │
+│  │          │  │          │  │          │  │          │  │          │        │
+│  │ engine + │  │ Python   │  │ OPA bin  │  │ ansible- │  │ gitleaks │        │
+│  │ orchestr │  │ rules on │  │ + gRPC   │  │ core     │  │ + gRPC   │        │
+│  │ session  │  │ scandata │  │ wrapper  │  │ venvs    │  │ wrapper  │        │
+│  │  venvs   │  │          │  │          │  │ (ro)     │  │          │        │
+│  └────┬─────┘  └──────────┘  └──────────┘  └──────────┘  └──────────┘        │
+│       │                                                                         │
+│       │         ┌──────────────┐  ┌──────────────┐                              │
+│       │         │ Coll. Health │  │  Dep Audit   │                              │
+│       │         │    :50058    │  │    :50059    │                              │
+│       │         └──────────────┘  └──────────────┘                              │
+│       │                                                                         │
+│  ┌────┴─────────────────────────────────────┐  ┌──────────┐                    │
+│  │      Galaxy Proxy :8765 (PEP 503)       │  │ Abbenay  │                    │
+│  │  Ansible Galaxy → Python wheels on      │  │  :50057  │                    │
+│  │  demand; caching handled by proxy + uv  │  └──────────┘                    │
+│  └──────────────────────────────────────────┘                                   │
+│  ┌──────────────────────┐  ┌──────────┐                                        │
+│  │ Gateway :50060/:8080 │  │ UI :8081 │                                        │
+│  │ REST + gRPC + DB     │  │ (nginx)  │                                        │
+│  └──────────────────────┘  └──────────┘                                        │
+└─────────────────────────────────────────────────────────────────────────────────┘
 
      ┌──────────┐
      │   CLI    │  podman run --rm --pod apme-pod
@@ -53,10 +58,13 @@ APME is a multi-container gRPC microservice deployed as a single Podman pod. The
 | **OPA** | apme-opa | 50054 | OPA binary (invoked via subprocess) + Python gRPC wrapper. Rego rules L003–L025, M006/M008/M009/M011, R118 on the hierarchy JSON |
 | **Ansible** | apme-ansible | 50053 | Ansible-runtime checks using session-scoped venvs (shared read-only via `/sessions` volume). Rules L057–L059, M001–M004 |
 | **Gitleaks** | apme-gitleaks | 50056 | Gitleaks binary + Python gRPC wrapper. Scans raw files for hardcoded secrets, API keys, private keys. Filters vault-encrypted content and Jinja2 expressions. Rules SEC:* (800+ patterns) |
+| **Collection Health** | apme-collection-health | 50058 | Scans installed Ansible collections for quality issues (deprecated modules, missing argument specs, FQCN violations). Findings cached by FQCN+version |
+| **Dep Audit** | apme-dep-audit | 50059 | Python dependency auditor via pip-audit. Checks packages in session venvs against CVE databases |
 | **Galaxy Proxy** | apme-galaxy-proxy | 8765 | PEP 503 simple repository API that converts Galaxy collection tarballs to pip-installable Python wheels. Caching is the proxy's concern — the engine has zero cache management code |
 | **Gateway** | apme-gateway | 50060 (gRPC), 8080 (HTTP) | REST API + gRPC Reporting service + SQLAlchemy/SQLite persistence. Receives engine events via `GrpcReportingSink`; serves scan history, project management, and rule catalog to UI and external consumers (ADR-029, ADR-038) |
 | **UI** | apme-ui | 8081 | nginx-served React/PatternFly SPA. Consumes Gateway REST API. No direct engine communication (ADR-030, ADR-037) |
-| **CLI** | apme-cli | — | Ephemeral. Reads project files, chunks uploads, drives **`FixSession`** for user **check** and **remediate** (ADR-039). Unary `Primary.Scan`/`ScanRequest`/`ScanResponse` remain for engine-aligned clients. Run with `--pod apme-pod` and CWD mounted |
+| **Abbenay** | abbenay | 50057 | AI provider for Tier 2 remediation. Receives fix requests from Primary, queries LLM providers, returns proposed patches |
+| **CLI** | apme-cli | — | Ephemeral. Reads project files, chunks uploads, drives **`FixSession`** for user **check** and **remediate** (ADR-039). Run with `--pod apme-pod` and CWD mounted |
 
 ---
 
@@ -123,18 +131,22 @@ Each validator ignores the data fields it doesn't need. This keeps the contract 
 Primary calls all configured validators concurrently using `asyncio.gather()` with async gRPC stubs:
 
 ```
-              ┌─► Native   ─── violations ──┐
-              │                              │
-Primary ──────┼─► OPA      ─── violations ──┼──► merge + dedup + sort
-  (async)     │                              │
-              ├─► Ansible  ─── violations ──┤
-              │                              │
-              └─► Gitleaks ─── violations ──┘
+              ┌─► Native          ─── violations ──┐
+              │                                     │
+              ├─► OPA             ─── violations ──┤
+              │                                     │
+Primary ──────┼─► Ansible         ─── violations ──┼──► merge + dedup + sort
+  (async)     │                                     │
+              ├─► Gitleaks        ─── violations ──┤
+              │                                     │
+              ├─► Collection Hlth ─── findings ────┤
+              │                                     │
+              └─► Dep Audit       ─── findings ────┘
 ```
 
-**Wall-clock time = max(native, opa, ansible, gitleaks)** instead of sum.
+**Wall-clock time = max(validators)** instead of sum.
 
-Each validator is discovered by environment variable (`NATIVE_GRPC_ADDRESS`, `OPA_GRPC_ADDRESS`, `ANSIBLE_GRPC_ADDRESS`, `GITLEAKS_GRPC_ADDRESS`). If a variable is unset, that validator is skipped.
+Each validator is discovered by environment variable (`NATIVE_GRPC_ADDRESS`, `OPA_GRPC_ADDRESS`, `ANSIBLE_GRPC_ADDRESS`, `GITLEAKS_GRPC_ADDRESS`, `COLLECTION_HEALTH_GRPC_ADDRESS`, `DEP_AUDIT_GRPC_ADDRESS`). If a variable is unset, that validator is skipped.
 
 ---
 
@@ -235,13 +247,19 @@ The wrapper adds **Ansible-aware filtering**:
 | 50054 | OPA | gRPC (wrapper; OPA binary invoked via subprocess) |
 | 50055 | Native | gRPC |
 | 50056 | Gitleaks | gRPC (wrapper; gitleaks binary for detection) |
+| 50057 | Abbenay | gRPC (AI provider for Tier 2 remediation) |
+| 50058 | Collection Health | gRPC |
+| 50059 | Dep Audit | gRPC |
+| 50060 | Gateway | gRPC (Reporting service) |
+| 8080 | Gateway | HTTP (REST API) |
+| 8081 | UI | HTTP (nginx-served SPA) |
 | 8765 | Galaxy Proxy | HTTP (PEP 503 simple repository API) |
 
 ---
 
 ## Scaling
 
-**Scale pods, not services within a pod.** Each pod is a self-contained stack (Primary + Native + OPA + Ansible + Gitleaks + Galaxy Proxy) that can process a scan request end-to-end.
+**Scale pods, not services within a pod.** Each pod is a self-contained stack (Primary + Native + OPA + Ansible + Gitleaks + Collection Health + Dep Audit + Galaxy Proxy) that can process a scan request end-to-end.
 
 ```
                     ┌─────────────┐
@@ -347,10 +365,10 @@ With `--json`, the `diagnostics` key is included when `-v` or `-vv` is set.
 The CLI `health-check` subcommand calls `Health` on all services and reports status:
 
 ```bash
-apme health-check --primary-addr 127.0.0.1:50051
+APME_PRIMARY_ADDRESS=127.0.0.1:50051 apme health-check
 ```
 
-Primary, Native, OPA, Ansible, and Gitleaks all implement the `Health` RPC. A service returning `status: "ok"` is healthy; any gRPC error marks it degraded.
+Primary, Native, OPA, Ansible, Gitleaks, Collection Health, and Dep Audit all implement the `Health` RPC. A service returning `status: "ok"` is healthy; any gRPC error marks it degraded.
 
 ---
 
