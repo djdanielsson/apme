@@ -847,7 +847,8 @@ class CreateSuppressionRequest(BaseModel):  # type: ignore[misc]
     """Request body for acknowledging/suppressing a violation (ADR-055).
 
     Attributes:
-        fingerprint_hash: SHA-256 hex digest computed from rule_id + normalized YAML.
+        fingerprint_hash: SHA-256 hex digest computed from rule_id + raw original_yaml
+            (or module FQCN / empty string depending on fingerprint_mode).
         fingerprint_mode: Granularity — ``full``, ``rule_module``, or ``rule_only``.
         rule_id: Canonical rule identifier.
         scope: ``global`` or ``project:<uuid>``.

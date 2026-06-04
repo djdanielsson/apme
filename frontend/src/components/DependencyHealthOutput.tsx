@@ -239,8 +239,9 @@ export function DependencyHealthOutput({ violations, scanType, scanId, feedbackE
                       key={v.id}
                       role="button"
                       tabIndex={0}
+                      aria-label={`View details for ${v.rule_id}: ${v.message}`}
                       onClick={() => setSelectedViolation(v as ViolationRecord)}
-                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSelectedViolation(v as ViolationRecord); }}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedViolation(v as ViolationRecord); } }}
                     >
                       <span className="apme-output-gutter apme-output-line-num">
                         {v.line != null && v.line > 0 ? v.line : ''}

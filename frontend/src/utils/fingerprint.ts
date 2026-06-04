@@ -4,9 +4,8 @@
  * Uses the Web Crypto API for SHA-256 hashing. The fingerprint formula is:
  *   SHA-256(canonicalize(rule_id) + "\x00" + original_yaml)
  *
- * The full YAML normalization (comment stripping, etc.) is done server-side.
- * The client uses a simplified version that hashes the raw original_yaml
- * since dependency health violations typically don't have YAML comments to strip.
+ * Both client and server hash the raw `original_yaml` (no normalization).
+ * This keeps fingerprints deterministic and consistent across browser and gateway.
  */
 
 const LEGACY_PREFIX_RE = /^(native|opa|ansible|gitleaks):/;

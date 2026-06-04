@@ -2580,26 +2580,37 @@ async def create_suppression_endpoint(body: CreateSuppressionRequest) -> Suppres
 
     Returns:
         The created suppression record.
+
+    Raises:
+        HTTPException: 409 if the suppression already exists for this fingerprint+scope.
     """
-    async with get_session() as db:
-        row = await q.create_suppression(
-            db,
-            fingerprint_hash=body.fingerprint_hash,
-            fingerprint_mode=body.fingerprint_mode,
-            rule_id=body.rule_id,
-            scope=body.scope,
-            reason=body.reason,
-        )
-        return SuppressionSchema(
-            id=row.id,
-            fingerprint_hash=row.fingerprint_hash,
-            fingerprint_mode=row.fingerprint_mode,
-            rule_id=row.rule_id,
-            scope=row.scope,
-            reason=row.reason,
-            created_by=row.created_by,
-            created_at=row.created_at,
-        )
+    from sqlalchemy.exc import IntegrityError  # noqa: PLC0415
+
+    try:
+        async with get_session() as db:
+            row = await q.create_suppression(
+                db,
+                fingerprint_hash=body.fingerprint_hash,
+                fingerprint_mode=body.fingerprint_mode,
+                rule_id=body.rule_id,
+                scope=body.scope,
+                reason=body.reason,
+            )
+    except IntegrityError:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Suppression already exists for fingerprint '{body.fingerprint_hash}' in scope '{body.scope}'",
+        ) from None
+    return SuppressionSchema(
+        id=row.id,
+        fingerprint_hash=row.fingerprint_hash,
+        fingerprint_mode=row.fingerprint_mode,
+        rule_id=row.rule_id,
+        scope=row.scope,
+        reason=row.reason,
+        created_by=row.created_by,
+        created_at=row.created_at,
+    )
 
 
 @router.get("/suppressions")  # type: ignore[untyped-decorator]
