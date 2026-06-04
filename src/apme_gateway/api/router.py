@@ -2639,6 +2639,14 @@ async def create_suppression_endpoint(body: CreateSuppressionRequest) -> Suppres
             raise HTTPException(status_code=422, detail="Either original_yaml or fingerprint_hash must be provided")
         if len(fingerprint) != 64 or not all(c in "0123456789abcdef" for c in fingerprint):
             raise HTTPException(status_code=422, detail="fingerprint_hash must be a 64-character hex SHA-256 digest")
+        if body.fingerprint_mode == "full":
+            rule_only_hash = _violation_fingerprint(body.rule_id, "", mode="rule_only")
+            if fingerprint == rule_only_hash:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Supplied fingerprint_hash collides with the rule_only fingerprint for this rule_id. "
+                    "Provide non-empty original_yaml for 'full' mode, or use fingerprint_mode='rule_only'.",
+                )
 
     try:
         async with get_session() as db:

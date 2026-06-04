@@ -7,7 +7,7 @@ import math
 from datetime import datetime, timezone
 from typing import Any, cast
 
-from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -37,10 +37,13 @@ _SQLITE_BIND_LIMIT = 900
 
 
 def _chunked_not_in(column: Any, ids: set[int]) -> Any:
-    """Build a NOT IN condition that respects SQLite's bind-parameter limit.
+    """Build a NOT IN exclusion filter safe for SQLite's bind-parameter limit.
 
-    Chunks the set into batches of 900 and combines them with AND
-    (each chunk excludes a subset; all must be excluded together).
+    For sets within a single chunk (<=900 IDs), produces a single
+    ``column NOT IN (...)`` clause with bound parameters. For larger sets,
+    inlines the integer PKs as SQL literals (no bind parameters) to avoid
+    exceeding SQLite's per-statement variable limit
+    (SQLITE_MAX_VARIABLE_NUMBER = 999).
 
     Args:
         column: SQLAlchemy column to filter.
@@ -52,10 +55,12 @@ def _chunked_not_in(column: Any, ids: set[int]) -> Any:
     if not ids:
         return True  # noqa: FBT003 — no-op filter
     id_list = sorted(ids)
-    chunks = [id_list[i : i + _SQLITE_BIND_LIMIT] for i in range(0, len(id_list), _SQLITE_BIND_LIMIT)]
-    if len(chunks) == 1:
-        return column.not_in(chunks[0])
-    return and_(*(column.not_in(chunk) for chunk in chunks))
+    if len(id_list) <= _SQLITE_BIND_LIMIT:
+        return column.not_in(id_list)
+    from sqlalchemy import literal_column, union_all  # noqa: PLC0415
+
+    values_subq = union_all(*(select(literal_column(str(pk)).label("_exc_id")) for pk in id_list)).subquery("_excluded")
+    return ~column.in_(select(values_subq.c._exc_id))
 
 
 # ---------------------------------------------------------------------------
@@ -2261,6 +2266,32 @@ async def get_suppression_hashes(
     return {row[0] for row in result.all()}
 
 
+def _latest_scan_ids_subquery(*, project_id: str | None = None) -> Any:
+    """Return a selectable of the most recent scan ID(s) for use in IN clauses.
+
+    Produces a DB-side subquery, avoiding the need to materialise scan IDs
+    into a Python list and re-bind them as parameters.
+
+    Args:
+        project_id: Optional project UUID. When set, returns only that
+            project's latest scan ID; otherwise returns one per project.
+
+    Returns:
+        SQLAlchemy Select suitable for ``.in_()``.
+    """
+    if project_id:
+        return select(Scan.scan_id).where(Scan.project_id == project_id).order_by(Scan.created_at.desc()).limit(1)
+    ranked = (
+        select(
+            Scan.scan_id,
+            func.row_number().over(partition_by=Scan.project_id, order_by=Scan.created_at.desc()).label("rn"),
+        )
+        .where(Scan.project_id.is_not(None))
+        .subquery()
+    )
+    return select(ranked.c.scan_id).where(ranked.c.rn == 1)
+
+
 async def latest_project_scan_ids(
     db: AsyncSession,
     *,
@@ -2309,6 +2340,9 @@ async def suppressed_violation_ids(
     given scans, computes their canonical fingerprint (ADR-055), and checks
     against stored suppression hashes.
 
+    Uses a DB-side subquery for scan ID filtering to avoid exceeding
+    SQLite's per-statement bind-variable limit when many projects exist.
+
     When ``project_id`` is provided (single-project view), only global and
     that project's scoped suppressions are checked. When ``project_id`` is
     None (cross-project aggregate), violations are grouped by their scan's
@@ -2317,7 +2351,8 @@ async def suppressed_violation_ids(
 
     Args:
         db: Active async database session.
-        scan_ids: Scan IDs to check.
+        scan_ids: Scan IDs to check (kept for interface compat; used only
+            for the empty-check short-circuit).
         project_id: Project UUID for scoped lookup. None means per-project.
 
     Returns:
@@ -2328,12 +2363,7 @@ async def suppressed_violation_ids(
 
     from apme_engine.fingerprint import compute_fingerprint  # noqa: PLC0415
 
-    scan_id_chunks = [scan_ids[i : i + _SQLITE_BIND_LIMIT] for i in range(0, len(scan_ids), _SQLITE_BIND_LIMIT)]
-    scan_id_filter = (
-        Violation.scan_id.in_(scan_id_chunks[0])
-        if len(scan_id_chunks) == 1
-        else or_(*(Violation.scan_id.in_(chunk) for chunk in scan_id_chunks))
-    )
+    scan_id_subquery = _latest_scan_ids_subquery(project_id=project_id)
     stmt = (
         select(
             Violation.id,
@@ -2344,7 +2374,7 @@ async def suppressed_violation_ids(
         )
         .join(Scan, Violation.scan_id == Scan.scan_id)
         .where(
-            scan_id_filter,
+            Violation.scan_id.in_(scan_id_subquery),
             Violation.validator_source.in_(["collection_health", "dep_audit"]),
         )
     )
