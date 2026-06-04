@@ -846,18 +846,27 @@ class SuppressionSchema(BaseModel):  # type: ignore[misc]
 class CreateSuppressionRequest(BaseModel):  # type: ignore[misc]
     """Request body for acknowledging/suppressing a violation (ADR-055).
 
+    When ``original_yaml`` is provided the server computes the canonical
+    fingerprint (normalized YAML, matching the CLI). The ``fingerprint_hash``
+    field is then ignored. When ``original_yaml`` is absent, the server
+    trusts the caller-supplied ``fingerprint_hash`` (backward compat).
+
     Attributes:
-        fingerprint_hash: SHA-256 hex digest computed from rule_id + raw original_yaml
-            (or module FQCN / empty string depending on fingerprint_mode).
+        fingerprint_hash: Pre-computed SHA-256 hex digest (used only when
+            ``original_yaml`` is not supplied).
         fingerprint_mode: Granularity — ``full``, ``rule_module``, or ``rule_only``.
         rule_id: Canonical rule identifier.
+        original_yaml: Raw YAML source for server-side fingerprint computation.
+        module_fqcn: Module FQCN (needed for ``rule_module`` mode).
         scope: ``global`` or ``project:<uuid>``.
         reason: Human justification for the acknowledgment.
     """
 
-    fingerprint_hash: str
+    fingerprint_hash: str = ""
     fingerprint_mode: str = "full"
     rule_id: str
+    original_yaml: str | None = None
+    module_fqcn: str = ""
     scope: str = "global"
     reason: str = ""
 

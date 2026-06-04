@@ -1,11 +1,13 @@
 /**
- * Client-side fingerprint computation for violation suppression (ADR-055).
+ * Client-side fingerprint preview for violation suppression (ADR-055).
  *
- * Uses the Web Crypto API for SHA-256 hashing. The fingerprint formula is:
- *   SHA-256(canonicalize(rule_id) + "\x00" + original_yaml)
+ * Uses the Web Crypto API for SHA-256 hashing. This is a **preview-only**
+ * approximation — the authoritative fingerprint is computed server-side
+ * using normalized YAML (via `apme_engine.fingerprint.compute_fingerprint`).
  *
- * Both client and server hash the raw `original_yaml` (no normalization).
- * This keeps fingerprints deterministic and consistent across browser and gateway.
+ * The Acknowledge flow sends `rule_id` + `original_yaml` to the server,
+ * which computes and stores the canonical fingerprint. This client-side
+ * function is retained for display/comparison purposes only.
  */
 
 const LEGACY_PREFIX_RE = /^(native|opa|ansible|gitleaks):/;

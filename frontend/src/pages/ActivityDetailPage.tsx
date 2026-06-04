@@ -20,7 +20,6 @@ import {
 import { ExternalLinkAltIcon } from '@patternfly/react-icons';
 import { createPullRequest, createSuppression, deleteActivity, getActivity } from '../services/api';
 import { useFeedbackEnabled } from '../hooks/useFeedbackEnabled';
-import { computeFingerprint } from '../utils/fingerprint';
 import type { ActivityDetail, ViolationDetail } from '../types/api';
 
 
@@ -167,10 +166,9 @@ export function ActivityDetailPage() {
 
   const handleAcknowledge = async (violation: ViolationDetail) => {
     try {
-      const fp = await computeFingerprint(violation.rule_id, violation.original_yaml ?? '');
       await createSuppression({
-        fingerprint_hash: fp,
         rule_id: violation.rule_id,
+        original_yaml: violation.original_yaml ?? undefined,
         reason: 'Acknowledged via activity detail',
       });
       setAcknowledgedIds(prev => new Set(prev).add(violation.id));

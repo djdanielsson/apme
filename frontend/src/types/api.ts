@@ -377,9 +377,11 @@ export interface SuppressionRecord {
 }
 
 export interface CreateSuppressionRequest {
-  fingerprint_hash: string;
+  fingerprint_hash?: string;
   fingerprint_mode?: string;
   rule_id: string;
+  original_yaml?: string;
+  module_fqcn?: string;
   scope?: string;
   reason?: string;
 }

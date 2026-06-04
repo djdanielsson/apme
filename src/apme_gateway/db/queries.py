@@ -2270,7 +2270,7 @@ async def suppressed_violation_ids(
     """Return IDs of dep-health violations that match an active suppression.
 
     Fetches all ``collection_health`` / ``dep_audit`` violations from the
-    given scans, computes their client-compatible fingerprint, and checks
+    given scans, computes their canonical fingerprint (ADR-055), and checks
     against stored suppression hashes.
 
     Args:
@@ -2288,10 +2288,7 @@ async def suppressed_violation_ids(
     if not hashes:
         return set()
 
-    import hashlib  # noqa: PLC0415
-    import re  # noqa: PLC0415
-
-    legacy_re = re.compile(r"^(native|opa|ansible|gitleaks):")
+    from apme_engine.fingerprint import compute_fingerprint  # noqa: PLC0415
 
     stmt = select(Violation.id, Violation.rule_id, Violation.original_yaml).where(
         Violation.scan_id.in_(scan_ids),
@@ -2301,9 +2298,7 @@ async def suppressed_violation_ids(
 
     excluded: set[int] = set()
     for vid, rule_id, original_yaml in result.all():
-        canonical = legacy_re.sub("", (rule_id or "").strip())
-        payload = canonical + "\x00" + (original_yaml or "")
-        fp = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+        fp = compute_fingerprint(rule_id or "", original_yaml or "")
         if fp in hashes:
             excluded.add(vid)
     return excluded

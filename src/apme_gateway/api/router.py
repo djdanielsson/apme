@@ -11,10 +11,8 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import hashlib
 import logging
 import os
-import re
 import uuid
 from collections.abc import AsyncIterator, Sequence
 from typing import cast
@@ -1347,25 +1345,24 @@ async def list_activity(
     return PaginatedResponse(total=total, limit=limit, offset=offset, items=items)
 
 
-_LEGACY_PREFIX_RE = re.compile(r"^(native|opa|ansible|gitleaks):")
+def _violation_fingerprint(rule_id: str, original_yaml: str, mode: str = "full", module_fqcn: str = "") -> str:
+    """Compute the canonical SHA-256 fingerprint for a violation (ADR-055).
 
-
-def _violation_fingerprint(rule_id: str, original_yaml: str) -> str:
-    """Compute a SHA-256 fingerprint matching the UI client formula.
-
-    Uses raw (un-normalized) YAML to stay consistent with the hashes
-    the browser stores when the user clicks *Acknowledge*.
+    Delegates to the shared ``apme_engine.fingerprint`` module to ensure
+    CLI, Gateway, and UI all produce identical hashes.
 
     Args:
         rule_id: Rule identifier (may carry a legacy prefix).
         original_yaml: Raw node YAML from the violation row.
+        mode: Fingerprint mode (``full``, ``rule_module``, ``rule_only``).
+        module_fqcn: Module FQCN (required for ``rule_module`` mode).
 
     Returns:
         SHA-256 hex digest.
     """
-    canonical = _LEGACY_PREFIX_RE.sub("", rule_id.strip())
-    payload = canonical + "\x00" + (original_yaml or "")
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    from apme_engine.fingerprint import compute_fingerprint  # noqa: PLC0415
+
+    return compute_fingerprint(rule_id, original_yaml or "", mode=mode, module_fqcn=module_fqcn)
 
 
 def _to_violation_detail(
@@ -2575,6 +2572,11 @@ async def project_operate_ws(
 async def create_suppression_endpoint(body: CreateSuppressionRequest) -> SuppressionSchema:
     """Create a suppression (acknowledge a violation).
 
+    When ``original_yaml`` is provided in the request body, the server
+    computes the canonical fingerprint (using normalized YAML, matching
+    the CLI algorithm). Otherwise it falls back to the caller-supplied
+    ``fingerprint_hash``.
+
     Args:
         body: Suppression creation payload with fingerprint and reason.
 
@@ -2586,11 +2588,24 @@ async def create_suppression_endpoint(body: CreateSuppressionRequest) -> Suppres
     """
     from sqlalchemy.exc import IntegrityError  # noqa: PLC0415
 
+    if body.original_yaml is not None:
+        fingerprint = _violation_fingerprint(
+            body.rule_id,
+            body.original_yaml,
+            mode=body.fingerprint_mode,
+            module_fqcn=body.module_fqcn,
+        )
+    else:
+        fingerprint = body.fingerprint_hash
+
+    if not fingerprint:
+        raise HTTPException(status_code=422, detail="Either original_yaml or fingerprint_hash must be provided")
+
     try:
         async with get_session() as db:
             row = await q.create_suppression(
                 db,
-                fingerprint_hash=body.fingerprint_hash,
+                fingerprint_hash=fingerprint,
                 fingerprint_mode=body.fingerprint_mode,
                 rule_id=body.rule_id,
                 scope=body.scope,
@@ -2599,7 +2614,7 @@ async def create_suppression_endpoint(body: CreateSuppressionRequest) -> Suppres
     except IntegrityError:
         raise HTTPException(
             status_code=409,
-            detail=f"Suppression already exists for fingerprint '{body.fingerprint_hash}' in scope '{body.scope}'",
+            detail=f"Suppression already exists for fingerprint '{fingerprint}' in scope '{body.scope}'",
         ) from None
     return SuppressionSchema(
         id=row.id,
