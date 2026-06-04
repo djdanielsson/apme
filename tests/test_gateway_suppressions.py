@@ -487,3 +487,93 @@ async def test_dep_health_excludes_suppressed_violations(client: AsyncClient) ->
     coll_after = after["collection_findings"]
     assert coll_after[0]["finding_count"] == 1
     assert after["suppressed_count"] == 1
+
+
+async def test_dep_health_project_scoped_suppression_no_leak(client: AsyncClient) -> None:
+    """Project-scoped suppressions do not leak to other projects in dep-health.
+
+    Creates two projects with identical violations. A project-scoped
+    suppression for project A must not affect project B's counts.
+
+    Args:
+        client: Async HTTP test client.
+    """
+    from apme_gateway.db import get_session
+    from apme_gateway.db.models import Project, Scan, Session, Violation
+
+    yaml_content = "- name: outdated dep\n  debug:\n    msg: old\n"
+    proj_a_id = "aaaabbbbccccddddeeeeffffaaaabbbb"
+    proj_b_id = "11112222333344445555666677778888"
+
+    async with get_session() as db:
+        for pid, pname in [(proj_a_id, "project-a"), (proj_b_id, "project-b")]:
+            db.add(
+                Project(
+                    id=pid,
+                    name=pname,
+                    repo_url="https://github.com/test/repo",
+                    branch="main",
+                    created_at="2024-01-01T00:00:00Z",
+                )
+            )
+        await db.flush()
+
+        session = Session(
+            session_id="sess0010",
+            project_path="/tmp/multi",
+            first_seen="2024-01-01T00:00:00Z",
+            last_seen="2024-01-01T00:00:00Z",
+        )
+        db.add(session)
+        await db.flush()
+
+        for idx, pid in enumerate([proj_a_id, proj_b_id]):
+            scan = Scan(
+                scan_id=f"scan001{idx}",
+                session_id="sess0010",
+                project_id=pid,
+                project_path="/tmp/multi",
+                source="cli",
+                trigger="cli",
+                created_at="2024-01-01T00:00:00Z",
+                scan_type="check",
+                total_violations=1,
+                auto_fixable=0,
+                ai_candidate=0,
+                manual_review=1,
+            )
+            db.add(scan)
+            await db.flush()
+            db.add(
+                Violation(
+                    scan_id=f"scan001{idx}",
+                    rule_id="R200",
+                    level="high",
+                    message="Outdated",
+                    path="community.general",
+                    validator_source="collection_health",
+                    original_yaml=yaml_content,
+                )
+            )
+        await db.commit()
+
+    resp_before = await client.get("/api/v1/dep-health")
+    assert resp_before.status_code == 200
+    assert resp_before.json()["collection_findings"][0]["finding_count"] == 2
+    assert resp_before.json()["suppressed_count"] == 0
+
+    await client.post(
+        "/api/v1/suppressions",
+        json={
+            "rule_id": "R200",
+            "original_yaml": yaml_content,
+            "scope": f"project:{proj_a_id}",
+            "reason": "project A only",
+        },
+    )
+
+    resp_after = await client.get("/api/v1/dep-health")
+    assert resp_after.status_code == 200
+    after = resp_after.json()
+    assert after["collection_findings"][0]["finding_count"] == 1
+    assert after["suppressed_count"] == 1

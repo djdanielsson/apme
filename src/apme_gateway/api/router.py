@@ -1371,20 +1371,19 @@ def _to_violation_detail(
     v: object,
     suppressed_hashes: set[str],
     rule_only_hashes: set[str] | None = None,
-    rule_module_hashes: set[str] | None = None,
 ) -> ViolationDetail:
     """Build a ViolationDetail from an ORM Violation row.
 
     Computes a content fingerprint and checks it against known
     suppression hashes so the ``suppressed`` flag is authoritative.
-    Checks full, rule_module, and rule_only mode hashes for consistency
-    with the dep-health path.
+    Checks full-mode and rule_only-mode hashes. Note: ``rule_module``
+    matching is not applied here because ``Violation.path`` stores a
+    YAML path, not a resolved module FQCN (see ADR-055).
 
     Args:
         v: Violation ORM instance.
         suppressed_hashes: Full-mode fingerprint hex digests that are suppressed.
         rule_only_hashes: Rule-only fingerprint hex digests that are suppressed.
-        rule_module_hashes: Rule-module fingerprint hex digests that are suppressed.
 
     Returns:
         Populated ViolationDetail schema.
@@ -1393,14 +1392,6 @@ def _to_violation_detail(
     if suppressed_hashes:
         fp = _violation_fingerprint(v.rule_id, v.original_yaml)  # type: ignore[attr-defined]
         suppressed = fp in suppressed_hashes
-    if not suppressed and rule_module_hashes and v.path:  # type: ignore[attr-defined]
-        fp_mod = _violation_fingerprint(
-            v.rule_id,  # type: ignore[attr-defined]
-            "",
-            mode="rule_module",
-            module_fqcn=v.path,  # type: ignore[attr-defined]
-        )
-        suppressed = fp_mod in rule_module_hashes
     if not suppressed and rule_only_hashes:
         fp_rule = _violation_fingerprint(v.rule_id, "", mode="rule_only")  # type: ignore[attr-defined]
         suppressed = fp_rule in rule_only_hashes
@@ -1449,18 +1440,13 @@ async def get_activity_detail(activity_id: str) -> ActivityDetail:
             raise HTTPException(status_code=404, detail="Activity not found")
         suppressed_hashes = await q.get_suppression_hashes(
             db,
-            project_id=scan.project_id,
+            project_id=scan.project_id or "",
             fingerprint_mode="full",
         )
         rule_only_hashes = await q.get_suppression_hashes(
             db,
-            project_id=scan.project_id,
+            project_id=scan.project_id or "",
             fingerprint_mode="rule_only",
-        )
-        rule_module_hashes = await q.get_suppression_hashes(
-            db,
-            project_id=scan.project_id,
-            fingerprint_mode="rule_module",
         )
     display_path = scan.project.name if scan.project is not None else scan.project_path
     return ActivityDetail(
@@ -1481,9 +1467,7 @@ async def get_activity_detail(activity_id: str) -> ActivityDetail:
         remediated_count=scan.fixed_count if scan.scan_type == "remediate" else 0,
         pr_url=scan.pr_url,
         diagnostics_json=scan.diagnostics_json,
-        violations=[
-            _to_violation_detail(v, suppressed_hashes, rule_only_hashes, rule_module_hashes) for v in scan.violations
-        ],
+        violations=[_to_violation_detail(v, suppressed_hashes, rule_only_hashes) for v in scan.violations],
         proposals=[
             ProposalDetail(
                 id=p.id,

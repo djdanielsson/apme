@@ -2235,15 +2235,14 @@ async def get_suppression_hashes(
 ) -> set[str]:
     """Return the set of suppressed fingerprint hashes.
 
-    When ``project_id`` is provided, returns hashes from global suppressions
-    plus that project's scoped suppressions. When ``project_id`` is None,
-    returns hashes from ALL suppressions regardless of scope (suitable for
-    cross-project aggregate views like global dep-health).
+    Includes both global suppressions and project-scoped ones if a
+    ``project_id`` is given. When ``project_id`` is None, only global-scope
+    suppressions are returned (prevents cross-project leakage per ADR-055).
 
     Args:
         db: Active async database session.
-        project_id: Project UUID to scope the lookup. When None, all scopes
-            are included (global + all project-scoped).
+        project_id: Optional project UUID for scoped suppression lookup.
+            When None, only ``scope='global'`` suppressions are matched.
         fingerprint_mode: If set, only return hashes with this mode (e.g.
             ``"full"``). Prevents ``rule_module``/``rule_only`` hashes from
             matching when comparing against ``full`` fingerprints.
@@ -2251,13 +2250,11 @@ async def get_suppression_hashes(
     Returns:
         Set of fingerprint hash strings that are currently suppressed.
     """
-    stmt = select(Suppression.fingerprint_hash)
-    if project_id is not None:
-        conditions = [
-            Suppression.scope == "global",
-            Suppression.scope == f"project:{project_id}",
-        ]
-        stmt = stmt.where(or_(*conditions))
+    conditions = [Suppression.scope == "global"]
+    if project_id:
+        conditions.append(Suppression.scope == f"project:{project_id}")
+
+    stmt = select(Suppression.fingerprint_hash).where(or_(*conditions))
     if fingerprint_mode:
         stmt = stmt.where(Suppression.fingerprint_mode == fingerprint_mode)
     result = await db.execute(stmt)
@@ -2312,10 +2309,16 @@ async def suppressed_violation_ids(
     given scans, computes their canonical fingerprint (ADR-055), and checks
     against stored suppression hashes.
 
+    When ``project_id`` is provided (single-project view), only global and
+    that project's scoped suppressions are checked. When ``project_id`` is
+    None (cross-project aggregate), violations are grouped by their scan's
+    project and matched per-project to prevent cross-project scope leakage
+    (ADR-055).
+
     Args:
         db: Active async database session.
         scan_ids: Scan IDs to check.
-        project_id: Optional project for scoped suppression lookup.
+        project_id: Project UUID for scoped lookup. None means per-project.
 
     Returns:
         Set of Violation PKs that are currently suppressed.
@@ -2323,31 +2326,84 @@ async def suppressed_violation_ids(
     if not scan_ids:
         return set()
 
-    full_hashes = await get_suppression_hashes(db, project_id=project_id, fingerprint_mode="full")
-    rule_only_hashes = await get_suppression_hashes(db, project_id=project_id, fingerprint_mode="rule_only")
-    rule_module_hashes = await get_suppression_hashes(db, project_id=project_id, fingerprint_mode="rule_module")
-
-    if not full_hashes and not rule_only_hashes and not rule_module_hashes:
-        return set()
-
     from apme_engine.fingerprint import compute_fingerprint  # noqa: PLC0415
 
-    stmt = select(Violation.id, Violation.rule_id, Violation.original_yaml, Violation.path).where(
-        Violation.scan_id.in_(scan_ids),
-        Violation.validator_source.in_(["collection_health", "dep_audit"]),
+    stmt = (
+        select(
+            Violation.id,
+            Violation.rule_id,
+            Violation.original_yaml,
+            Violation.path,
+            Scan.project_id,
+        )
+        .join(Scan, Violation.scan_id == Scan.scan_id)
+        .where(
+            Violation.scan_id.in_(scan_ids),
+            Violation.validator_source.in_(["collection_health", "dep_audit"]),
+        )
     )
     result = await db.execute(stmt)
+    rows = result.all()
+    if not rows:
+        return set()
+
+    if project_id is not None:
+        full_h = await get_suppression_hashes(db, project_id=project_id, fingerprint_mode="full")
+        rule_only_h = await get_suppression_hashes(db, project_id=project_id, fingerprint_mode="rule_only")
+        return _match_violations(rows, full_h, rule_only_h, compute_fingerprint)
+
+    project_ids: set[str | None] = {row[4] for row in rows}
+    hash_cache: dict[tuple[str | None, str], set[str]] = {}
+    for pid in project_ids:
+        for mode in ("full", "rule_only"):
+            hash_cache[(pid, mode)] = await get_suppression_hashes(
+                db,
+                project_id=pid or "",
+                fingerprint_mode=mode,
+            )
 
     excluded: set[int] = set()
-    for vid, rule_id, original_yaml, path in result.all():
+    for vid, rule_id, original_yaml, _path, scan_project_id in rows:
+        full_h = hash_cache.get((scan_project_id, "full"), set())
+        rule_only_h = hash_cache.get((scan_project_id, "rule_only"), set())
+        if not full_h and not rule_only_h:
+            continue
+        if full_h:
+            fp = compute_fingerprint(rule_id or "", original_yaml or "", mode="full")
+            if fp in full_h:
+                excluded.add(vid)
+                continue
+        if rule_only_h:
+            fp_rule = compute_fingerprint(rule_id or "", "", mode="rule_only")
+            if fp_rule in rule_only_h:
+                excluded.add(vid)
+    return excluded
+
+
+def _match_violations(
+    rows: list[Any],
+    full_hashes: set[str],
+    rule_only_hashes: set[str],
+    compute_fingerprint: Any,
+) -> set[int]:
+    """Match violations against suppression hashes (single-project case).
+
+    Args:
+        rows: Violation rows (id, rule_id, original_yaml, path, project_id).
+        full_hashes: Full-mode suppression hashes.
+        rule_only_hashes: Rule-only suppression hashes.
+        compute_fingerprint: Fingerprint computation function.
+
+    Returns:
+        Set of suppressed violation PKs.
+    """
+    if not full_hashes and not rule_only_hashes:
+        return set()
+    excluded: set[int] = set()
+    for vid, rule_id, original_yaml, _path, _project_id in rows:
         if full_hashes:
             fp = compute_fingerprint(rule_id or "", original_yaml or "", mode="full")
             if fp in full_hashes:
-                excluded.add(vid)
-                continue
-        if rule_module_hashes and path:
-            fp_mod = compute_fingerprint(rule_id or "", "", mode="rule_module", module_fqcn=path)
-            if fp_mod in rule_module_hashes:
                 excluded.add(vid)
                 continue
         if rule_only_hashes:
