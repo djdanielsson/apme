@@ -8,9 +8,9 @@ APME is a multi-container gRPC microservice system. The Primary service runs the
 
 | Target | Method | Reference |
 |--------|--------|-----------|
-| Developer laptop / Linux server (no K8s) | Podman pod (`tox -e up`) | ADR-004 |
-| **Kubernetes / OpenShift** | **Helm chart** (`deploy/helm/apme/`) | ADR-054 |
-| Production single-node VM | bootc image | ADR-054 |
+| Developer laptop / Linux server (no K8s) | Podman pod (`tox -e up`) | [ADR-004](/.sdlc/adrs/ADR-004-podman-pod-deployment.md) |
+| **Kubernetes / OpenShift** | **Helm chart** (`deploy/helm/apme/`) | [ADR-054](/.sdlc/adrs/ADR-054-production-deployment.md) |
+| Production single-node VM | bootc image | [ADR-054](/.sdlc/adrs/ADR-054-production-deployment.md) |
 
 > Do NOT use Podman on Kubernetes/OpenShift. Use the Helm chart.
 

@@ -17,7 +17,7 @@ only.** For Kubernetes and OpenShift deployments, see
 | Environment | Deployment method | ADR |
 |-------------|-------------------|-----|
 | Developer laptop / workstation | Podman pod (`tox -e up`) | **This ADR** |
-| Linux server without Kubernetes | Podman pod or bootc VM | **This ADR**, ADR-054 |
+| Linux server without Kubernetes | Podman pod or bootc VM | **This ADR**, [ADR-054](ADR-054-production-deployment.md) |
 | Kubernetes / OpenShift | **Helm chart** (`deploy/helm/apme/`) | [ADR-054](ADR-054-production-deployment.md) |
 
 > **If you are deploying on Kubernetes or OpenShift, stop here and follow
