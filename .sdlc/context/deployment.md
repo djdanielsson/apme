@@ -14,8 +14,8 @@
 | Target environment | Deployment method | Tool | Guide |
 |--------------------|-------------------|------|-------|
 | Developer laptop / workstation | Podman pod | `tox -e up` | [Below](#podman-pod) |
-| Linux server **without** Kubernetes | Podman pod or bootc VM | `tox -e up` or bootc | [Below](#podman-pod), [bootc](#bootc-vm) |
-| **Kubernetes / OpenShift** | **Helm chart** | `helm install` | [Helm section](#helm--kubernetes) / [deploy/helm/apme/](../../deploy/helm/apme/README.md) |
+| Linux server **without** Kubernetes | Podman pod or bootc VM | `tox -e up` or bootc | [Below](#podman-pod), [deploy/bootc/README.md](/deploy/bootc/README.md) |
+| **Kubernetes / OpenShift** | **Helm chart** | `helm install` | [deploy/helm/apme/README.md](/deploy/helm/apme/README.md) |
 | Quick evaluation / CI | CLI daemon | `apme daemon start` | [CLI Guide](/docs/guides/CLI.md) |
 
 **Key rule:** If the target has `kubectl` / `oc` access to a cluster, **always

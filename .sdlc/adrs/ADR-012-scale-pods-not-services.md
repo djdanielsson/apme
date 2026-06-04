@@ -89,7 +89,7 @@ For local development or single-node Linux servers without Kubernetes:
 ```bash
 # Run multiple pods with Podman
 for i in 1 2 3; do
-  podman play kube pod.yaml --name apme-$i
+  podman play kube containers/podman/pod.yaml --name apme-$i
 done
 ```
 
