@@ -2328,6 +2328,12 @@ async def suppressed_violation_ids(
 
     from apme_engine.fingerprint import compute_fingerprint  # noqa: PLC0415
 
+    scan_id_chunks = [scan_ids[i : i + _SQLITE_BIND_LIMIT] for i in range(0, len(scan_ids), _SQLITE_BIND_LIMIT)]
+    scan_id_filter = (
+        Violation.scan_id.in_(scan_id_chunks[0])
+        if len(scan_id_chunks) == 1
+        else or_(*(Violation.scan_id.in_(chunk) for chunk in scan_id_chunks))
+    )
     stmt = (
         select(
             Violation.id,
@@ -2338,7 +2344,7 @@ async def suppressed_violation_ids(
         )
         .join(Scan, Violation.scan_id == Scan.scan_id)
         .where(
-            Violation.scan_id.in_(scan_ids),
+            scan_id_filter,
             Violation.validator_source.in_(["collection_health", "dep_audit"]),
         )
     )

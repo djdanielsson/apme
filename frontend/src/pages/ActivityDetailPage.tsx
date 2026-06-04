@@ -44,6 +44,7 @@ export function ActivityDetailPage() {
   const [resultsOpen, setResultsOpen] = useState(true);
   const [prCreating, setPrCreating] = useState(false);
   const [prError, setPrError] = useState<string | null>(null);
+  const [ackError, setAckError] = useState<string | null>(null);
   const [acknowledgedIds, setAcknowledgedIds] = useState<Set<number>>(new Set());
 
   useEffect(() => {
@@ -180,7 +181,7 @@ export function ActivityDetailPage() {
       if (status === 409) {
         setAcknowledgedIds(prev => new Set(prev).add(violation.id));
       } else {
-        setPrError(`Failed to acknowledge violation: ${err instanceof Error ? err.message : String(err)}`);
+        setAckError(`Failed to acknowledge violation: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
   };
@@ -246,6 +247,19 @@ export function ActivityDetailPage() {
             actionClose={<AlertActionCloseButton onClose={() => setPrError(null)} />}
           >
             {prError}
+          </Alert>
+        </div>
+      )}
+
+      {ackError && (
+        <div style={{ padding: '16px 24px 0' }}>
+          <Alert
+            variant="warning"
+            isInline
+            title="Acknowledge failed"
+            actionClose={<AlertActionCloseButton onClose={() => setAckError(null)} />}
+          >
+            {ackError}
           </Alert>
         </div>
       )}
