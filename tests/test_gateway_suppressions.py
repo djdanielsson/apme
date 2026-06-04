@@ -197,8 +197,11 @@ async def test_create_suppression_invalid_mode_returns_422(client: AsyncClient) 
     assert resp.status_code == 422
 
 
-async def test_create_suppression_rule_module_without_fqcn_returns_422(client: AsyncClient) -> None:
-    """POST /suppressions returns 422 when rule_module mode lacks module_fqcn.
+async def test_create_suppression_rule_module_rejected(client: AsyncClient) -> None:
+    """POST /suppressions returns 422 for rule_module mode (unsupported).
+
+    rule_module suppressions cannot be honored by read paths because
+    violation rows do not store resolved module FQCNs.
 
     Args:
         client: Async HTTP test client.
@@ -209,10 +212,12 @@ async def test_create_suppression_rule_module_without_fqcn_returns_422(client: A
             "rule_id": "L001",
             "original_yaml": "x: 1\n",
             "fingerprint_mode": "rule_module",
+            "module_fqcn": "ansible.builtin.debug",
             "reason": "test",
         },
     )
     assert resp.status_code == 422
+    assert "rule_module" in resp.json()["detail"]
 
 
 async def test_create_suppression_invalid_hash_format_returns_422(client: AsyncClient) -> None:

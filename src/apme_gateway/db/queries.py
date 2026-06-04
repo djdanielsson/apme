@@ -57,10 +57,9 @@ def _chunked_not_in(column: Any, ids: set[int]) -> Any:
     id_list = sorted(ids)
     if len(id_list) <= _SQLITE_BIND_LIMIT:
         return column.not_in(id_list)
-    from sqlalchemy import literal_column  # noqa: PLC0415
+    from sqlalchemy import literal  # noqa: PLC0415
 
-    csv = ",".join(str(pk) for pk in id_list)
-    return ~column.in_(literal_column(f"({csv})"))
+    return column.not_in([literal(pk) for pk in id_list])
 
 
 # ---------------------------------------------------------------------------

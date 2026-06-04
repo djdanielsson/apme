@@ -749,28 +749,17 @@ async def list_project_violations(
             limit=limit,
             offset=offset,
         )
-    return [
-        ViolationDetail(
-            id=v.id,
-            rule_id=v.rule_id,
-            level=v.level,
-            message=v.message,
-            file=v.file,
-            line=v.line,
-            path=v.path,
-            remediation_class=v.remediation_class,
-            remediation_resolution=v.remediation_resolution,
-            scope=v.scope,
-            validator_source=v.validator_source,
-            original_yaml=v.original_yaml,
-            fixed_yaml=v.fixed_yaml,
-            co_fixes=[r for r in v.co_fixes.split(",") if r],
-            node_line_start=v.node_line_start,
-            ai_reason=v.ai_reason,
-            ai_suggestion=v.ai_suggestion,
+        suppressed_hashes = await q.get_suppression_hashes(
+            db,
+            project_id=proj.id,
+            fingerprint_mode="full",
         )
-        for v in violations
-    ]
+        rule_only_hashes = await q.get_suppression_hashes(
+            db,
+            project_id=proj.id,
+            fingerprint_mode="rule_only",
+        )
+    return [_to_violation_detail(v, suppressed_hashes, rule_only_hashes) for v in violations]
 
 
 @router.get("/projects/{project_id}/trend")  # type: ignore[untyped-decorator]
@@ -2608,14 +2597,15 @@ async def create_suppression_endpoint(body: CreateSuppressionRequest) -> Suppres
     """
     from sqlalchemy.exc import IntegrityError  # noqa: PLC0415
 
-    _VALID_MODES = {"full", "rule_module", "rule_only"}
+    _VALID_MODES = {"full", "rule_only"}
     if body.fingerprint_mode not in _VALID_MODES:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Invalid fingerprint_mode: {body.fingerprint_mode!r}. Must be one of {sorted(_VALID_MODES)}.",
+        detail = (
+            f"Invalid fingerprint_mode: {body.fingerprint_mode!r}. Must be one of {sorted(_VALID_MODES)}."
+            if body.fingerprint_mode != "rule_module"
+            else "fingerprint_mode 'rule_module' is not supported for suppressions because violation rows"
+            " do not store resolved module FQCNs, so the suppression could never match. Use 'full' or 'rule_only'."
         )
-    if body.fingerprint_mode == "rule_module" and not body.module_fqcn:
-        raise HTTPException(status_code=422, detail="module_fqcn is required when fingerprint_mode is 'rule_module'")
+        raise HTTPException(status_code=422, detail=detail)
 
     if body.original_yaml is not None:
         if body.fingerprint_mode == "full" and not body.original_yaml.strip():
