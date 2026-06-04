@@ -41,9 +41,9 @@ def _chunked_not_in(column: Any, ids: set[int]) -> Any:
 
     For sets within a single chunk (<=900 IDs), produces a single
     ``column NOT IN (...)`` clause with bound parameters. For larger sets,
-    inlines the integer PKs as SQL literals (no bind parameters) to avoid
-    exceeding SQLite's per-statement variable limit
-    (SQLITE_MAX_VARIABLE_NUMBER = 999).
+    inlines the integer PKs as SQL literals in a single ``NOT IN (...)``
+    clause — no bind parameters and no compound selects — to avoid both
+    SQLITE_MAX_VARIABLE_NUMBER (999) and SQLITE_LIMIT_COMPOUND_SELECT (500).
 
     Args:
         column: SQLAlchemy column to filter.
@@ -57,10 +57,10 @@ def _chunked_not_in(column: Any, ids: set[int]) -> Any:
     id_list = sorted(ids)
     if len(id_list) <= _SQLITE_BIND_LIMIT:
         return column.not_in(id_list)
-    from sqlalchemy import literal_column, union_all  # noqa: PLC0415
+    from sqlalchemy import literal_column  # noqa: PLC0415
 
-    values_subq = union_all(*(select(literal_column(str(pk)).label("_exc_id")) for pk in id_list)).subquery("_excluded")
-    return ~column.in_(select(values_subq.c._exc_id))
+    csv = ",".join(str(pk) for pk in id_list)
+    return ~column.in_(literal_column(f"({csv})"))
 
 
 # ---------------------------------------------------------------------------
@@ -2328,6 +2328,57 @@ async def latest_project_scan_ids(
     return [row[0] for row in result.all()]
 
 
+async def _batch_suppression_hashes(
+    db: AsyncSession,
+    project_ids: set[str | None],
+) -> dict[tuple[str | None, str], set[str]]:
+    """Fetch suppression hashes for multiple projects in a single query.
+
+    Returns a mapping of ``(project_id, fingerprint_mode)`` to the set of
+    hashes that apply to that project (global + project-scoped combined).
+
+    Args:
+        db: Active async database session.
+        project_ids: Project UUIDs whose suppressions are needed.
+
+    Returns:
+        Dict keyed by ``(project_id, fingerprint_mode)`` → set of hashes.
+    """
+    scopes = ["global"]
+    for pid in project_ids:
+        if pid:
+            scopes.append(f"project:{pid}")
+
+    stmt = select(
+        Suppression.scope,
+        Suppression.fingerprint_mode,
+        Suppression.fingerprint_hash,
+    ).where(
+        Suppression.scope.in_(scopes),
+        Suppression.fingerprint_mode.in_(["full", "rule_only"]),
+    )
+    result = await db.execute(stmt)
+    rows = result.all()
+
+    cache: dict[tuple[str | None, str], set[str]] = {}
+    global_hashes: dict[str, set[str]] = {"full": set(), "rule_only": set()}
+    project_hashes: dict[tuple[str, str], set[str]] = {}
+    for scope, mode, fp_hash in rows:
+        if scope == "global":
+            global_hashes[mode].add(fp_hash)
+        else:
+            project_hashes.setdefault((scope, mode), set()).add(fp_hash)
+
+    for pid in project_ids:
+        for mode in ("full", "rule_only"):
+            combined = set(global_hashes.get(mode, set()))
+            if pid:
+                combined |= project_hashes.get((f"project:{pid}", mode), set())
+            cache[(pid, mode)] = combined
+
+    return cache
+
+
 async def suppressed_violation_ids(
     db: AsyncSession,
     scan_ids: list[str],
@@ -2389,14 +2440,7 @@ async def suppressed_violation_ids(
         return _match_violations(rows, full_h, rule_only_h, compute_fingerprint)
 
     project_ids: set[str | None] = {row[4] for row in rows}
-    hash_cache: dict[tuple[str | None, str], set[str]] = {}
-    for pid in project_ids:
-        for mode in ("full", "rule_only"):
-            hash_cache[(pid, mode)] = await get_suppression_hashes(
-                db,
-                project_id=pid or "",
-                fingerprint_mode=mode,
-            )
+    hash_cache = await _batch_suppression_hashes(db, project_ids)
 
     excluded: set[int] = set()
     for vid, rule_id, original_yaml, _path, scan_project_id in rows:

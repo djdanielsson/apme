@@ -2647,6 +2647,14 @@ async def create_suppression_endpoint(body: CreateSuppressionRequest) -> Suppres
                     detail="Supplied fingerprint_hash collides with the rule_only fingerprint for this rule_id. "
                     "Provide non-empty original_yaml for 'full' mode, or use fingerprint_mode='rule_only'.",
                 )
+        if body.fingerprint_mode == "rule_only":
+            expected = _violation_fingerprint(body.rule_id, "", mode="rule_only")
+            if fingerprint != expected:
+                raise HTTPException(
+                    status_code=422,
+                    detail="fingerprint_hash does not match the expected rule_only fingerprint for this rule_id. "
+                    "Omit fingerprint_hash to let the server compute it, or verify the rule_id is correct.",
+                )
 
     try:
         async with get_session() as db:
