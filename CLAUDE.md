@@ -28,15 +28,28 @@ APME is a multi-service system that automates policy enforcement and modernizati
 
 Full details: [architecture.md](/.sdlc/context/architecture.md) | [deployment.md](/.sdlc/context/deployment.md)
 
+## Deployment Methods
+
+| Target environment | Method | Reference |
+|--------------------|--------|-----------|
+| Developer laptop / Linux server (no K8s) | Podman pod (`tox -e up`) | [ADR-004](/.sdlc/adrs/ADR-004-podman-pod-deployment.md) |
+| **Kubernetes / OpenShift** | **Helm chart** (`helm install`) | [ADR-054](/.sdlc/adrs/ADR-054-production-deployment.md), [deploy/helm/apme/](/deploy/helm/apme/) |
+| Production single-node VM | bootc image | [ADR-054](/.sdlc/adrs/ADR-054-production-deployment.md) |
+| Quick evaluation / CI | CLI daemon (`apme daemon start`) | [CLI Guide](/docs/guides/CLI.md) |
+
+> **Never use Podman on Kubernetes or OpenShift.** Always use the Helm chart at `deploy/helm/apme/`.
+
 ## Key ADRs
 
 | ADR | Decision |
 |-----|----------|
 | [ADR-001](/.sdlc/adrs/ADR-001-grpc-communication.md) | gRPC for all inter-service communication |
 | [ADR-003](/.sdlc/adrs/ADR-003-vendor-ari-engine.md) | Vendored ARI engine (NOT a pip dependency) |
+| [ADR-004](/.sdlc/adrs/ADR-004-podman-pod-deployment.md) | Podman pod for **local dev only** (not K8s/OCP) |
 | [ADR-007](/.sdlc/adrs/ADR-007-async-grpc-servers.md) | Async gRPC (grpc.aio) for all servers |
 | [ADR-008](/.sdlc/adrs/ADR-008-rule-id-conventions.md) | Rule IDs: L=Lint, M=Modernize, R=Risk, P=Policy, SEC=Secrets |
 | [ADR-009](/.sdlc/adrs/ADR-009-remediation-engine.md) | Validators are read-only; remediation is separate |
+| [ADR-054](/.sdlc/adrs/ADR-054-production-deployment.md) | **Helm chart for K8s/OCP**, bootc for VM |
 
 Full list: `.sdlc/adrs/README.md`
 
@@ -99,7 +112,7 @@ Rebuild required after modifying: `src/**/*.py`, `proto/**/*.proto`, `pyproject.
 ## References
 
 - [architecture.md](/.sdlc/context/architecture.md) — Container topology, ports, concurrency
-- [deployment.md](/.sdlc/context/deployment.md) — Podman pod setup
+- [deployment.md](/.sdlc/context/deployment.md) — Deployment methods (Podman, Helm, bootc)
 - [conventions.md](/.sdlc/context/conventions.md) — Coding standards
 - [SECURITY.md](/SECURITY.md) — Security policy
 - [SOP.md](/SOP.md) — Consolidated standard operating procedures

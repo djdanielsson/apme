@@ -12,6 +12,18 @@ Accepted
 
 When throughput needs to increase, where do we scale?
 
+This ADR defines the **scaling unit** — the engine stack as an atomic group.
+It does **not** prescribe the deployment tool. For deployment method guidance:
+
+| Environment | Deployment method | ADR |
+|-------------|-------------------|-----|
+| Developer laptop / workstation | Podman pod (`tox -e up`) | [ADR-004](ADR-004-podman-pod-deployment.md) |
+| Linux server without Kubernetes | Podman pod or bootc VM | [ADR-004](ADR-004-podman-pod-deployment.md), [ADR-054](ADR-054-production-deployment.md) |
+| **Kubernetes / OpenShift** | **Helm chart** (`deploy/helm/apme/`) | [ADR-054](ADR-054-production-deployment.md) |
+
+> **If you are scaling on Kubernetes or OpenShift, use the Helm chart
+> (`deploy/helm/apme/`).** Do not use `podman play kube` on K8s/OCP.
+
 ## Options Considered
 
 | Option | Pros | Cons |
@@ -54,33 +66,34 @@ To increase throughput, run more pods behind a load balancer.
 
 ## Implementation Notes
 
-### Scaling
+### Scaling on Kubernetes / OpenShift (Helm chart)
+
+The Helm chart at `deploy/helm/apme/` models the engine stack as sidecar
+containers in a single Kubernetes pod. Scaling is done via the Helm values:
 
 ```bash
-# Scale to 3 pods
-kubectl scale deployment apme --replicas=3
+# Scale engine to 3 replicas via Helm
+helm upgrade apme ./deploy/helm/apme/ --set engine.replicas=3
 
-# Or with Podman
+# Or use HPA (configured in chart values)
+```
+
+The chart creates a Kubernetes Service for load balancing across engine replicas.
+Gateway and UI scale independently as separate Deployments. See
+[ADR-054](ADR-054-production-deployment.md) for full details.
+
+### Scaling with Podman (local dev / single-node)
+
+For local development or single-node Linux servers without Kubernetes:
+
+```bash
+# Run multiple pods with Podman
 for i in 1 2 3; do
-  podman play kube pod.yaml --name apme-$i
+  podman play kube containers/podman/pod.yaml --name apme-$i
 done
 ```
 
-### Load Balancer
-
-```yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: apme-lb
-spec:
-  type: LoadBalancer
-  selector:
-    app: apme
-  ports:
-    - port: 50050
-      targetPort: 50050
-```
+This is appropriate for development testing or non-Kubernetes servers only.
 
 ### Galaxy Proxy Exception
 
@@ -91,6 +104,7 @@ If a shared wheel cache is needed:
 
 ## Related Decisions
 
-- ADR-004: Podman pod deployment
+- ADR-004: Podman pod deployment (local dev and single-node)
 - ADR-005: No service discovery
 - ADR-048: Pod-internal admin endpoints rely on network isolation — if Galaxy Proxy is extracted (see "Galaxy Proxy Exception" above), auth must be added per ADR-048
+- **ADR-054: Production Deployment — Helm chart for Kubernetes/OpenShift**

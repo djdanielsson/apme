@@ -115,6 +115,20 @@ one needs to change, write an ADR first.
     `uvx --with tox-uv tox -e <env>`. See `.agents/skills/tox/SKILL.md` for
     the full environment reference.
 
+16. **Helm for Kubernetes/OpenShift; Podman for local dev only** (ADR-004,
+    ADR-054). **Never use Podman, `podman play kube`, or raw pod YAML to deploy
+    on Kubernetes or OpenShift.** The Helm chart at `deploy/helm/apme/` is the
+    only supported method for K8s/OCP deployment. Podman pods (`tox -e up`) are
+    for developer laptops and non-Kubernetes Linux servers. bootc VM images are
+    for production single-node deployments without K8s. If the user asks to
+    deploy on OCP, OpenShift, Kubernetes, or K8s — use the Helm chart.
+
+    | Target | Method |
+    |--------|--------|
+    | Developer laptop / Linux server (no K8s) | Podman pod (`tox -e up`) |
+    | **Kubernetes / OpenShift** | **Helm chart** (`deploy/helm/apme/`) |
+    | Production single-node VM | bootc image |
+
 ## Agent Roles
 
 ### 1. Spec Writer Agent
@@ -254,22 +268,24 @@ one needs to change, write an ADR first.
 
 ### 6. Integration Agent
 
-**Purpose**: Creates CI/CD integrations, examples, and Galaxy Proxy.
+**Purpose**: Creates CI/CD integrations, examples, Galaxy Proxy, and deployment artifacts.
 
 **Context Files**:
 - `CLAUDE.md`
 - `.sdlc/specs/REQ-003-security-compliance/`
 - `.sdlc/specs/REQ-004-enterprise-integration/`
 - `examples/`
-- ADR-031
+- ADR-031, **ADR-054**
 
-**Scope**: `src/galaxy_proxy/`, `containers/`, `examples/`, `.github/`
+**Scope**: `src/galaxy_proxy/`, `containers/`, `deploy/`, `examples/`, `.github/`
 
 **Capabilities**:
 - Create GitHub Actions workflows
 - Create AAP pre-flight checks (document `apme check` / `apme remediate`)
 - Galaxy Proxy PEP 503 implementation (ADR-031)
 - Container definitions and pod configuration
+- Helm chart for Kubernetes/OpenShift (`deploy/helm/apme/`)
+- bootc VM image definitions (`deploy/bootc/`)
 - Write integration documentation and example configurations
 
 **Constraints**:
@@ -277,6 +293,7 @@ one needs to change, write an ADR first.
 - Must include clear documentation
 - Must handle common edge cases
 - HTTP endpoints are limited to Galaxy Proxy (PEP 503), Gateway REST, and UI (nginx)
+- **Kubernetes/OpenShift deployments must use the Helm chart** (`deploy/helm/apme/`), never Podman (invariant 16)
 
 ---
 
