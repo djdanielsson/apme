@@ -6,14 +6,21 @@
 > deployment instructions (including bootc VM and Helm chart), see the
 > canonical guide linked above.
 
-## Deployment Methods
+## Deployment Method Selection
 
-| Method | Best for | Guide |
-|--------|----------|-------|
-| CLI daemon | Quick evaluation, CI | [docs/guides/CLI.md](/docs/guides/CLI.md) |
-| Podman pod | Development, full features | [docs/guides/DEPLOYMENT.md](/docs/guides/DEPLOYMENT.md) |
-| bootc VM | Production single-node | [deploy/bootc/README.md](/deploy/bootc/README.md) |
-| Helm chart | Kubernetes / OpenShift | [deploy/helm/apme/README.md](/deploy/helm/apme/README.md) |
+> **IMPORTANT — Read this first.** Choose the deployment method based on the
+> target environment. Do NOT use Podman commands on Kubernetes or OpenShift.
+
+| Target environment | Deployment method | Tool | Guide |
+|--------------------|-------------------|------|-------|
+| Developer laptop / workstation | Podman pod | `tox -e up` | [Below](#podman-pod) |
+| Linux server **without** Kubernetes | Podman pod or bootc VM | `tox -e up` or bootc | [Below](#podman-pod), [bootc](#bootc-vm) |
+| **Kubernetes / OpenShift** | **Helm chart** | `helm install` | [Helm section](#helm--kubernetes) / [deploy/helm/apme/](../../deploy/helm/apme/README.md) |
+| Quick evaluation / CI | CLI daemon | `apme daemon start` | [CLI Guide](/docs/guides/CLI.md) |
+
+**Key rule:** If the target has `kubectl` / `oc` access to a cluster, **always
+use the Helm chart** at `deploy/helm/apme/`. Podman pods are for local
+development and non-Kubernetes Linux servers only.
 
 ## Podman Pod
 

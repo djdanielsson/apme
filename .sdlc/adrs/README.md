@@ -13,7 +13,7 @@ Decisions that are fully reflected in the codebase.
 | [ADR-001](ADR-001-grpc-communication.md) | gRPC for Inter-Service Communication | 2026-02 |
 | [ADR-002](ADR-002-opa-rego-policy.md) | OPA/Rego for Declarative Policy Rules | 2026-02 |
 | [ADR-003](ADR-003-vendor-ari-engine.md) | Vendor the ARI Engine, Do Not Use as Dependency | 2026-02 |
-| [ADR-004](ADR-004-podman-pod-deployment.md) | Podman Pod as Deployment Unit | 2026-02 |
+| [ADR-004](ADR-004-podman-pod-deployment.md) | Podman Pod as Local Development and Single-Node Deployment Unit | 2026-02 |
 | [ADR-005](ADR-005-no-service-discovery.md) | Reject etcd/Service Discovery for Single-Pod Deployment | 2026-02 |
 | [ADR-007](ADR-007-async-grpc-servers.md) | Fully Async gRPC Servers (grpc.aio) | 2026-03 |
 | [ADR-008](ADR-008-rule-id-conventions.md) | Rule ID Conventions (L/M/R/P/A) | 2026-02 |

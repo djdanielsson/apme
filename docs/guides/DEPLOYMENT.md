@@ -2,12 +2,15 @@
 
 APME supports multiple deployment methods depending on your environment and needs.
 
-| Method | Best for | Details |
-|--------|----------|---------|
-| **Podman pod** | Development, full feature set | [Below](#podman-pod) |
-| **bootc VM** | Production single-node, atomic upgrades | [bootc section](#bootc-vm) / [full guide](../../deploy/bootc/README.md) |
-| **Helm chart** | Kubernetes / OpenShift | [Helm section](#helm--kubernetes) / [full guide](../../deploy/helm/apme/README.md) |
-| **CLI daemon** | Quick evaluation, CI | [CLI Guide](CLI.md) |
+| Target environment | Method | Details |
+|--------------------|--------|---------|
+| Developer laptop / Linux server (no K8s) | **Podman pod** | [Below](#podman-pod) |
+| **Kubernetes / OpenShift** | **Helm chart** | [Helm section](#helm--kubernetes) / [full guide](../../deploy/helm/apme/README.md) |
+| Production single-node VM | **bootc VM** | [bootc section](#bootc-vm) / [full guide](../../deploy/bootc/README.md) |
+| Quick evaluation / CI | **CLI daemon** | [CLI Guide](CLI.md) |
+
+> **Deploying on Kubernetes or OpenShift?** Use the Helm chart at
+> `deploy/helm/apme/`. Do not use Podman on K8s/OCP.
 
 Full deployment methods (Podman, bootc, Helm) run the complete engine stack
 (Primary + all validators + Galaxy Proxy). The CLI daemon runs only core

@@ -1,4 +1,4 @@
-# ADR-004: Podman Pod as Deployment Unit
+# ADR-004: Podman Pod as Local Development and Single-Node Deployment Unit
 
 ## Status
 
@@ -7,6 +7,22 @@ Implemented
 ## Date
 
 2026-02
+
+## Scope
+
+**This ADR covers local development and single-node (non-Kubernetes) deployments
+only.** For Kubernetes and OpenShift deployments, see
+[ADR-054](ADR-054-production-deployment.md) which specifies the Helm chart.
+
+| Environment | Deployment method | ADR |
+|-------------|-------------------|-----|
+| Developer laptop / workstation | Podman pod (`tox -e up`) | **This ADR** |
+| Linux server without Kubernetes | Podman pod or bootc VM | **This ADR**, ADR-054 |
+| Kubernetes / OpenShift | **Helm chart** (`deploy/helm/apme/`) | [ADR-054](ADR-054-production-deployment.md) |
+
+> **If you are deploying on Kubernetes or OpenShift, stop here and follow
+> [ADR-054](ADR-054-production-deployment.md).** Do not use `podman play kube`
+> or raw pod YAML on K8s/OCP — use `helm install`.
 
 ## Context
 
@@ -19,7 +35,7 @@ APME runs multiple services:
 - Galaxy Proxy (PEP 503 collection proxy)
 - CLI
 
-We needed a deployment model.
+We needed a deployment model for **local development and single-node evaluation**.
 
 ## Options Considered
 
@@ -32,10 +48,12 @@ We needed a deployment model.
 
 ## Decision
 
-**Use a Podman pod.**
+**Use a Podman pod for local development and single-node deployments.**
 
 - All backend services share `localhost` within the pod
 - The CLI runs on-the-fly outside the pod with a CWD volume mount
+- For Kubernetes/OpenShift production deployments, a Helm chart is provided
+  separately (see [ADR-054](ADR-054-production-deployment.md))
 
 ## Rationale
 
@@ -57,10 +75,11 @@ We needed a deployment model.
 ### Negative
 - Less tooling maturity than Docker
 - Team needs Podman familiarity
+- Not suitable for Kubernetes/OpenShift — use the Helm chart (ADR-054) instead
 
 ## Implementation Notes
 
-- Pod spec: `deploy/pod.yaml`
+- Pod spec: `containers/podman/pod.yaml`
 - Services share localhost within pod
 - CLI invoked via `podman run --rm` with volume mount
 - Fixed ports: 50051–50056 for gRPC services, 8765 for Galaxy Proxy
@@ -70,3 +89,4 @@ We needed a deployment model.
 - ADR-005: No etcd/service discovery
 - ADR-012: Scale pods, not services
 - ADR-048: Pod-internal admin endpoints rely on network isolation — depends on shared-localhost assumption established here
+- **ADR-054: Production Deployment — Helm chart for Kubernetes/OpenShift, bootc for VM**
