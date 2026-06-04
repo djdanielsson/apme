@@ -2592,6 +2592,15 @@ async def create_suppression_endpoint(body: CreateSuppressionRequest) -> Suppres
     """
     from sqlalchemy.exc import IntegrityError  # noqa: PLC0415
 
+    _VALID_MODES = {"full", "rule_module", "rule_only"}
+    if body.fingerprint_mode not in _VALID_MODES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid fingerprint_mode: {body.fingerprint_mode!r}. Must be one of {sorted(_VALID_MODES)}.",
+        )
+    if body.fingerprint_mode == "rule_module" and not body.module_fqcn:
+        raise HTTPException(status_code=422, detail="module_fqcn is required when fingerprint_mode is 'rule_module'")
+
     if body.original_yaml is not None:
         try:
             fingerprint = _violation_fingerprint(
@@ -2604,9 +2613,12 @@ async def create_suppression_endpoint(body: CreateSuppressionRequest) -> Suppres
             raise HTTPException(status_code=422, detail=str(exc)) from None
     else:
         fingerprint = body.fingerprint_hash
-
-    if not fingerprint:
-        raise HTTPException(status_code=422, detail="Either original_yaml or fingerprint_hash must be provided")
+        if not fingerprint:
+            raise HTTPException(status_code=422, detail="Either original_yaml or fingerprint_hash must be provided")
+        if len(fingerprint) != 64 or not all(c in "0123456789abcdef" for c in fingerprint):
+            raise HTTPException(
+                status_code=422, detail="fingerprint_hash must be a 64-character lowercase hex SHA-256 digest"
+            )
 
     try:
         async with get_session() as db:

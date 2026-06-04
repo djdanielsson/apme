@@ -208,3 +208,21 @@ async def test_create_suppression_rule_module_without_fqcn_returns_422(client: A
         },
     )
     assert resp.status_code == 422
+
+
+async def test_create_suppression_invalid_hash_format_returns_422(client: AsyncClient) -> None:
+    """POST /suppressions returns 422 when fingerprint_hash is not valid hex SHA-256.
+
+    Args:
+        client: Async HTTP test client.
+    """
+    resp = await client.post(
+        "/api/v1/suppressions",
+        json={
+            "rule_id": "L001",
+            "fingerprint_hash": "not-a-valid-sha256",
+            "reason": "test",
+        },
+    )
+    assert resp.status_code == 422
+    assert "64-character" in resp.json()["detail"]

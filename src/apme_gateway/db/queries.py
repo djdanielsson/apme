@@ -2291,8 +2291,10 @@ async def suppressed_violation_ids(
     if not scan_ids:
         return set()
 
-    hashes = await get_suppression_hashes(db, project_id=project_id, fingerprint_mode="full")
-    if not hashes:
+    full_hashes = await get_suppression_hashes(db, project_id=project_id, fingerprint_mode="full")
+    rule_only_hashes = await get_suppression_hashes(db, project_id=project_id, fingerprint_mode="rule_only")
+
+    if not full_hashes and not rule_only_hashes:
         return set()
 
     from apme_engine.fingerprint import compute_fingerprint  # noqa: PLC0415
@@ -2305,9 +2307,15 @@ async def suppressed_violation_ids(
 
     excluded: set[int] = set()
     for vid, rule_id, original_yaml in result.all():
-        fp = compute_fingerprint(rule_id or "", original_yaml or "")
-        if fp in hashes:
-            excluded.add(vid)
+        if full_hashes:
+            fp = compute_fingerprint(rule_id or "", original_yaml or "", mode="full")
+            if fp in full_hashes:
+                excluded.add(vid)
+                continue
+        if rule_only_hashes:
+            fp_rule = compute_fingerprint(rule_id or "", "", mode="rule_only")
+            if fp_rule in rule_only_hashes:
+                excluded.add(vid)
     return excluded
 
 

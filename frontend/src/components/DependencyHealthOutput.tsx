@@ -6,7 +6,7 @@ import {
   AngleDoubleUpIcon,
   AngleDoubleDownIcon,
 } from '@patternfly/react-icons';
-import { ViolationDetailModal, type ViolationRecord } from './ViolationDetailModal';
+import { ViolationDetailModal } from './ViolationDetailModal';
 import { severityClass, severityLabel, severityOrder, SEVERITY_ORDER } from './severity';
 import { RuleId } from './RuleId';
 import type { ViolationDetail } from '../types/api';
@@ -99,7 +99,7 @@ export function DependencyHealthOutput({ violations, scanType, scanId, feedbackE
   const [sectionOpen, setSectionOpen] = useState(false);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [allCollapsed, setAllCollapsed] = useState(false);
-  const [selectedViolation, setSelectedViolation] = useState<ViolationRecord | null>(null);
+  const [selectedViolation, setSelectedViolation] = useState<ViolationDetail | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const toggleGroup = (key: string) => {
@@ -240,8 +240,8 @@ export function DependencyHealthOutput({ violations, scanType, scanId, feedbackE
                       role="button"
                       tabIndex={0}
                       aria-label={`View details for ${v.rule_id}: ${v.message}`}
-                      onClick={() => setSelectedViolation(v as ViolationRecord)}
-                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedViolation(v as ViolationRecord); } }}
+                      onClick={() => setSelectedViolation(v)}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedViolation(v); } }}
                     >
                       <span className="apme-output-gutter apme-output-line-num">
                         {v.line != null && v.line > 0 ? v.line : ''}
@@ -283,7 +283,7 @@ export function DependencyHealthOutput({ violations, scanType, scanId, feedbackE
           onAcknowledge={onAcknowledge ? () => {
             const v = selectedViolation;
             setSelectedViolation(null);
-            onAcknowledge(v as unknown as ViolationDetail);
+            if (v) onAcknowledge(v);
           } : undefined}
         />
       )}
