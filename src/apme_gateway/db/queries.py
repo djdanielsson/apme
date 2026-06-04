@@ -2235,12 +2235,15 @@ async def get_suppression_hashes(
 ) -> set[str]:
     """Return the set of suppressed fingerprint hashes.
 
-    Includes both global suppressions and project-scoped ones if a
-    ``project_id`` is given.
+    When ``project_id`` is provided, returns hashes from global suppressions
+    plus that project's scoped suppressions. When ``project_id`` is None,
+    returns hashes from ALL suppressions regardless of scope (suitable for
+    cross-project aggregate views like global dep-health).
 
     Args:
         db: Active async database session.
-        project_id: Optional project UUID for scoped suppression lookup.
+        project_id: Project UUID to scope the lookup. When None, all scopes
+            are included (global + all project-scoped).
         fingerprint_mode: If set, only return hashes with this mode (e.g.
             ``"full"``). Prevents ``rule_module``/``rule_only`` hashes from
             matching when comparing against ``full`` fingerprints.
@@ -2248,11 +2251,13 @@ async def get_suppression_hashes(
     Returns:
         Set of fingerprint hash strings that are currently suppressed.
     """
-    conditions = [Suppression.scope == "global"]
-    if project_id:
-        conditions.append(Suppression.scope == f"project:{project_id}")
-
-    stmt = select(Suppression.fingerprint_hash).where(or_(*conditions))
+    stmt = select(Suppression.fingerprint_hash)
+    if project_id is not None:
+        conditions = [
+            Suppression.scope == "global",
+            Suppression.scope == f"project:{project_id}",
+        ]
+        stmt = stmt.where(or_(*conditions))
     if fingerprint_mode:
         stmt = stmt.where(Suppression.fingerprint_mode == fingerprint_mode)
     result = await db.execute(stmt)

@@ -387,3 +387,103 @@ async def test_activity_detail_suppressed_flag(client: AsyncClient) -> None:
     suppressed_map = {v["rule_id"]: v["suppressed"] for v in violations}
     assert suppressed_map["L001"] is True
     assert suppressed_map["L002"] is False
+
+
+async def test_dep_health_excludes_suppressed_violations(client: AsyncClient) -> None:
+    """GET /dep-health excludes suppressed violations from counts.
+
+    Seeds a project with a scan containing collection_health violations,
+    creates a suppression matching one, and verifies the count drops.
+
+    Args:
+        client: Async HTTP test client.
+    """
+    from apme_gateway.db import get_session
+    from apme_gateway.db.models import Project, Scan, Session, Violation
+
+    yaml_a = "- name: outdated collection\n  debug:\n    msg: old\n"
+    yaml_b = "- name: another collection issue\n  command: ls\n"
+
+    async with get_session() as db:
+        project = Project(
+            id="proj0001",
+            name="test-project",
+            repo_url="https://github.com/test/repo",
+            branch="main",
+            created_at="2024-01-01T00:00:00Z",
+        )
+        db.add(project)
+        await db.flush()
+
+        session = Session(
+            session_id="sess0002",
+            project_path="/tmp/test-project",
+            first_seen="2024-01-01T00:00:00Z",
+            last_seen="2024-01-01T00:00:00Z",
+        )
+        db.add(session)
+        await db.flush()
+
+        scan = Scan(
+            scan_id="scan0002",
+            session_id="sess0002",
+            project_id="proj0001",
+            project_path="/tmp/test-project",
+            source="cli",
+            trigger="cli",
+            created_at="2024-01-01T00:00:00Z",
+            scan_type="check",
+            total_violations=2,
+            auto_fixable=0,
+            ai_candidate=0,
+            manual_review=2,
+        )
+        db.add(scan)
+        await db.flush()
+
+        v1 = Violation(
+            scan_id="scan0002",
+            rule_id="R200",
+            level="high",
+            message="Outdated collection",
+            path="community.general",
+            validator_source="collection_health",
+            original_yaml=yaml_a,
+        )
+        v2 = Violation(
+            scan_id="scan0002",
+            rule_id="R201",
+            level="medium",
+            message="Another issue",
+            path="community.general",
+            validator_source="collection_health",
+            original_yaml=yaml_b,
+        )
+        db.add_all([v1, v2])
+        await db.commit()
+
+    resp_before = await client.get("/api/v1/dep-health")
+    assert resp_before.status_code == 200
+    before = resp_before.json()
+    coll_before = before["collection_findings"]
+    assert len(coll_before) == 1
+    assert coll_before[0]["finding_count"] == 2
+    assert before["suppressed_count"] == 0
+
+    create_resp = await client.post(
+        "/api/v1/suppressions",
+        json={
+            "rule_id": "R200",
+            "original_yaml": yaml_a,
+            "scope": "global",
+            "reason": "Acknowledged",
+        },
+    )
+    assert create_resp.status_code == 201
+
+    resp_after = await client.get("/api/v1/dep-health")
+    assert resp_after.status_code == 200
+    after = resp_after.json()
+    coll_after = after["collection_findings"]
+    assert coll_after[0]["finding_count"] == 1
+    assert after["suppressed_count"] == 1

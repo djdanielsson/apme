@@ -174,7 +174,9 @@ export function ActivityDetailPage() {
       });
       setAcknowledgedIds(prev => new Set(prev).add(violation.id));
     } catch (err: unknown) {
-      const status = (err as { status?: number })?.status;
+      const status = err != null && typeof err === 'object' && 'status' in err
+        ? (err as { status: number }).status
+        : undefined;
       if (status === 409) {
         setAcknowledgedIds(prev => new Set(prev).add(violation.id));
       } else {
