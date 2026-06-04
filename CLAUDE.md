@@ -35,6 +35,7 @@ Full details: [architecture.md](/.sdlc/context/architecture.md) | [deployment.md
 | Developer laptop / Linux server (no K8s) | Podman pod (`tox -e up`) | [ADR-004](/.sdlc/adrs/ADR-004-podman-pod-deployment.md) |
 | **Kubernetes / OpenShift** | **Helm chart** (`helm install`) | [ADR-054](/.sdlc/adrs/ADR-054-production-deployment.md), [deploy/helm/apme/](/deploy/helm/apme/) |
 | Production single-node VM | bootc image | [ADR-054](/.sdlc/adrs/ADR-054-production-deployment.md) |
+| Quick evaluation / CI | CLI daemon (`apme daemon start`) | [CLI Guide](/docs/guides/CLI.md) |
 
 > **Never use Podman on Kubernetes or OpenShift.** Always use the Helm chart at `deploy/helm/apme/`.
 
