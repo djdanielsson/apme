@@ -169,11 +169,17 @@ export function ActivityDetailPage() {
       await createSuppression({
         rule_id: violation.rule_id,
         original_yaml: violation.original_yaml ?? undefined,
+        scope: detail?.project_id ? `project:${detail.project_id}` : 'global',
         reason: 'Acknowledged via activity detail',
       });
       setAcknowledgedIds(prev => new Set(prev).add(violation.id));
-    } catch (err) {
-      console.error('Failed to acknowledge violation:', err);
+    } catch (err: unknown) {
+      const status = (err as { status?: number })?.status;
+      if (status === 409) {
+        setAcknowledgedIds(prev => new Set(prev).add(violation.id));
+      } else {
+        setPrError(`Failed to acknowledge violation: ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
   };
 

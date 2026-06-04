@@ -1139,6 +1139,7 @@ async def dep_health_summary() -> DepHealthSummary:
             )
             for r in cve_rows
         ],
+        suppressed_count=len(excluded),
     )
 
 
@@ -1186,6 +1187,7 @@ async def project_dep_health_summary(project_id: str) -> DepHealthSummary:
             )
             for r in cve_rows
         ],
+        suppressed_count=len(excluded),
     )
 
 
@@ -1368,15 +1370,19 @@ def _violation_fingerprint(rule_id: str, original_yaml: str, mode: str = "full",
 def _to_violation_detail(
     v: object,
     suppressed_hashes: set[str],
+    rule_only_hashes: set[str] | None = None,
 ) -> ViolationDetail:
     """Build a ViolationDetail from an ORM Violation row.
 
     Computes a content fingerprint and checks it against known
     suppression hashes so the ``suppressed`` flag is authoritative.
+    Checks both full-mode and rule_only-mode hashes for consistency
+    with the dep-health path.
 
     Args:
         v: Violation ORM instance.
-        suppressed_hashes: Set of fingerprint hex digests that are suppressed.
+        suppressed_hashes: Full-mode fingerprint hex digests that are suppressed.
+        rule_only_hashes: Rule-only fingerprint hex digests that are suppressed.
 
     Returns:
         Populated ViolationDetail schema.
@@ -1385,6 +1391,9 @@ def _to_violation_detail(
     if suppressed_hashes:
         fp = _violation_fingerprint(v.rule_id, v.original_yaml)  # type: ignore[attr-defined]
         suppressed = fp in suppressed_hashes
+    if not suppressed and rule_only_hashes:
+        fp_rule = _violation_fingerprint(v.rule_id, "", mode="rule_only")  # type: ignore[attr-defined]
+        suppressed = fp_rule in rule_only_hashes
     return ViolationDetail(
         id=v.id,  # type: ignore[attr-defined]
         rule_id=v.rule_id,  # type: ignore[attr-defined]
@@ -1412,8 +1421,8 @@ async def get_activity_detail(activity_id: str) -> ActivityDetail:
     """Fetch one activity run with violations, proposals, and logs.
 
     Violations matched by an active suppression (ADR-055) are annotated
-    with ``suppressed=True``.  Fingerprints are computed using the same
-    raw-YAML formula the UI client uses so stored hashes match.
+    with ``suppressed=True``.  Fingerprints are computed using the canonical
+    normalized-YAML algorithm from ``apme_engine.fingerprint``.
 
     Args:
         activity_id: UUID of the run (``scans.scan_id``).
@@ -1433,10 +1442,16 @@ async def get_activity_detail(activity_id: str) -> ActivityDetail:
             project_id=scan.project_id,
             fingerprint_mode="full",
         )
+        rule_only_hashes = await q.get_suppression_hashes(
+            db,
+            project_id=scan.project_id,
+            fingerprint_mode="rule_only",
+        )
     display_path = scan.project.name if scan.project is not None else scan.project_path
     return ActivityDetail(
         scan_id=scan.scan_id,
         session_id=scan.session_id,
+        project_id=scan.project_id,
         project_path=display_path,
         source=scan.source,
         created_at=scan.created_at,
@@ -1451,7 +1466,7 @@ async def get_activity_detail(activity_id: str) -> ActivityDetail:
         remediated_count=scan.fixed_count if scan.scan_type == "remediate" else 0,
         pr_url=scan.pr_url,
         diagnostics_json=scan.diagnostics_json,
-        violations=[_to_violation_detail(v, suppressed_hashes) for v in scan.violations],
+        violations=[_to_violation_detail(v, suppressed_hashes, rule_only_hashes) for v in scan.violations],
         proposals=[
             ProposalDetail(
                 id=p.id,
@@ -2602,6 +2617,12 @@ async def create_suppression_endpoint(body: CreateSuppressionRequest) -> Suppres
         raise HTTPException(status_code=422, detail="module_fqcn is required when fingerprint_mode is 'rule_module'")
 
     if body.original_yaml is not None:
+        if body.fingerprint_mode == "full" and not body.original_yaml.strip():
+            raise HTTPException(
+                status_code=422,
+                detail="original_yaml must not be empty/whitespace for 'full' mode"
+                " (collides with rule_only fingerprint)",
+            )
         try:
             fingerprint = _violation_fingerprint(
                 body.rule_id,
@@ -2612,13 +2633,11 @@ async def create_suppression_endpoint(body: CreateSuppressionRequest) -> Suppres
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from None
     else:
-        fingerprint = body.fingerprint_hash
+        fingerprint = body.fingerprint_hash.lower()
         if not fingerprint:
             raise HTTPException(status_code=422, detail="Either original_yaml or fingerprint_hash must be provided")
         if len(fingerprint) != 64 or not all(c in "0123456789abcdef" for c in fingerprint):
-            raise HTTPException(
-                status_code=422, detail="fingerprint_hash must be a 64-character lowercase hex SHA-256 digest"
-            )
+            raise HTTPException(status_code=422, detail="fingerprint_hash must be a 64-character hex SHA-256 digest")
 
     try:
         async with get_session() as db:
@@ -2650,17 +2669,21 @@ async def create_suppression_endpoint(body: CreateSuppressionRequest) -> Suppres
 @router.get("/suppressions")  # type: ignore[untyped-decorator]
 async def list_suppressions_endpoint(
     scope: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
 ) -> list[SuppressionSchema]:
-    """List all suppressions, optionally filtered by scope.
+    """List suppressions, optionally filtered by scope (paginated).
 
     Args:
         scope: Optional scope filter (``global``, ``project:<uuid>``).
+        limit: Maximum number of records to return (1–1000, default 100).
+        offset: Number of records to skip for pagination.
 
     Returns:
         List of suppression records.
     """
     async with get_session() as db:
-        rows = await q.list_suppressions(db, scope=scope)
+        rows = await q.list_suppressions(db, scope=scope, limit=limit, offset=offset)
         return [
             SuppressionSchema(
                 id=r.id,

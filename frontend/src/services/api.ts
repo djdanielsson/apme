@@ -10,6 +10,7 @@ import type {
   CreateProjectRequest,
   CreatePullRequestRequest,
   CreatePullRequestResponse,
+  CreateSuppressionRequest,
   DashboardSummary,
   DepHealthSummary,
   GalaxyServer,
@@ -28,6 +29,7 @@ import type {
   RuleStats,
   SessionDetail,
   SessionSummary,
+  SuppressionRecord,
   TopViolation,
   TrendPoint,
   UpdateGalaxyServerRequest,
@@ -307,14 +309,14 @@ export async function deleteGalaxyServer(serverId: number): Promise<void> {
 
 export function listSuppressions(
   scope?: string,
-): Promise<import("../types/api").SuppressionRecord[]> {
+): Promise<SuppressionRecord[]> {
   const params = scope ? `?scope=${encodeURIComponent(scope)}` : "";
   return request(`/suppressions${params}`);
 }
 
 export function createSuppression(
-  body: import("../types/api").CreateSuppressionRequest,
-): Promise<import("../types/api").SuppressionRecord> {
+  body: CreateSuppressionRequest,
+): Promise<SuppressionRecord> {
   return request("/suppressions", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

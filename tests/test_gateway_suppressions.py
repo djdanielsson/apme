@@ -126,7 +126,12 @@ async def test_list_suppressions(client: AsyncClient) -> None:
     )
     await client.post(
         "/api/v1/suppressions",
-        json={"rule_id": "L002", "original_yaml": "y: 2\n", "scope": "project:abc", "reason": "b"},
+        json={
+            "rule_id": "L002",
+            "original_yaml": "y: 2\n",
+            "scope": "project:aabbccdd11223344aabbccdd11223344",
+            "reason": "b",
+        },
     )
 
     resp = await client.get("/api/v1/suppressions")
@@ -226,3 +231,159 @@ async def test_create_suppression_invalid_hash_format_returns_422(client: AsyncC
     )
     assert resp.status_code == 422
     assert "64-character" in resp.json()["detail"]
+
+
+async def test_create_suppression_empty_yaml_full_mode_returns_422(client: AsyncClient) -> None:
+    """POST /suppressions rejects empty original_yaml in full mode to prevent collision.
+
+    Args:
+        client: Async HTTP test client.
+    """
+    resp = await client.post(
+        "/api/v1/suppressions",
+        json={
+            "rule_id": "L001",
+            "original_yaml": "",
+            "fingerprint_mode": "full",
+            "reason": "test",
+        },
+    )
+    assert resp.status_code == 422
+    assert "empty" in resp.json()["detail"].lower()
+
+
+async def test_create_suppression_normalizes_uppercase_hash(client: AsyncClient) -> None:
+    """POST /suppressions normalizes uppercase hex to lowercase.
+
+    Args:
+        client: Async HTTP test client.
+    """
+    upper_hash = "ABCDEF1234567890" * 4
+    resp = await client.post(
+        "/api/v1/suppressions",
+        json={
+            "rule_id": "L001",
+            "fingerprint_hash": upper_hash,
+            "reason": "test",
+        },
+    )
+    assert resp.status_code == 201
+    assert resp.json()["fingerprint_hash"] == upper_hash.lower()
+
+
+async def test_create_suppression_invalid_scope_returns_422(client: AsyncClient) -> None:
+    """POST /suppressions returns 422 for invalid scope values.
+
+    Args:
+        client: Async HTTP test client.
+    """
+    resp = await client.post(
+        "/api/v1/suppressions",
+        json={
+            "rule_id": "L001",
+            "original_yaml": "x: 1\n",
+            "scope": "invalid-scope",
+            "reason": "test",
+        },
+    )
+    assert resp.status_code == 422
+
+
+async def test_list_suppressions_pagination(client: AsyncClient) -> None:
+    """GET /suppressions supports limit/offset pagination.
+
+    Args:
+        client: Async HTTP test client.
+    """
+    for i in range(5):
+        await client.post(
+            "/api/v1/suppressions",
+            json={"rule_id": f"L{i:03d}", "original_yaml": f"key: {i}\n", "reason": "test"},
+        )
+
+    resp = await client.get("/api/v1/suppressions?limit=2&offset=0")
+    assert resp.status_code == 200
+    assert len(resp.json()) == 2
+
+    resp = await client.get("/api/v1/suppressions?limit=2&offset=4")
+    assert resp.status_code == 200
+    assert len(resp.json()) == 1
+
+
+async def test_activity_detail_suppressed_flag(client: AsyncClient) -> None:
+    """GET /activity/{id} annotates violations with suppressed=True when matched.
+
+    Seeds a session, scan, and violations, creates a suppression matching
+    one violation, then verifies the suppressed flag on each violation.
+
+    Args:
+        client: Async HTTP test client.
+    """
+    from apme_gateway.db import get_session
+    from apme_gateway.db.models import Scan, Session, Violation
+
+    yaml_a = "- name: Task A\n  debug:\n    msg: hello\n"
+    yaml_b = "- name: Task B\n  command: whoami\n"
+
+    async with get_session() as db:
+        session = Session(
+            session_id="sess0001",
+            project_path="/tmp/test-project",
+            first_seen="2024-01-01T00:00:00Z",
+            last_seen="2024-01-01T00:00:00Z",
+        )
+        db.add(session)
+        await db.flush()
+
+        scan = Scan(
+            scan_id="scan0001",
+            session_id="sess0001",
+            project_path="/tmp/test-project",
+            source="cli",
+            trigger="cli",
+            created_at="2024-01-01T00:00:00Z",
+            scan_type="check",
+            total_violations=2,
+            auto_fixable=0,
+            ai_candidate=0,
+            manual_review=2,
+        )
+        db.add(scan)
+        await db.flush()
+
+        v1 = Violation(
+            scan_id="scan0001",
+            rule_id="L001",
+            level="warning",
+            message="First violation",
+            original_yaml=yaml_a,
+        )
+        v2 = Violation(
+            scan_id="scan0001",
+            rule_id="L002",
+            level="error",
+            message="Second violation",
+            original_yaml=yaml_b,
+        )
+        db.add_all([v1, v2])
+        await db.commit()
+
+    create_resp = await client.post(
+        "/api/v1/suppressions",
+        json={
+            "rule_id": "L001",
+            "original_yaml": yaml_a,
+            "reason": "Acknowledged",
+        },
+    )
+    assert create_resp.status_code == 201
+
+    resp = await client.get("/api/v1/activity/scan0001")
+    assert resp.status_code == 200
+    body = resp.json()
+    violations = body["violations"]
+    assert len(violations) == 2
+
+    suppressed_map = {v["rule_id"]: v["suppressed"] for v in violations}
+    assert suppressed_map["L001"] is True
+    assert suppressed_map["L002"] is False

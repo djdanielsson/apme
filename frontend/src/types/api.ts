@@ -62,6 +62,7 @@ export interface PatchDetail {
 }
 
 export interface ActivityDetail extends ActivitySummary {
+  project_id: string | null;
   diagnostics_json: string | null;
   violations: ViolationDetail[];
   proposals: ProposalDetail[];
@@ -304,6 +305,7 @@ export interface PythonCveSummary {
 export interface DepHealthSummary {
   collection_findings: CollectionHealthSummary[];
   python_cves: PythonCveSummary[];
+  suppressed_count: number;
 }
 
 // ── Galaxy server types (ADR-045) ────────────────────────────────────

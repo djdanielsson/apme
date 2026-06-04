@@ -5,9 +5,9 @@ from __future__ import annotations
 import logging
 import math
 from datetime import datetime, timezone
-from typing import cast
+from typing import Any, cast
 
-from sqlalchemy import case, func, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -32,6 +32,31 @@ from apme_gateway.db.models import (
 )
 
 logger = logging.getLogger(__name__)
+
+_SQLITE_BIND_LIMIT = 900
+
+
+def _chunked_not_in(column: Any, ids: set[int]) -> Any:
+    """Build a NOT IN condition that respects SQLite's bind-parameter limit.
+
+    Chunks the set into batches of 900 and combines them with AND
+    (each chunk excludes a subset; all must be excluded together).
+
+    Args:
+        column: SQLAlchemy column to filter.
+        ids: Set of integer PKs to exclude.
+
+    Returns:
+        SQLAlchemy boolean expression.
+    """
+    if not ids:
+        return True  # noqa: FBT003 — no-op filter
+    id_list = sorted(ids)
+    chunks = [id_list[i : i + _SQLITE_BIND_LIMIT] for i in range(0, len(id_list), _SQLITE_BIND_LIMIT)]
+    if len(chunks) == 1:
+        return column.not_in(chunks[0])
+    return and_(*(column.not_in(chunk) for chunk in chunks))
+
 
 # ---------------------------------------------------------------------------
 # Project queries (ADR-037)
@@ -1382,7 +1407,7 @@ async def collection_health_counts(
         Violation.scan_id.in_(select(latest.c.scan_id)),
     ]
     if exclude_ids:
-        conditions.append(Violation.id.not_in(exclude_ids))
+        conditions.append(_chunked_not_in(Violation.id, exclude_ids))
 
     stmt = (
         select(
@@ -1447,7 +1472,7 @@ async def python_cve_counts(
         Violation.scan_id.in_(select(latest.c.scan_id)),
     ]
     if exclude_ids:
-        conditions.append(Violation.id.not_in(exclude_ids))
+        conditions.append(_chunked_not_in(Violation.id, exclude_ids))
 
     stmt = (
         select(
@@ -1503,7 +1528,7 @@ async def project_collection_health_counts(
         Violation.scan_id == latest_scan,
     ]
     if exclude_ids:
-        conditions.append(Violation.id.not_in(exclude_ids))
+        conditions.append(_chunked_not_in(Violation.id, exclude_ids))
 
     stmt = (
         select(
@@ -1567,7 +1592,7 @@ async def project_python_cve_counts(
         Violation.scan_id == latest_scan,
     ]
     if exclude_ids:
-        conditions.append(Violation.id.not_in(exclude_ids))
+        conditions.append(_chunked_not_in(Violation.id, exclude_ids))
 
     stmt = (
         select(
@@ -2181,17 +2206,21 @@ async def list_suppressions(
     db: AsyncSession,
     *,
     scope: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
 ) -> list[Suppression]:
-    """List suppression records, optionally filtered by scope.
+    """List suppression records, optionally filtered by scope (paginated).
 
     Args:
         db: Active async database session.
         scope: Optional scope filter (``global``, ``project:<uuid>``).
+        limit: Maximum number of records to return.
+        offset: Number of records to skip.
 
     Returns:
         List of matching Suppression rows.
     """
-    stmt = select(Suppression).order_by(Suppression.created_at.desc())
+    stmt = select(Suppression).order_by(Suppression.created_at.desc()).limit(limit).offset(offset)
     if scope is not None:
         stmt = stmt.where(Suppression.scope == scope)
     result = await db.execute(stmt)
@@ -2219,8 +2248,6 @@ async def get_suppression_hashes(
     Returns:
         Set of fingerprint hash strings that are currently suppressed.
     """
-    from sqlalchemy import or_  # noqa: PLC0415
-
     conditions = [Suppression.scope == "global"]
     if project_id:
         conditions.append(Suppression.scope == f"project:{project_id}")
@@ -2293,23 +2320,29 @@ async def suppressed_violation_ids(
 
     full_hashes = await get_suppression_hashes(db, project_id=project_id, fingerprint_mode="full")
     rule_only_hashes = await get_suppression_hashes(db, project_id=project_id, fingerprint_mode="rule_only")
+    rule_module_hashes = await get_suppression_hashes(db, project_id=project_id, fingerprint_mode="rule_module")
 
-    if not full_hashes and not rule_only_hashes:
+    if not full_hashes and not rule_only_hashes and not rule_module_hashes:
         return set()
 
     from apme_engine.fingerprint import compute_fingerprint  # noqa: PLC0415
 
-    stmt = select(Violation.id, Violation.rule_id, Violation.original_yaml).where(
+    stmt = select(Violation.id, Violation.rule_id, Violation.original_yaml, Violation.path).where(
         Violation.scan_id.in_(scan_ids),
         Violation.validator_source.in_(["collection_health", "dep_audit"]),
     )
     result = await db.execute(stmt)
 
     excluded: set[int] = set()
-    for vid, rule_id, original_yaml in result.all():
+    for vid, rule_id, original_yaml, path in result.all():
         if full_hashes:
             fp = compute_fingerprint(rule_id or "", original_yaml or "", mode="full")
             if fp in full_hashes:
+                excluded.add(vid)
+                continue
+        if rule_module_hashes and path:
+            fp_mod = compute_fingerprint(rule_id or "", "", mode="rule_module", module_fqcn=path)
+            if fp_mod in rule_module_hashes:
                 excluded.add(vid)
                 continue
         if rule_only_hashes:
