@@ -172,3 +172,39 @@ async def test_fingerprint_matches_engine_module(client: AsyncClient) -> None:
     )
     assert resp.status_code == 201
     assert resp.json()["fingerprint_hash"] == compute_fingerprint("native:M005", yaml_content)
+
+
+async def test_create_suppression_invalid_mode_returns_422(client: AsyncClient) -> None:
+    """POST /suppressions returns 422 for invalid fingerprint_mode.
+
+    Args:
+        client: Async HTTP test client.
+    """
+    resp = await client.post(
+        "/api/v1/suppressions",
+        json={
+            "rule_id": "L001",
+            "original_yaml": "x: 1\n",
+            "fingerprint_mode": "bogus",
+            "reason": "test",
+        },
+    )
+    assert resp.status_code == 422
+
+
+async def test_create_suppression_rule_module_without_fqcn_returns_422(client: AsyncClient) -> None:
+    """POST /suppressions returns 422 when rule_module mode lacks module_fqcn.
+
+    Args:
+        client: Async HTTP test client.
+    """
+    resp = await client.post(
+        "/api/v1/suppressions",
+        json={
+            "rule_id": "L001",
+            "original_yaml": "x: 1\n",
+            "fingerprint_mode": "rule_module",
+            "reason": "test",
+        },
+    )
+    assert resp.status_code == 422

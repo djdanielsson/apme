@@ -126,7 +126,7 @@ export function DependencyHealthOutput({ violations, scanType, scanId, feedbackE
 
   const isCollapsed = (key: string) => collapsed[key] === true;
 
-  if (depViolations.length === 0) return null;
+  if (depViolations.length === 0 && suppressedCount === 0) return null;
 
   const collCount = depViolations.filter(v => v.validator_source === 'collection_health').length;
   const cveCount = depViolations.filter(v => v.validator_source === 'dep_audit').length;
@@ -260,11 +260,6 @@ export function DependencyHealthOutput({ violations, scanType, scanId, feedbackE
                         {v.file && v.validator_source !== 'dep_audit' && (
                           <span style={{ opacity: 0.5, fontSize: 11, marginLeft: 8 }}>
                             {v.file}
-                          </span>
-                        )}
-                        {(v.suppressed || acknowledgedIds?.has(v.id)) && (
-                          <span className="apme-pill apme-fix-passed" style={{ marginLeft: 8, fontSize: 10 }}>
-                            Acknowledged
                           </span>
                         )}
                       </span>

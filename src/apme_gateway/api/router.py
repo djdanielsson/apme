@@ -1381,7 +1381,10 @@ def _to_violation_detail(
     Returns:
         Populated ViolationDetail schema.
     """
-    fp = _violation_fingerprint(v.rule_id, v.original_yaml)  # type: ignore[attr-defined]
+    suppressed = False
+    if suppressed_hashes:
+        fp = _violation_fingerprint(v.rule_id, v.original_yaml)  # type: ignore[attr-defined]
+        suppressed = fp in suppressed_hashes
     return ViolationDetail(
         id=v.id,  # type: ignore[attr-defined]
         rule_id=v.rule_id,  # type: ignore[attr-defined]
@@ -1400,7 +1403,7 @@ def _to_violation_detail(
         node_line_start=v.node_line_start,  # type: ignore[attr-defined]
         ai_reason=v.ai_reason,  # type: ignore[attr-defined]
         ai_suggestion=v.ai_suggestion,  # type: ignore[attr-defined]
-        suppressed=fp in suppressed_hashes,
+        suppressed=suppressed,
     )
 
 
@@ -1428,6 +1431,7 @@ async def get_activity_detail(activity_id: str) -> ActivityDetail:
         suppressed_hashes = await q.get_suppression_hashes(
             db,
             project_id=scan.project_id,
+            fingerprint_mode="full",
         )
     display_path = scan.project.name if scan.project is not None else scan.project_path
     return ActivityDetail(
@@ -2589,12 +2593,15 @@ async def create_suppression_endpoint(body: CreateSuppressionRequest) -> Suppres
     from sqlalchemy.exc import IntegrityError  # noqa: PLC0415
 
     if body.original_yaml is not None:
-        fingerprint = _violation_fingerprint(
-            body.rule_id,
-            body.original_yaml,
-            mode=body.fingerprint_mode,
-            module_fqcn=body.module_fqcn,
-        )
+        try:
+            fingerprint = _violation_fingerprint(
+                body.rule_id,
+                body.original_yaml,
+                mode=body.fingerprint_mode,
+                module_fqcn=body.module_fqcn,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
     else:
         fingerprint = body.fingerprint_hash
 

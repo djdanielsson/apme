@@ -2202,6 +2202,7 @@ async def get_suppression_hashes(
     db: AsyncSession,
     *,
     project_id: str | None = None,
+    fingerprint_mode: str | None = None,
 ) -> set[str]:
     """Return the set of suppressed fingerprint hashes.
 
@@ -2211,16 +2212,22 @@ async def get_suppression_hashes(
     Args:
         db: Active async database session.
         project_id: Optional project UUID for scoped suppression lookup.
+        fingerprint_mode: If set, only return hashes with this mode (e.g.
+            ``"full"``). Prevents ``rule_module``/``rule_only`` hashes from
+            matching when comparing against ``full`` fingerprints.
 
     Returns:
         Set of fingerprint hash strings that are currently suppressed.
     """
+    from sqlalchemy import or_  # noqa: PLC0415
+
     conditions = [Suppression.scope == "global"]
     if project_id:
         conditions.append(Suppression.scope == f"project:{project_id}")
-    from sqlalchemy import or_
 
     stmt = select(Suppression.fingerprint_hash).where(or_(*conditions))
+    if fingerprint_mode:
+        stmt = stmt.where(Suppression.fingerprint_mode == fingerprint_mode)
     result = await db.execute(stmt)
     return {row[0] for row in result.all()}
 
@@ -2284,7 +2291,7 @@ async def suppressed_violation_ids(
     if not scan_ids:
         return set()
 
-    hashes = await get_suppression_hashes(db, project_id=project_id)
+    hashes = await get_suppression_hashes(db, project_id=project_id, fingerprint_mode="full")
     if not hashes:
         return set()
 
