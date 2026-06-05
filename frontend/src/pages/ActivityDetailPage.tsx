@@ -170,7 +170,7 @@ export function ActivityDetailPage() {
       const hasYaml = !!violation.original_yaml?.trim();
       await createSuppression({
         rule_id: violation.rule_id,
-        original_yaml: hasYaml ? violation.original_yaml : undefined,
+        original_yaml: hasYaml ? violation.original_yaml! : '',
         fingerprint_mode: hasYaml ? 'full' : 'rule_only',
         scope: detail?.project_id ? `project:${detail.project_id}` : 'global',
         reason: 'Acknowledged via activity detail',
