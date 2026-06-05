@@ -57,9 +57,9 @@ def _chunked_not_in(column: Any, ids: set[int]) -> Any:
     id_list = sorted(ids)
     if len(id_list) <= _SQLITE_BIND_LIMIT:
         return column.not_in(id_list)
-    from sqlalchemy import literal  # noqa: PLC0415
+    from sqlalchemy import literal_column  # noqa: PLC0415
 
-    return column.not_in([literal(pk) for pk in id_list])
+    return column.not_in([literal_column(str(pk)) for pk in id_list])
 
 
 # ---------------------------------------------------------------------------
@@ -2348,21 +2348,32 @@ async def _batch_suppression_hashes(
         if pid:
             scopes.append(f"project:{pid}")
 
+    # Use a constant-bind pattern to avoid SQLITE_MAX_VARIABLE_NUMBER when
+    # project_ids is large.  Query all global + project-scoped suppressions
+    # (2 bind params regardless of project count), then filter in Python.
     stmt = select(
         Suppression.scope,
         Suppression.fingerprint_mode,
         Suppression.fingerprint_hash,
     ).where(
-        Suppression.scope.in_(scopes),
+        or_(
+            Suppression.scope == "global",
+            Suppression.scope.like("project:%"),
+        ),
         Suppression.fingerprint_mode.in_(["full", "rule_only"]),
     )
     result = await db.execute(stmt)
     rows = result.all()
 
+    # Filter to only the requested project scopes in Python
+    scope_set = set(scopes)
+
     cache: dict[tuple[str | None, str], set[str]] = {}
     global_hashes: dict[str, set[str]] = {"full": set(), "rule_only": set()}
     project_hashes: dict[tuple[str, str], set[str]] = {}
     for scope, mode, fp_hash in rows:
+        if scope not in scope_set:
+            continue
         if scope == "global":
             global_hashes[mode].add(fp_hash)
         else:
