@@ -2316,7 +2316,8 @@ async def _batch_suppression_hashes(
 
     # Use a constant-bind pattern to avoid SQLITE_MAX_VARIABLE_NUMBER when
     # project_ids is large.  Query all global + project-scoped suppressions
-    # (2 bind params regardless of project count), then filter in Python.
+    # (fixed number of bind params regardless of project count), then filter
+    # in Python.
     stmt = select(
         Suppression.scope,
         Suppression.fingerprint_mode,

@@ -166,6 +166,7 @@ export function ActivityDetailPage() {
   };
 
   const handleAcknowledge = async (violation: ViolationDetail) => {
+    setAckError(null);
     try {
       const hasYaml = !!violation.original_yaml?.trim();
       await createSuppression({

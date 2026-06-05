@@ -1337,14 +1337,16 @@ async def list_activity(
 def _violation_fingerprint(rule_id: str, original_yaml: str, mode: str = "full", module_fqcn: str = "") -> str:
     """Compute the canonical SHA-256 fingerprint for a violation (ADR-055).
 
-    Delegates to the shared ``apme_engine.fingerprint`` module to ensure
-    CLI, Gateway, and UI all produce identical hashes.
+    Delegates to the shared ``apme_engine.fingerprint`` module so that the
+    CLI and Gateway always produce identical hashes.  The UI does not compute
+    fingerprints client-side — it sends ``rule_id`` + ``original_yaml`` to
+    the server, which computes the fingerprint here.
 
     Args:
         rule_id: Rule identifier (may carry a legacy prefix).
         original_yaml: Raw node YAML from the violation row.
-        mode: Fingerprint mode (``full``, ``rule_module``, ``rule_only``).
-        module_fqcn: Module FQCN (required for ``rule_module`` mode).
+        mode: Fingerprint mode (``full`` or ``rule_only``).
+        module_fqcn: Module FQCN (reserved for future use).
 
     Returns:
         SHA-256 hex digest.

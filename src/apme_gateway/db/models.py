@@ -443,7 +443,7 @@ class Suppression(Base):
     Attributes:
         id: Auto-increment primary key.
         fingerprint_hash: SHA-256 hex digest of the content fingerprint.
-        fingerprint_mode: Granularity — ``full``, ``rule_module``, or ``rule_only``.
+        fingerprint_mode: Granularity — ``full`` or ``rule_only``.
         rule_id: Denormalized rule identifier for fast lookup and display.
         scope: ``global`` or ``project:<uuid>`` for project-scoped suppressions.
         reason: Human-provided justification.
