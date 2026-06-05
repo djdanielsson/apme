@@ -84,8 +84,7 @@ spec:
             {{- toYaml .Values.abbenay.resources | nindent 12 }}
           volumeMounts:
             - name: abbenay-config
-              mountPath: /etc/abbenay-config/abbenay/config.yaml
-              subPath: config.yaml
+              mountPath: /etc/abbenay-config/abbenay
               readOnly: true
             {{- if and .Values.abbenay.vertexAnthropic.enabled (or .Values.abbenay.vertexAnthropic.serviceAccountKey .Values.abbenay.vertexAnthropic.existingGcpSecret) }}
             - name: gcp-credentials
