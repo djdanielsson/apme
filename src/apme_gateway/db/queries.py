@@ -2184,7 +2184,7 @@ async def create_suppression(
     Args:
         db: Active async database session.
         fingerprint_hash: SHA-256 hex digest.
-        fingerprint_mode: ``full``, ``rule_module``, or ``rule_only``.
+        fingerprint_mode: ``full`` or ``rule_only``.
         rule_id: Canonical rule identifier.
         scope: ``global`` or ``project:<uuid>``.
         reason: Human justification.
