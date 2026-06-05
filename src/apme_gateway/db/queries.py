@@ -2291,42 +2291,6 @@ def _latest_scan_ids_subquery(*, project_id: str | None = None) -> Any:
     return select(ranked.c.scan_id).where(ranked.c.rn == 1)
 
 
-async def latest_project_scan_ids(
-    db: AsyncSession,
-    *,
-    project_id: str | None = None,
-) -> list[str]:
-    """Return the most recent scan ID per project.
-
-    When ``project_id`` is given, returns only that project's latest scan.
-    Otherwise returns one scan ID per project across all projects.
-
-    Args:
-        db: Active async database session.
-        project_id: Optional project UUID to scope.
-
-    Returns:
-        List of scan ID strings.
-    """
-    if project_id:
-        stmt = select(Scan.scan_id).where(Scan.project_id == project_id).order_by(Scan.created_at.desc()).limit(1)
-        result = await db.execute(stmt)
-        row = result.scalar_one_or_none()
-        return [row] if row else []
-
-    ranked = (
-        select(
-            Scan.scan_id,
-            func.row_number().over(partition_by=Scan.project_id, order_by=Scan.created_at.desc()).label("rn"),
-        )
-        .where(Scan.project_id.is_not(None))
-        .subquery()
-    )
-    stmt = select(ranked.c.scan_id).where(ranked.c.rn == 1)
-    result = await db.execute(stmt)
-    return [row[0] for row in result.all()]
-
-
 async def _batch_suppression_hashes(
     db: AsyncSession,
     project_ids: set[str | None],
@@ -2391,14 +2355,14 @@ async def _batch_suppression_hashes(
 
 async def suppressed_violation_ids(
     db: AsyncSession,
-    scan_ids: list[str],
+    scan_ids: list[str] | None = None,
     *,
     project_id: str | None = None,
 ) -> set[int]:
     """Return IDs of dep-health violations that match an active suppression.
 
     Fetches all ``collection_health`` / ``dep_audit`` violations from the
-    given scans, computes their canonical fingerprint (ADR-055), and checks
+    latest scans, computes their canonical fingerprint (ADR-055), and checks
     against stored suppression hashes.
 
     Uses a DB-side subquery for scan ID filtering to avoid exceeding
@@ -2412,16 +2376,12 @@ async def suppressed_violation_ids(
 
     Args:
         db: Active async database session.
-        scan_ids: Scan IDs to check (kept for interface compat; used only
-            for the empty-check short-circuit).
+        scan_ids: Deprecated — ignored. Kept for backward compatibility.
         project_id: Project UUID for scoped lookup. None means per-project.
 
     Returns:
         Set of Violation PKs that are currently suppressed.
     """
-    if not scan_ids:
-        return set()
-
     from apme_engine.fingerprint import compute_fingerprint  # noqa: PLC0415
 
     scan_id_subquery = _latest_scan_ids_subquery(project_id=project_id)

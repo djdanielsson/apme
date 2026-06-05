@@ -1101,8 +1101,7 @@ async def dep_health_summary() -> DepHealthSummary:
         Summary of collection health findings and Python CVEs.
     """
     async with get_session() as db:
-        latest_ids = await q.latest_project_scan_ids(db)
-        excluded = await q.suppressed_violation_ids(db, latest_ids)
+        excluded = await q.suppressed_violation_ids(db)
         coll_rows = await q.collection_health_counts(db, exclude_ids=excluded)
         cve_rows = await q.python_cve_counts(db, exclude_ids=excluded)
     return DepHealthSummary(
@@ -1149,8 +1148,7 @@ async def project_dep_health_summary(project_id: str) -> DepHealthSummary:
         proj = await q.get_project(db, project_id)
         if proj is None:
             raise HTTPException(status_code=404, detail="Project not found")
-        latest_ids = await q.latest_project_scan_ids(db, project_id=proj.id)
-        excluded = await q.suppressed_violation_ids(db, latest_ids, project_id=proj.id)
+        excluded = await q.suppressed_violation_ids(db, project_id=proj.id)
         coll_rows = await q.project_collection_health_counts(db, proj.id, exclude_ids=excluded)
         cve_rows = await q.project_python_cve_counts(db, proj.id, exclude_ids=excluded)
     return DepHealthSummary(

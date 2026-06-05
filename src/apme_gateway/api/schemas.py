@@ -829,7 +829,7 @@ class SuppressionSchema(BaseModel):  # type: ignore[misc]
     Attributes:
         id: Auto-increment PK.
         fingerprint_hash: SHA-256 hex digest.
-        fingerprint_mode: Granularity — ``full``, ``rule_module``, or ``rule_only``.
+        fingerprint_mode: Granularity — ``full`` or ``rule_only``.
         rule_id: Canonical rule identifier.
         scope: ``global`` or ``project:<uuid>``.
         reason: Human justification.
@@ -858,10 +858,10 @@ class CreateSuppressionRequest(BaseModel):  # type: ignore[misc]
     Attributes:
         fingerprint_hash: Pre-computed SHA-256 hex digest (used only when
             ``original_yaml`` is not supplied).
-        fingerprint_mode: Granularity — ``full``, ``rule_module``, or ``rule_only``.
+        fingerprint_mode: Granularity — ``full`` or ``rule_only``.
         rule_id: Canonical rule identifier.
         original_yaml: Raw YAML source for server-side fingerprint computation.
-        module_fqcn: Module FQCN (needed for ``rule_module`` mode).
+        module_fqcn: Module FQCN (reserved for future use).
         scope: ``global`` or ``project:<uuid>``.
         reason: Human justification for the acknowledgment.
     """
