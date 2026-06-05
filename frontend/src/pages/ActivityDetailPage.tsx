@@ -167,9 +167,11 @@ export function ActivityDetailPage() {
 
   const handleAcknowledge = async (violation: ViolationDetail) => {
     try {
+      const hasYaml = !!violation.original_yaml?.trim();
       await createSuppression({
         rule_id: violation.rule_id,
-        original_yaml: violation.original_yaml ?? undefined,
+        original_yaml: hasYaml ? violation.original_yaml : undefined,
+        fingerprint_mode: hasYaml ? 'full' : 'rule_only',
         scope: detail?.project_id ? `project:${detail.project_id}` : 'global',
         reason: 'Acknowledged via activity detail',
       });
@@ -270,6 +272,7 @@ export function ActivityDetailPage() {
         <ViolationStatusBar
           detail={{
             ...detail,
+            violations: projectViolations,
             total_violations: projectViolations.length + depHealthCount,
             fixable: projectViolations.filter(v => v.remediation_class === 1).length,
             ai_candidate: projectViolations.filter(v => v.remediation_class === 2).length,

@@ -334,7 +334,10 @@ export function createSuppression(
 
 export async function deleteSuppression(id: number): Promise<void> {
   const res = await fetch(`${BASE}/suppressions/${id}`, { method: "DELETE" });
-  if (!res.ok) throw new Error(`${res.status}`);
+  if (!res.ok) {
+    const text = await res.text();
+    throw new ApiError(res.status, text);
+  }
 }
 
 // ── Feedback (POC) ─────────────────────────────────────────────────────

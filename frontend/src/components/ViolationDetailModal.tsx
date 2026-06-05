@@ -221,9 +221,9 @@ export function ViolationDetailModal({ isOpen, onClose, violation, diff, scanTyp
           </Tab>
         </Tabs>
       </ModalBody>
-      {(feedbackEnabled || (onAcknowledge && hasSource)) && (
+      {(feedbackEnabled || onAcknowledge) && (
         <ModalFooter>
-          {onAcknowledge && hasSource && (
+          {onAcknowledge && (
             <Button variant="secondary" onClick={onAcknowledge}>
               Acknowledge
             </Button>
