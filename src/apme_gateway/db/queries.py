@@ -53,7 +53,9 @@ def _chunked_not_in(column: Any, ids: set[int]) -> Any:
         SQLAlchemy boolean expression.
     """
     if not ids:
-        return True  # noqa: FBT003 — no-op filter
+        from sqlalchemy import true  # noqa: PLC0415
+
+        return true()
     id_list = sorted(ids)
     if len(id_list) <= _SQLITE_BIND_LIMIT:
         return column.not_in(id_list)

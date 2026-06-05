@@ -48,9 +48,10 @@ class ApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const { headers: extraHeaders, ...rest } = init ?? {};
   const res = await fetch(`${BASE}${path}`, {
-    headers: { Accept: "application/json" },
-    ...init,
+    ...rest,
+    headers: { Accept: "application/json", ...extraHeaders },
   });
   if (!res.ok) {
     const text = await res.text();
