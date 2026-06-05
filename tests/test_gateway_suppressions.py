@@ -257,6 +257,25 @@ async def test_create_suppression_empty_yaml_full_mode_returns_422(client: Async
     assert "empty" in resp.json()["detail"].lower()
 
 
+async def test_create_suppression_comment_only_yaml_full_mode_returns_422(client: AsyncClient) -> None:
+    """POST /suppressions rejects comment-only YAML in full mode (normalizes to empty).
+
+    Args:
+        client: Async HTTP test client.
+    """
+    resp = await client.post(
+        "/api/v1/suppressions",
+        json={
+            "rule_id": "L001",
+            "original_yaml": "# just a comment\n",
+            "fingerprint_mode": "full",
+            "reason": "test",
+        },
+    )
+    assert resp.status_code == 422
+    assert "normalizes to empty" in resp.json()["detail"]
+
+
 async def test_create_suppression_normalizes_uppercase_hash(client: AsyncClient) -> None:
     """POST /suppressions normalizes uppercase hex to lowercase.
 

@@ -2621,6 +2621,14 @@ async def create_suppression_endpoint(body: CreateSuppressionRequest) -> Suppres
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from None
+        if body.fingerprint_mode == "full":
+            rule_only_hash = _violation_fingerprint(body.rule_id, "", mode="rule_only")
+            if fingerprint == rule_only_hash:
+                raise HTTPException(
+                    status_code=422,
+                    detail="original_yaml normalizes to empty (e.g. comment-only YAML) in 'full' mode, "
+                    "which collides with the rule_only fingerprint. Use fingerprint_mode='rule_only' instead.",
+                )
     else:
         fingerprint = body.fingerprint_hash.lower()
         if not fingerprint:
