@@ -2363,9 +2363,13 @@ async def suppressed_violation_ids(
 ) -> set[int]:
     """Return IDs of dep-health violations that match an active suppression.
 
-    Fetches all ``collection_health`` / ``dep_audit`` violations from the
-    latest scans, computes their canonical fingerprint (ADR-055), and checks
-    against stored suppression hashes.
+    Short-circuits with an empty set when no suppressions exist for the
+    relevant scope, avoiding the expensive violation fetch and fingerprint
+    computation on every request.
+
+    When suppressions do exist, fetches ``collection_health`` / ``dep_audit``
+    violations from the latest scans, computes canonical fingerprints
+    (ADR-055), and checks against stored suppression hashes.
 
     Uses a DB-side subquery for scan ID filtering to avoid exceeding
     SQLite's per-statement bind-variable limit when many projects exist.
@@ -2384,6 +2388,25 @@ async def suppressed_violation_ids(
     Returns:
         Set of Violation PKs that are currently suppressed.
     """
+    # Fast path: skip the expensive violation fetch + fingerprint pass when
+    # no suppressions exist for the relevant scope(s).
+    if project_id is not None:
+        full_h = await get_suppression_hashes(db, project_id=project_id, fingerprint_mode="full")
+        rule_only_h = await get_suppression_hashes(db, project_id=project_id, fingerprint_mode="rule_only")
+        if not full_h and not rule_only_h:
+            return set()
+    else:
+        exists_stmt = (
+            select(Suppression.id)
+            .where(
+                Suppression.fingerprint_mode.in_(["full", "rule_only"]),
+            )
+            .limit(1)
+        )
+        has_any = (await db.execute(exists_stmt)).scalar_one_or_none()
+        if has_any is None:
+            return set()
+
     from apme_engine.fingerprint import compute_fingerprint  # noqa: PLC0415
 
     scan_id_subquery = _latest_scan_ids_subquery(project_id=project_id)
@@ -2407,8 +2430,6 @@ async def suppressed_violation_ids(
         return set()
 
     if project_id is not None:
-        full_h = await get_suppression_hashes(db, project_id=project_id, fingerprint_mode="full")
-        rule_only_h = await get_suppression_hashes(db, project_id=project_id, fingerprint_mode="rule_only")
         return _match_violations(rows, full_h, rule_only_h, compute_fingerprint)
 
     project_ids: set[str | None] = {row[4] for row in rows}
