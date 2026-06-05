@@ -2416,7 +2416,6 @@ async def suppressed_violation_ids(
             Violation.id,
             Violation.rule_id,
             Violation.original_yaml,
-            Violation.path,
             Scan.project_id,
         )
         .join(Scan, Violation.scan_id == Scan.scan_id)
@@ -2433,11 +2432,11 @@ async def suppressed_violation_ids(
     if project_id is not None:
         return _match_violations(rows, full_h, rule_only_h, compute_fingerprint)
 
-    project_ids: set[str | None] = {row[4] for row in rows}
+    project_ids: set[str | None] = {row[3] for row in rows}
     hash_cache = await _batch_suppression_hashes(db, project_ids)
 
     excluded: set[int] = set()
-    for vid, rule_id, original_yaml, _path, scan_project_id in rows:
+    for vid, rule_id, original_yaml, scan_project_id in rows:
         full_h = hash_cache.get((scan_project_id, "full"), set())
         rule_only_h = hash_cache.get((scan_project_id, "rule_only"), set())
         if not full_h and not rule_only_h:
@@ -2463,7 +2462,7 @@ def _match_violations(
     """Match violations against suppression hashes (single-project case).
 
     Args:
-        rows: Violation rows (id, rule_id, original_yaml, path, project_id).
+        rows: Violation rows (id, rule_id, original_yaml, project_id).
         full_hashes: Full-mode suppression hashes.
         rule_only_hashes: Rule-only suppression hashes.
         compute_fingerprint: Fingerprint computation function.
@@ -2474,7 +2473,7 @@ def _match_violations(
     if not full_hashes and not rule_only_hashes:
         return set()
     excluded: set[int] = set()
-    for vid, rule_id, original_yaml, _path, _project_id in rows:
+    for vid, rule_id, original_yaml, _project_id in rows:
         if full_hashes:
             fp = compute_fingerprint(rule_id or "", original_yaml or "", mode="full")
             if fp in full_hashes:

@@ -1429,12 +1429,12 @@ async def get_activity_detail(activity_id: str) -> ActivityDetail:
             raise HTTPException(status_code=404, detail="Activity not found")
         suppressed_hashes = await q.get_suppression_hashes(
             db,
-            project_id=scan.project_id or "",
+            project_id=scan.project_id,
             fingerprint_mode="full",
         )
         rule_only_hashes = await q.get_suppression_hashes(
             db,
-            project_id=scan.project_id or "",
+            project_id=scan.project_id,
             fingerprint_mode="rule_only",
         )
     display_path = scan.project.name if scan.project is not None else scan.project_path
