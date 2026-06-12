@@ -9,7 +9,7 @@ repository. It complements [ADR-042: Third-Party Plugin Services](../../.sdlc/ad
 
 **Primary user paths**
 
-- **`apme check`** — Streams project files over **`FixSession`** to Primary; receives **remaining violations** (and patches only if the session applies fixes—the check path is primarily assessment). See [`src/apme_engine/cli/check.py`](../../src/apme_engine/cli/check.py).
+- **`apme check`** — Streams project files over **`FixSession`** to Primary; receives **remaining violations** and "what-would-change" **patch diffs** (readable via `--diff` / JSON `diffs`), but does **not** write changes back to disk. See [`src/apme_engine/cli/check.py`](../../src/apme_engine/cli/check.py).
 - **`apme remediate`** — Same **`FixSession`** stream with **`FixOptions`** (passes, AI, etc.); Tier 1 fixes, optional proposals, writes back. See [`src/apme_engine/cli/remediate.py`](../../src/apme_engine/cli/remediate.py).
 - **Hosted CI** — [`action.yml`](../../action.yml) installs the CLI and talks to a **`primary-address`**; no local pod in the workflow unless you bring one. Extensibility on the engine side **must exist on that hosted Primary** for CI to see it.
 

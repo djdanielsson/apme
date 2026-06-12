@@ -426,6 +426,7 @@ apme-reviews/
 - ADR-009: Validators are read-only; remediation is separate (plugins are exempt as they own both sides)
 - ADR-025: AI provider protocol — plugin AI escalation uses the same Tier 2 infrastructure
 - ADR-026: Rule scope metadata — plugins should set `scope` on violations
+- DR-017: Policy Library Adapter Framework — complementary but distinct: DR-017 addresses consuming external Rego policy libraries (e.g., AAC, ansible-policy, STIG) *within* the existing OPA validator via Python adapters (`LIB-<adapter>-*` prefix), while ADR-042 covers third parties deploying their own validator containers (`EXT-<plugin>-NNN` prefix). The two approaches do not overlap: plugin services own detection+remediation in a separate container; policy library adapters perform schema translation and compliance mapping inside OPA.
 
 ## References
 
