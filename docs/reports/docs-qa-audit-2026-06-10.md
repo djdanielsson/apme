@@ -3,8 +3,8 @@
 ## Executive Summary
 
 - **Total Questions**: 34
-- **Covered** (✓): 17 (50%)
-- **Partial** (⚠): 12 (35%)
+- **Covered** (✓): 16 (47%)
+- **Partial** (⚠): 13 (38%)
 - **Gaps** (✗): 5 (15%)
 
 Progress since the [2026-05-21 audit](docs-qa-audit-2026-05-21.md). CI/CD integration has a GitHub Actions example in CLI.md and examples/ci/; GitLab CI and Jenkins are mentioned in the capabilities table but have no standalone examples, and Azure DevOps is not documented at all. Remaining gaps are AAP/AWX integration, Backstage (in progress via PR #298), VS Code extension, and reporting/metrics guides.
@@ -18,7 +18,7 @@ Progress since the [2026-05-21 audit](docs-qa-audit-2026-05-21.md). CI/CD integr
 | Rule Configuration | 4/5 | 1/5 | 0/5 | 90% |
 | Bring Your Own Rules | 0/4 | 4/4 | 0/4 | 50% |
 | Demonstrating Value | 1/5 | 3/5 | 1/5 | 50% |
-| Integration with Existing Tools | 3/10 | 3/10 | 4/10 | 45% |
+| Integration with Existing Tools | 2/10 | 4/10 | 4/10 | 40% |
 
 ## Coverage Matrix
 
@@ -55,7 +55,7 @@ Progress since the [2026-05-21 audit](docs-qa-audit-2026-05-21.md). CI/CD integr
 | Q29 | Integration with Existing Tools | How do I use APME with AAP/AWX? | ✗ | No AAP_INTEGRATION.md yet |
 | Q30 | Integration with Existing Tools | How do I use APME with Backstage? | ✗ | PR #298 in progress (draft) |
 | Q31 | Integration with Existing Tools | How do I integrate with pre-commit hooks? | ✓ | [CLI.md](../guides/CLI.md), [examples/ci/pre-commit/](../../examples/ci/pre-commit/) |
-| Q32 | Integration with Existing Tools | How do I migrate from ansible-lint? | ✓ | [ANSIBLELINT_COVERAGE.md](../rules/ANSIBLELINT_COVERAGE.md) |
+| Q32 | Integration with Existing Tools | How do I migrate from ansible-lint? | ⚠ | [ANSIBLELINT_COVERAGE.md](../rules/ANSIBLELINT_COVERAGE.md) (rule coverage matrix, not a migration guide with prose narrative or step-by-step workflow) |
 | Q33 | Integration with Existing Tools | How do I use APME in an air-gapped environment? | ⚠ | [DEPLOYMENT.md#custom-ca-certificates](../guides/DEPLOYMENT.md#custom-ca-certificates) (covers custom CA trust, not full air-gapped deployment guidance) |
 | Q34 | Integration with Existing Tools | How do I integrate with VS Code? | ✗ | No VS Code extension exists yet |
 
@@ -168,5 +168,5 @@ Scores use weighted formula: (covered + partial × 0.5) / total × 100.
 | Rule Configuration | 90% | 90% | — |
 | Bring Your Own Rules | 50% | 50% | — |
 | Demonstrating Value | 60% | 50% | -10% |
-| Integration with Existing Tools | 20% | 45% | +25% |
-| **Overall (weighted)** | **60%** | **68%** | **+8%** |
+| Integration with Existing Tools | 20% | 40% | +20% |
+| **Overall (weighted)** | **60%** | **66%** | **+6%** |
