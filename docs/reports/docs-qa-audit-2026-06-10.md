@@ -7,7 +7,7 @@
 - **Partial** (⚠): 12 (35%)
 - **Gaps** (✗): 5 (15%)
 
-Progress since the [2026-05-21 audit](docs-qa-audit-2026-05-21.md). CI/CD integration has a GitHub Actions example in CLI.md and examples/ci/, but GitLab CI, Jenkins, and Azure DevOps are only mentioned by name. Remaining gaps are AAP/AWX integration, Backstage (in progress via PR #298), VS Code extension, and reporting/metrics guides.
+Progress since the [2026-05-21 audit](docs-qa-audit-2026-05-21.md). CI/CD integration has a GitHub Actions example in CLI.md and examples/ci/; GitLab CI and Jenkins are mentioned in the capabilities table but have no standalone examples, and Azure DevOps is not documented at all. Remaining gaps are AAP/AWX integration, Backstage (in progress via PR #298), VS Code extension, and reporting/metrics guides.
 
 ## Coverage by Category
 
@@ -141,8 +141,8 @@ Progress since the [2026-05-21 audit](docs-qa-audit-2026-05-21.md). CI/CD integr
 
 ### High Priority
 
-- [ ] Merge PR #304 (CI/CD integration guide) - ready, all checks pass
-- [ ] Merge PR #338 (M031 rule) - ready, all checks pass
+- [ ] Merge PR #304 (CI/CD integration guide) - in review, feedback being addressed
+- [ ] Merge PR #338 (M031 rule) - in review, feedback being addressed
 
 ### Medium Priority
 
