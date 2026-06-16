@@ -81,9 +81,9 @@ Progress since the [2026-05-21 audit](docs-qa-audit-2026-05-21.md). CI/CD integr
 
 | PR | Title | Status | Closes |
 |----|-------|--------|--------|
-| #304 | CI/CD integration guide | Ready (checks pass) | Consolidates CI guidance |
+| #304 | CI/CD integration guide | In review (feedback being addressed) | Consolidates CI guidance |
 | #298 | Backstage plugin integration | Draft | Q30 |
-| #338 | M031 Sensitive tag rule | Ready (checks pass) | New rule |
+| #338 | M031 Sensitive tag rule | In review (feedback being addressed) | New rule |
 
 ## Remaining Gaps
 
@@ -102,7 +102,7 @@ Progress since the [2026-05-21 audit](docs-qa-audit-2026-05-21.md). CI/CD integr
 ### Gap 3: Backstage Integration (Q30)
 
 - **Impact**: Portal/Backstage integration relevant for platform engineering teams.
-- **Status**: PR #298 (draft) adds Backstage plugin integration support via ADR-055.
+- **Status**: PR #298 (draft) adds Backstage plugin integration support (see ADR-030 for frontend deployment model, ADR-029 for Gateway API context).
 - **Notes**: Will be resolved when PR merges.
 
 ### Gap 4: VS Code Integration (Q34)
@@ -111,17 +111,17 @@ Progress since the [2026-05-21 audit](docs-qa-audit-2026-05-21.md). CI/CD integr
 - **Status**: No VS Code extension exists. Could document workaround (terminal usage).
 - **Notes**: Consider explicit "no extension yet" statement in docs.
 
-### Gap 5: Stakeholder Reporting (Q22/Q24)
+### Gap 5: User-Facing Reporting Guide (supplements Q22/Q24)
 
-- **Impact**: Users need guidance on generating reports and using Gateway metrics.
+- **Impact**: Q22/Q24 are partial (architecture doc covers the API) but lack a user-facing guide for generating reports and interpreting Gateway metrics.
 - **Suggested Location**: `docs/guides/REPORTING.md` (new file)
-- **Notes**: Architecture doc has API details but no user-facing guide.
+- **Notes**: Would promote Q22/Q24 from partial to covered.
 
 ### Gap 6: Azure DevOps Integration (Q28)
 
 - **Impact**: Azure DevOps users have no integration guidance.
-- **Status**: Not mentioned in CLI.md. PR #304 (CI/CD guide) has examples but is not merged.
-- **Notes**: Will be resolved when PR #304 merges (pending fixes).
+- **Status**: Not mentioned in CLI.md. PR #304 (CI/CD guide) includes Azure DevOps examples.
+- **Notes**: Will be resolved when PR #304 merges.
 
 ## Partial Coverage Improvements Needed
 
