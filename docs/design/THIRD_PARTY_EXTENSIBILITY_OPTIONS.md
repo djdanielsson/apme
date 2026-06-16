@@ -162,7 +162,7 @@ Useful when the **only** goal is gates in CI, not automated fixes aligned with t
 
 ### ADR-041 (rule catalog and Gateway authority)
 
-[ADR-041: Rule Catalog & Override Architecture](../../.sdlc/adrs/ADR-041-rule-catalog-override-architecture.md) assumes the **Primary registers** both built-in and **`EXT-*`** plugin rules with the **Gateway**, and discusses **multi-pod** deployments where **plugin sets differ** (e.g. one Primary has `secteam`, another does not). That directly affects:
+[ADR-041: Rule Catalog & Override Architecture](../../.sdlc/adrs/ADR-041-rule-catalog-override-architecture.md) already handles **built-in rule registration** (Primary → Gateway). The open question is **`EXT-*` plugin rule registration** — how plugin rules are cataloged alongside built-in ones — and **multi-pod** deployments where **plugin sets differ** (e.g. one Primary has `secteam`, another does not). That directly affects:
 
 - **Hosted CI:** the catalog visible to the Gateway must match what the **scanning** Primary can execute, or scans misrepresent available rules.
 - **Enterprise UX:** rule authority (`APME_RULE_AUTHORITY` and related ideas in ADR-041) must be consistent with **which** plugins are installed on the registering Primary.
