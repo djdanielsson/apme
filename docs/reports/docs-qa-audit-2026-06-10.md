@@ -3,9 +3,9 @@
 ## Executive Summary
 
 - **Total Questions**: 34
-- **Covered** (✓): 16 (47%)
+- **Covered** (✓): 17 (50%)
 - **Partial** (⚠): 12 (35%)
-- **Gaps** (✗): 6 (18%)
+- **Gaps** (✗): 5 (15%)
 
 Progress since the [2026-05-21 audit](docs-qa-audit-2026-05-21.md). CI/CD integration has a GitHub Actions example in CLI.md and examples/ci/, but GitLab CI, Jenkins, and Azure DevOps are only mentioned by name. Remaining gaps are AAP/AWX integration, Backstage (in progress via PR #298), VS Code extension, and reporting/metrics guides.
 
@@ -17,7 +17,7 @@ Progress since the [2026-05-21 audit](docs-qa-audit-2026-05-21.md). CI/CD integr
 | How Can I Use It | 5/5 | 0/5 | 0/5 | 100% |
 | Rule Configuration | 4/5 | 1/5 | 0/5 | 90% |
 | Bring Your Own Rules | 0/4 | 4/4 | 0/4 | 50% |
-| Demonstrating Value | 0/5 | 3/5 | 2/5 | 30% |
+| Demonstrating Value | 1/5 | 3/5 | 1/5 | 50% |
 | Integration with Existing Tools | 3/10 | 3/10 | 4/10 | 45% |
 
 ## Coverage Matrix
@@ -46,7 +46,7 @@ Progress since the [2026-05-21 audit](docs-qa-audit-2026-05-21.md). CI/CD integr
 | Q20 | Demonstrating Value | How do I show before/after remediation? | ⚠ | [README.md#remediation](../../README.md#remediation) (basic example only, no detailed guide) |
 | Q21 | Demonstrating Value | How do I track improvement over time? | ✗ | No reporting guide yet |
 | Q22 | Demonstrating Value | How do I generate reports for stakeholders? | ⚠ | [13-gateway-and-persistence.md](../architecture/13-gateway-and-persistence.md) (architecture doc, not user guide) |
-| Q23 | Demonstrating Value | How do I measure AI fix acceptance rates? | ✗ | No user-facing guide exists |
+| Q23 | Demonstrating Value | How do I measure AI fix acceptance rates? | ✓ | [RULE_CONFIGURATION.md](../guides/RULE_CONFIGURATION.md) (documents `GET /api/v1/stats/ai-acceptance` endpoint) |
 | Q24 | Demonstrating Value | What metrics does the Gateway API provide? | ⚠ | [13-gateway-and-persistence.md](../architecture/13-gateway-and-persistence.md) (architecture doc, not user guide) |
 | Q25 | Integration with Existing Tools | How do I integrate with GitHub Actions? | ✓ | [CLI.md](../guides/CLI.md), [examples/ci/github-actions/](../../examples/ci/github-actions/) |
 | Q26 | Integration with Existing Tools | How do I integrate with GitLab CI? | ⚠ | [CLI.md](../guides/CLI.md) (mentioned in capabilities table only, no example) |
@@ -87,11 +87,11 @@ Progress since the [2026-05-21 audit](docs-qa-audit-2026-05-21.md). CI/CD integr
 
 ## Remaining Gaps
 
-### Gap 1: Tracking Improvement Over Time (Q21, Q23)
+### Gap 1: Tracking Improvement Over Time (Q21)
 
-- **Impact**: Stakeholders want to see progress and AI fix acceptance rates. Without guidance, users cannot demonstrate ROI.
+- **Impact**: Stakeholders want to see progress over time. Without guidance, users cannot demonstrate ROI.
 - **Suggested Location**: `docs/guides/REPORTING.md` (new file)
-- **Notes**: Gateway API has trend endpoints per architecture doc, but no user-facing guide exists.
+- **Notes**: Gateway API has trend endpoints per architecture doc, but no user-facing guide for historical tracking exists.
 
 ### Gap 2: AAP/AWX Integration (Q29)
 
@@ -159,12 +159,14 @@ Progress since the [2026-05-21 audit](docs-qa-audit-2026-05-21.md). CI/CD integr
 
 ## Score Comparison
 
+Scores use weighted formula: (covered + partial × 0.5) / total × 100.
+
 | Category | May 21 | Jun 10 | Change |
 |----------|--------|--------|--------|
 | What Is It / What Does It Do | 90% | 90% | — |
 | How Can I Use It | 90% | 100% | +10% |
 | Rule Configuration | 90% | 90% | — |
 | Bring Your Own Rules | 50% | 50% | — |
-| Demonstrating Value | 60% | 30% | -30% |
+| Demonstrating Value | 60% | 50% | -10% |
 | Integration with Existing Tools | 20% | 45% | +25% |
-| **Overall** | **47%** | **65%** | **+18%** |
+| **Overall (weighted)** | **60%** | **68%** | **+8%** |
