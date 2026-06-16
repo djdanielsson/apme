@@ -97,7 +97,7 @@ Progress since the [2026-05-21 audit](docs-qa-audit-2026-05-21.md). CI/CD integr
 
 - **Impact**: AAP is the target platform for APME. Integration guidance is critical for enterprise adoption.
 - **Suggested Location**: `docs/guides/AAP_INTEGRATION.md` (new file)
-- **Notes**: README mentions AAP 2.5+ compatibility. EE rules planned (R505-R507).
+- **Notes**: APME targets AAP 2.5+ environments (per CLAUDE.md project overview). EE rules planned (R505-R507).
 
 ### Gap 3: Backstage Integration (Q30)
 
