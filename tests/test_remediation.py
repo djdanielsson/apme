@@ -39,6 +39,7 @@ from apme_engine.remediation.transforms.L022_pipefail import fix_pipefail
 from apme_engine.remediation.transforms.L025_name_casing import fix_name_casing
 from apme_engine.remediation.transforms.L043_bare_vars import fix_bare_vars
 from apme_engine.remediation.transforms.L046_no_free_form import fix_free_form
+from apme_engine.remediation.transforms.L084_subtask_prefix import fix_subtask_prefix
 from apme_engine.remediation.transforms.M001_fqcn import fix_fqcn
 from apme_engine.remediation.transforms.M006_become_unreachable import fix_become_unreachable
 from apme_engine.remediation.transforms.M008_bare_include import fix_bare_include
@@ -387,6 +388,7 @@ class TestDefaultRegistry:
             "L026",
             "L043",
             "L046",
+            "L084",
             "M001",
             "M003",
             "M006",
@@ -394,7 +396,7 @@ class TestDefaultRegistry:
             "M009",
         ):
             assert rule_id in reg, f"{rule_id} missing from default registry"
-        assert len(reg) == 25
+        assert len(reg) == 26
 
 
 # ---------------------------------------------------------------------------
@@ -1084,6 +1086,92 @@ class TestL043BareVars:
         """)
         result = _apply_node(fix_bare_vars, content, {"rule_id": "L043", "line": 1})
         assert result.applied is False
+
+
+# ---------------------------------------------------------------------------
+# L084 transform: subtask prefix
+# ---------------------------------------------------------------------------
+
+
+class TestL084SubtaskPrefix:
+    """Tests for fix_subtask_prefix L084 transform."""
+
+    def test_adds_filename_prefix(self) -> None:
+        """Verifies filename stem is prepended as prefix."""
+        content = textwrap.dedent("""\
+        - name: Validate SSL certificate credentials
+          ansible.builtin.assert:
+            that:
+              - ssl_cert_content is defined
+        """)
+        violation: ViolationDict = {
+            "rule_id": "L084",
+            "line": 1,
+            "file": "ansible/roles/nginx_multisite/tasks/validate_credentials.yml",
+        }
+        result = _apply_node(fix_subtask_prefix, content, violation)
+        assert result.applied is True
+        assert "validate_credentials | Validate SSL certificate credentials" in result.content
+
+    def test_no_change_when_already_prefixed(self) -> None:
+        """Verifies no change when name already has a pipe prefix."""
+        content = textwrap.dedent("""\
+        - name: validate_credentials | Validate SSL certificate credentials
+          ansible.builtin.assert:
+            that:
+              - ssl_cert_content is defined
+        """)
+        violation: ViolationDict = {
+            "rule_id": "L084",
+            "line": 1,
+            "file": "ansible/roles/nginx_multisite/tasks/validate_credentials.yml",
+        }
+        result = _apply_node(fix_subtask_prefix, content, violation)
+        assert result.applied is False
+
+    def test_no_change_without_file(self) -> None:
+        """Verifies no change when violation has no file path."""
+        content = textwrap.dedent("""\
+        - name: Install nginx
+          ansible.builtin.apt:
+            name: nginx
+        """)
+        violation: ViolationDict = {"rule_id": "L084", "line": 1, "file": ""}
+        result = _apply_node(fix_subtask_prefix, content, violation)
+        assert result.applied is False
+
+    def test_no_change_for_main_yml(self) -> None:
+        """Verifies no change when file is main.yml."""
+        content = textwrap.dedent("""\
+        - name: Install nginx
+          ansible.builtin.apt:
+            name: nginx
+        """)
+        violation: ViolationDict = {
+            "rule_id": "L084",
+            "line": 1,
+            "file": "ansible/roles/web/tasks/main.yml",
+        }
+        result = _apply_node(fix_subtask_prefix, content, violation)
+        assert result.applied is False
+
+    def test_idempotent(self) -> None:
+        """Verifies second pass produces no change after first fix."""
+        content = textwrap.dedent("""\
+        - name: Install nginx
+          ansible.builtin.apt:
+            name: nginx
+        """)
+        violation: ViolationDict = {
+            "rule_id": "L084",
+            "line": 1,
+            "file": "project/roles/web/tasks/install.yml",
+        }
+        r1 = _apply_node(fix_subtask_prefix, content, violation)
+        assert r1.applied is True
+        assert "install | Install nginx" in r1.content
+        r2 = _apply_node(fix_subtask_prefix, r1.content, violation)
+        assert r2.applied is False
 
 
 # ---------------------------------------------------------------------------

@@ -33,7 +33,9 @@ class SubtaskPrefixGraphRule(GraphRule):
     """
 
     rule_id: str = "L084"
-    description: str = "Task names in included sub-task files should use a prefix (e.g. 'sub | Description')"
+    description: str = (
+        "Task names in included sub-task files should use a filename prefix (e.g. '<filename> | Description')"
+    )
     enabled: bool = True
     name: str = "SubtaskPrefix"
     version: str = "v0.0.1"
@@ -63,7 +65,7 @@ class SubtaskPrefixGraphRule(GraphRule):
         return basename not in ("main.yml", "main.yaml")
 
     def process(self, graph: ContentGraph, node_id: str) -> GraphRuleResult | None:
-        """Flag task names that omit the ``sub |``-style prefix separator.
+        """Flag task names that omit the ``<filename> |``-style prefix separator.
 
         Args:
             graph: The full ContentGraph.
@@ -81,7 +83,9 @@ class SubtaskPrefixGraphRule(GraphRule):
         if verdict:
             detail["task_name"] = node.name
             detail["file"] = basename
-            detail["message"] = "task names in included files should use prefix (e.g. 'sub | Description')"
+            detail["message"] = (
+                f"task names in included files should use prefix (e.g. '{basename.rsplit('.', 1)[0]} | Description')"
+            )
         return GraphRuleResult(
             verdict=verdict,
             detail=detail if verdict else None,

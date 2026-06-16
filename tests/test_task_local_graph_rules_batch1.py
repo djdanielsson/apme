@@ -616,11 +616,25 @@ class TestL084SubtaskPrefixGraphRule:
             rule: Rule instance under test.
         """
         fp = self._role_subtask_path()
-        g, tid = _make_task(name="sub | Install nginx", file_path=fp)
+        g, tid = _make_task(name="install | Install nginx", file_path=fp)
         assert rule.match(g, tid)
         result = rule.process(g, tid)
         assert result is not None
         assert result.verdict is False
+
+    def test_violation_message_uses_filename(self, rule: SubtaskPrefixGraphRule) -> None:
+        """Violation message suggests the actual filename stem as prefix.
+
+        Args:
+            rule: Rule instance under test.
+        """
+        fp = self._role_subtask_path()
+        g, tid = _make_task(name="Install nginx", file_path=fp)
+        result = rule.process(g, tid)
+        assert result is not None
+        assert result.verdict is True
+        assert result.detail is not None
+        assert "install | Description" in str(result.detail.get("message", ""))
 
     def test_no_match_main_yml(self, rule: SubtaskPrefixGraphRule) -> None:
         """main.yml under roles is excluded.
