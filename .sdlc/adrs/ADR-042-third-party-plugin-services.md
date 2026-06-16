@@ -426,9 +426,11 @@ apme-reviews/
 - ADR-009: Validators are read-only; remediation is separate (plugins are exempt as they own both sides)
 - ADR-025: AI provider protocol — plugin AI escalation uses the same Tier 2 infrastructure
 - ADR-026: Rule scope metadata — plugins should set `scope` on violations
+- Policy Library Adapters (proposed, not yet in-repo) — a complementary approach for consuming external Rego policy libraries (e.g., AAC, ansible-policy, STIG) *within* the existing OPA validator via adapters, as opposed to ADR-042's separate-container model. The two do not overlap: plugin services own detection+remediation in a separate container; policy library adapters would perform schema translation and compliance mapping inside OPA. If this approach is pursued, it should be captured as a formal DR/ADR.
 
 ## References
 
+- [docs/design/THIRD_PARTY_EXTENSIBILITY_OPTIONS.md](../../docs/design/THIRD_PARTY_EXTENSIBILITY_OPTIONS.md) — options briefing: current tool paths, strategic alternatives, phased outcomes, cross-ADR tensions
 - `proto/apme/v1/validate.proto` — existing Validator service contract
 - `proto/apme/v1/common.proto` — shared Violation, File, Health types
 - `src/apme_engine/daemon/primary_server.py` — Primary fan-out and remediation orchestration
@@ -443,3 +445,4 @@ apme-reviews/
 |------|--------|--------|
 | 2026-03-20 | APME Team | Initial proposal |
 | 2026-03-20 | APME Team | Add AI escalation: per-plugin batching and ai_guidance metadata |
+| 2026-04-20 | APME Team | Link options briefing design doc in References |
