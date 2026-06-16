@@ -3,11 +3,11 @@
 ## Executive Summary
 
 - **Total Questions**: 34
-- **Covered** (✓): 22 (65%)
-- **Partial** (⚠): 7 (21%)
-- **Gaps** (✗): 5 (15%)
+- **Covered** (✓): 16 (47%)
+- **Partial** (⚠): 12 (35%)
+- **Gaps** (✗): 6 (18%)
 
-Significant progress since the [2026-05-21 audit](docs-qa-audit-2026-05-21.md). CI/CD integration is now well-documented with examples for GitHub Actions, GitLab CI, Jenkins, and pre-commit hooks. The new customer test plan (TESTING.md) provides structured validation workflows. Remaining gaps are AAP/AWX integration, Backstage (in progress via PR #298), VS Code extension, and reporting/metrics guides.
+Progress since the [2026-05-21 audit](docs-qa-audit-2026-05-21.md). CI/CD integration has a GitHub Actions example in CLI.md and examples/ci/, but GitLab CI, Jenkins, and Azure DevOps are only mentioned by name. Remaining gaps are AAP/AWX integration, Backstage (in progress via PR #298), VS Code extension, and reporting/metrics guides.
 
 ## Coverage by Category
 
@@ -17,21 +17,21 @@ Significant progress since the [2026-05-21 audit](docs-qa-audit-2026-05-21.md). 
 | How Can I Use It | 5/5 | 0/5 | 0/5 | 100% |
 | Rule Configuration | 4/5 | 1/5 | 0/5 | 90% |
 | Bring Your Own Rules | 0/4 | 4/4 | 0/4 | 50% |
-| Demonstrating Value | 2/5 | 2/5 | 1/5 | 60% |
-| Integration with Existing Tools | 7/10 | 0/10 | 3/10 | 70% |
+| Demonstrating Value | 0/5 | 3/5 | 2/5 | 30% |
+| Integration with Existing Tools | 3/10 | 3/10 | 4/10 | 45% |
 
 ## Coverage Matrix
 
 | ID | Category | Question | Status | Source |
 |----|----------|----------|--------|--------|
-| Q01 | What Is It / What Does It Do | What is APME and what problem does it solve? | ✓ | [README.md#what-apme-is](../../README.md#what-apme-is) |
-| Q02 | What Is It / What Does It Do | What types of Ansible content can APME scan? | ✓ | [README.md#what-apme-is](../../README.md#what-apme-is) |
+| Q01 | What Is It / What Does It Do | What is APME and what problem does it solve? | ✓ | [README.md#what-apme-is](../../README.md#what-apme-is), [README.md#key-features](../../README.md#key-features) |
+| Q02 | What Is It / What Does It Do | What types of Ansible content can APME scan? | ✓ | [README.md#what-apme-is](../../README.md#what-apme-is), [README.md#architecture-at-a-glance](../../README.md#architecture-at-a-glance) |
 | Q03 | What Is It / What Does It Do | What rules does APME enforce and why? | ✓ | [RULE_CATALOG.md](../rules/RULE_CATALOG.md) |
 | Q04 | What Is It / What Does It Do | How does APME differ from ansible-lint? | ⚠ | [ANSIBLELINT_COVERAGE.md](../rules/ANSIBLELINT_COVERAGE.md) |
 | Q05 | What Is It / What Does It Do | What are the severity levels and what do they mean? | ✓ | [RULE_CATALOG.md](../rules/RULE_CATALOG.md) |
-| Q06 | How Can I Use It | How do I install APME? | ✓ | [README.md#install](../../README.md#install) |
-| Q07 | How Can I Use It | How do I run a basic scan? | ✓ | [README.md#basic-usage](../../README.md#basic-usage), [TESTING.md](../guides/TESTING.md) |
-| Q08 | How Can I Use It | How do I get JSON output for automation? | ✓ | [README.md#basic-usage](../../README.md#basic-usage), [CLI.md](../guides/CLI.md) |
+| Q06 | How Can I Use It | How do I install APME? | ✓ | [README.md#getting-started](../../README.md#getting-started) |
+| Q07 | How Can I Use It | How do I run a basic scan? | ✓ | [README.md#try-it-now](../../README.md#try-it-now), [CLI.md](../guides/CLI.md) |
+| Q08 | How Can I Use It | How do I get JSON output for automation? | ✓ | [README.md#try-it-now](../../README.md#try-it-now), [CLI.md](../guides/CLI.md) |
 | Q09 | How Can I Use It | How do I run APME in a container? | ✓ | [README.md](../../README.md), [DEPLOYMENT.md](../guides/DEPLOYMENT.md) |
 | Q10 | How Can I Use It | How do I use daemon vs pod mode? | ✓ | [DEPLOYMENT.md](../guides/DEPLOYMENT.md), [CLI.md](../guides/CLI.md) |
 | Q11 | Rule Configuration | How do I enable/disable specific rules? | ✓ | [RULE_CONFIGURATION.md](../guides/RULE_CONFIGURATION.md) |
@@ -43,20 +43,20 @@ Significant progress since the [2026-05-21 audit](docs-qa-audit-2026-05-21.md). 
 | Q17 | Bring Your Own Rules | How do I write a custom OPA/Rego rule? | ⚠ | [DEVELOPMENT.md](../guides/DEVELOPMENT.md) |
 | Q18 | Bring Your Own Rules | How do I add custom rules via plugins? | ⚠ | [ADR-042](../../.sdlc/adrs/ADR-042-third-party-plugin-services.md) |
 | Q19 | Bring Your Own Rules | What rule ID conventions should custom rules follow? | ⚠ | [RULE_CONFIGURATION.md](../guides/RULE_CONFIGURATION.md) |
-| Q20 | Demonstrating Value | How do I show before/after remediation? | ✓ | [README.md#basic-usage](../../README.md#basic-usage), [TESTING.md](../guides/TESTING.md) |
-| Q21 | Demonstrating Value | How do I track improvement over time? | ✗ | No REPORTING.md yet |
-| Q22 | Demonstrating Value | How do I generate reports for stakeholders? | ⚠ | [13-gateway-and-persistence.md](../architecture/13-gateway-and-persistence.md) |
-| Q23 | Demonstrating Value | How do I measure AI fix acceptance rates? | ✓ | [RULE_CONFIGURATION.md](../guides/RULE_CONFIGURATION.md) |
-| Q24 | Demonstrating Value | What metrics does the Gateway API provide? | ⚠ | [13-gateway-and-persistence.md](../architecture/13-gateway-and-persistence.md) |
+| Q20 | Demonstrating Value | How do I show before/after remediation? | ⚠ | [README.md#remediation](../../README.md#remediation) (basic example only, no detailed guide) |
+| Q21 | Demonstrating Value | How do I track improvement over time? | ✗ | No reporting guide yet |
+| Q22 | Demonstrating Value | How do I generate reports for stakeholders? | ⚠ | [13-gateway-and-persistence.md](../architecture/13-gateway-and-persistence.md) (architecture doc, not user guide) |
+| Q23 | Demonstrating Value | How do I measure AI fix acceptance rates? | ✗ | No user-facing guide exists |
+| Q24 | Demonstrating Value | What metrics does the Gateway API provide? | ⚠ | [13-gateway-and-persistence.md](../architecture/13-gateway-and-persistence.md) (architecture doc, not user guide) |
 | Q25 | Integration with Existing Tools | How do I integrate with GitHub Actions? | ✓ | [CLI.md](../guides/CLI.md), [examples/ci/github-actions/](../../examples/ci/github-actions/) |
-| Q26 | Integration with Existing Tools | How do I integrate with GitLab CI? | ✓ | [CLI.md](../guides/CLI.md) |
-| Q27 | Integration with Existing Tools | How do I integrate with Jenkins? | ✓ | [CLI.md](../guides/CLI.md) |
-| Q28 | Integration with Existing Tools | How do I integrate with Azure DevOps? | ✓ | [CLI.md](../guides/CLI.md) |
+| Q26 | Integration with Existing Tools | How do I integrate with GitLab CI? | ⚠ | [CLI.md](../guides/CLI.md) (mentioned in capabilities table only, no example) |
+| Q27 | Integration with Existing Tools | How do I integrate with Jenkins? | ⚠ | [CLI.md](../guides/CLI.md) (mentioned in capabilities table only, no example) |
+| Q28 | Integration with Existing Tools | How do I integrate with Azure DevOps? | ✗ | Not documented (CLI.md does not mention Azure DevOps) |
 | Q29 | Integration with Existing Tools | How do I use APME with AAP/AWX? | ✗ | No AAP_INTEGRATION.md yet |
 | Q30 | Integration with Existing Tools | How do I use APME with Backstage? | ✗ | PR #298 in progress (draft) |
 | Q31 | Integration with Existing Tools | How do I integrate with pre-commit hooks? | ✓ | [CLI.md](../guides/CLI.md), [examples/ci/pre-commit/](../../examples/ci/pre-commit/) |
 | Q32 | Integration with Existing Tools | How do I migrate from ansible-lint? | ✓ | [ANSIBLELINT_COVERAGE.md](../rules/ANSIBLELINT_COVERAGE.md) |
-| Q33 | Integration with Existing Tools | How do I use APME in an air-gapped environment? | ✓ | [DEPLOYMENT.md#custom-ca-certificates](../guides/DEPLOYMENT.md#custom-ca-certificates) |
+| Q33 | Integration with Existing Tools | How do I use APME in an air-gapped environment? | ⚠ | [DEPLOYMENT.md#custom-ca-certificates](../guides/DEPLOYMENT.md#custom-ca-certificates) (covers custom CA trust, not full air-gapped deployment guidance) |
 | Q34 | Integration with Existing Tools | How do I integrate with VS Code? | ✗ | No VS Code extension exists yet |
 
 ## Changes Since 2026-05-21 Audit
@@ -67,16 +67,12 @@ Significant progress since the [2026-05-21 audit](docs-qa-audit-2026-05-21.md). 
 |----|----------|------------|
 | Q10 | Daemon vs pod mode | CLI.md now has clear comparison table and decision guidance |
 | Q25 | GitHub Actions | CLI.md has inline example + examples/ci/github-actions/ has full workflows |
-| Q26 | GitLab CI | CLI.md mentions support in capabilities table |
-| Q27 | Jenkins | CLI.md mentions support in capabilities table |
-| Q28 | Azure DevOps | CLI.md mentions support in capabilities table |
 | Q31 | Pre-commit | CLI.md has config example + examples/ci/pre-commit/ has full setup |
 
 ### New Documentation Added
 
 | Document | Purpose |
 |----------|---------|
-| [TESTING.md](../guides/TESTING.md) | Customer test plan with structured validation scenarios |
 | [examples/ci/](../../examples/ci/) | Copy-paste CI/CD workflow examples |
 | [examples/ci/github-actions/](../../examples/ci/github-actions/) | GitHub Actions workflows (check, format, hosted) |
 | [examples/ci/pre-commit/](../../examples/ci/pre-commit/) | Pre-commit hook configuration |
@@ -91,11 +87,11 @@ Significant progress since the [2026-05-21 audit](docs-qa-audit-2026-05-21.md). 
 
 ## Remaining Gaps
 
-### Gap 1: Tracking Improvement Over Time (Q21)
+### Gap 1: Tracking Improvement Over Time (Q21, Q23)
 
-- **Impact**: Stakeholders want to see progress. Without guidance, users cannot demonstrate ROI.
+- **Impact**: Stakeholders want to see progress and AI fix acceptance rates. Without guidance, users cannot demonstrate ROI.
 - **Suggested Location**: `docs/guides/REPORTING.md` (new file)
-- **Notes**: Gateway API has trend endpoints per architecture doc, but no user guide exists.
+- **Notes**: Gateway API has trend endpoints per architecture doc, but no user-facing guide exists.
 
 ### Gap 2: AAP/AWX Integration (Q29)
 
@@ -121,6 +117,12 @@ Significant progress since the [2026-05-21 audit](docs-qa-audit-2026-05-21.md). 
 - **Suggested Location**: `docs/guides/REPORTING.md` (new file)
 - **Notes**: Architecture doc has API details but no user-facing guide.
 
+### Gap 6: Azure DevOps Integration (Q28)
+
+- **Impact**: Azure DevOps users have no integration guidance.
+- **Status**: Not mentioned in CLI.md. PR #304 (CI/CD guide) has examples but is not merged.
+- **Notes**: Will be resolved when PR #304 merges (pending fixes).
+
 ## Partial Coverage Improvements Needed
 
 ### Partial 1: ansible-lint Comparison (Q04)
@@ -144,8 +146,9 @@ Significant progress since the [2026-05-21 audit](docs-qa-audit-2026-05-21.md). 
 
 ### Medium Priority
 
-- [ ] Create `docs/guides/REPORTING.md` for Gateway metrics, trends, stakeholder workflows
-- [ ] Create `docs/guides/AAP_INTEGRATION.md` for AAP/EE guidance
+- [ ] Create `docs/guides/REPORTING.md` for Gateway metrics, trends, and stakeholder workflows
+- [ ] Create `docs/guides/AAP_INTEGRATION.md` for AAP/EE integration guidance
+- [ ] Create `docs/guides/AIR_GAPPED.md` for fully air-gapped deployment guidance
 - [ ] Review and advance PR #298 (Backstage integration)
 
 ### Lower Priority
@@ -162,6 +165,6 @@ Significant progress since the [2026-05-21 audit](docs-qa-audit-2026-05-21.md). 
 | How Can I Use It | 90% | 100% | +10% |
 | Rule Configuration | 90% | 90% | — |
 | Bring Your Own Rules | 50% | 50% | — |
-| Demonstrating Value | 60% | 60% | — |
-| Integration with Existing Tools | 20% | 70% | +50% |
+| Demonstrating Value | 60% | 30% | -30% |
+| Integration with Existing Tools | 20% | 45% | +25% |
 | **Overall** | **47%** | **65%** | **+18%** |
