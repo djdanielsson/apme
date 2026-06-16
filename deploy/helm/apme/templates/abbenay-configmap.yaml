@@ -9,24 +9,29 @@ metadata:
 data:
   config.yaml: |
     providers:
-    {{- if .Values.abbenay.apiKeys.openrouterApiKey }}
-      openrouter:
-        engine: openrouter
+    {{- range $name, $provider := .Values.abbenay.providers }}
+      {{ $name }}:
+        engine: {{ $provider.engine }}
+      {{- if $provider.baseUrl }}
+        base_url: {{ $provider.baseUrl | quote }}
+      {{- end }}
+      {{- if or $provider.apiKey $provider.apiKeySecret }}
+        api_key_env_var_name: {{ printf "ABBENAY_PROVIDER_%s" (upper (replace "-" "_" $name)) | quote }}
+      {{- end }}
+      {{- if and (eq $provider.engine "vertex-anthropic") (not $provider.baseUrl) }}
+      {{- with $.Values.abbenay.gcp }}
+      {{- if .project }}
+        project_id: {{ .project | quote }}
+      {{- end }}
+      {{- if .location }}
+        region: {{ .location | quote }}
+      {{- end }}
+      {{- end }}
+      {{- end }}
         models:
-        {{- range .Values.abbenay.openrouterModels }}
-          {{ . }}: {}
-        {{- end }}
-        api_key_env: OPENROUTER_API_KEY
-    {{- end }}
-    {{- if .Values.abbenay.vertexAnthropic.enabled }}
-      vertex-anthropic:
-        engine: vertex-anthropic
-        project: {{ .Values.abbenay.vertexAnthropic.project | quote }}
-        region: {{ .Values.abbenay.vertexAnthropic.region | quote }}
-        models:
-        {{- range .Values.abbenay.vertexAnthropic.models }}
-          {{ . }}: {}
-        {{- end }}
+      {{- range $model, $opts := $provider.models }}
+          {{ $model }}: {{ $opts | toJson }}
+      {{- end }}
     {{- end }}
     consumers:
       apme:

@@ -1,8 +1,16 @@
 {{- if .Values.abbenay.enabled }}
+{{- $fullname := include "apme.fullname" . -}}
+{{- $hasGcpCreds := or .Values.abbenay.gcp.serviceAccountKey .Values.abbenay.gcp.existingSecret -}}
+{{- $hasVertexADC := false -}}
+{{- range $name, $provider := .Values.abbenay.providers }}
+  {{- if and (eq $provider.engine "vertex-anthropic") (not $provider.baseUrl) (not $provider.apiKey) (not $provider.apiKeySecret) }}
+    {{- $hasVertexADC = true -}}
+  {{- end }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "apme.fullname" . }}-abbenay
+  name: {{ $fullname }}-abbenay
   labels:
     {{- include "apme.labels" . | nindent 4 }}
     app.kubernetes.io/component: abbenay
@@ -40,20 +48,8 @@ spec:
             - name: APME_ABBENAY_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "apme.fullname" . }}-secrets
+                  name: {{ $fullname }}-secrets
                   key: abbenay-token
-            - name: OPENROUTER_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "apme.fullname" . }}-secrets
-                  key: openrouter-api-key
-                  optional: true
-            - name: VERTEX_ANTHROPIC_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "apme.fullname" . }}-secrets
-                  key: vertex-anthropic-api-key
-                  optional: true
             {{- if .Values.abbenay.aiModel }}
             - name: APME_AI_MODEL
               value: {{ .Values.abbenay.aiModel | quote }}
@@ -62,9 +58,42 @@ spec:
               value: /tmp/abbenay-run
             - name: XDG_CONFIG_HOME
               value: /etc/abbenay-config
-            {{- if and .Values.abbenay.vertexAnthropic.enabled (or .Values.abbenay.vertexAnthropic.serviceAccountKey .Values.abbenay.vertexAnthropic.existingGcpSecret) }}
+            {{- /* GCP ADC env vars for vertex-anthropic providers using direct Vertex AI */ -}}
+            {{- if $hasVertexADC }}
+            {{- if $hasGcpCreds }}
             - name: GOOGLE_APPLICATION_CREDENTIALS
-              value: /gcp-credentials/service-account-key.json
+              value: /var/run/secrets/gcp/service-account-key.json
+            {{- end }}
+            {{- with .Values.abbenay.gcp }}
+            {{- if .project }}
+            - name: GOOGLE_VERTEX_PROJECT
+              value: {{ .project | quote }}
+            {{- end }}
+            {{- if .location }}
+            - name: GOOGLE_VERTEX_LOCATION
+              value: {{ .location | quote }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
+            {{- /* Per-provider API key env vars */ -}}
+            {{- range $name, $provider := .Values.abbenay.providers }}
+            {{- $envName := printf "ABBENAY_PROVIDER_%s" (upper (replace "-" "_" $name)) }}
+            {{- if $provider.apiKey }}
+            - name: {{ $envName }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $fullname }}-secrets
+                  key: provider-{{ $name }}-api-key
+            {{- else if $provider.apiKeySecret }}
+            - name: {{ $envName }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $provider.apiKeySecret.name }}
+                  key: {{ $provider.apiKeySecret.key }}
+            {{- end }}
+            {{- with $provider.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
             {{- end }}
           ports:
             - name: grpc
@@ -86,18 +115,18 @@ spec:
             - name: abbenay-config
               mountPath: /etc/abbenay-config/abbenay
               readOnly: true
-            {{- if and .Values.abbenay.vertexAnthropic.enabled (or .Values.abbenay.vertexAnthropic.serviceAccountKey .Values.abbenay.vertexAnthropic.existingGcpSecret) }}
+            {{- if and $hasVertexADC $hasGcpCreds }}
             - name: gcp-credentials
-              mountPath: /gcp-credentials
+              mountPath: /var/run/secrets/gcp
               readOnly: true
             {{- end }}
       volumes:
         - name: abbenay-config
           configMap:
-            name: {{ include "apme.fullname" . }}-abbenay-config
-        {{- if and .Values.abbenay.vertexAnthropic.enabled (or .Values.abbenay.vertexAnthropic.serviceAccountKey .Values.abbenay.vertexAnthropic.existingGcpSecret) }}
+            name: {{ $fullname }}-abbenay-config
+        {{- if and $hasVertexADC $hasGcpCreds }}
         - name: gcp-credentials
           secret:
-            secretName: {{ if .Values.abbenay.vertexAnthropic.serviceAccountKey }}{{ include "apme.fullname" . }}-gcp-credentials{{ else }}{{ .Values.abbenay.vertexAnthropic.existingGcpSecret }}{{ end }}
+            secretName: {{ if .Values.abbenay.gcp.serviceAccountKey }}{{ $fullname }}-gcp-credentials{{ else }}{{ .Values.abbenay.gcp.existingSecret }}{{ end }}
         {{- end }}
 {{- end }}
