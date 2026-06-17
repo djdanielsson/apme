@@ -1173,6 +1173,55 @@ class TestL084SubtaskPrefix:
         r2 = _apply_node(fix_subtask_prefix, r1.content, violation)
         assert r2.applied is False
 
+    def test_replaces_wrong_prefix(self) -> None:
+        """Legacy 'sub | ...' name gets the prefix replaced, not stacked."""
+        content = textwrap.dedent("""\
+        - name: sub | Install nginx
+          ansible.builtin.apt:
+            name: nginx
+        """)
+        violation: ViolationDict = {
+            "rule_id": "L084",
+            "line": 1,
+            "file": "project/roles/web/tasks/install.yml",
+        }
+        result = _apply_node(fix_subtask_prefix, content, violation)
+        assert result.applied is True
+        assert "install | Install nginx" in result.content
+        assert "sub" not in result.content
+
+    def test_replaces_wrong_prefix_preserves_description(self) -> None:
+        """Wrong prefix is replaced while full description is preserved."""
+        content = textwrap.dedent("""\
+        - name: setup | Configure app for production
+          ansible.builtin.template:
+            src: app.conf.j2
+            dest: /etc/app.conf
+        """)
+        violation: ViolationDict = {
+            "rule_id": "L084",
+            "line": 1,
+            "file": "project/roles/myapp/tasks/configure.yml",
+        }
+        result = _apply_node(fix_subtask_prefix, content, violation)
+        assert result.applied is True
+        assert "configure | Configure app for production" in result.content
+
+    def test_no_change_for_main_yaml(self) -> None:
+        """Verifies no change when file is main.yaml (not just main.yml)."""
+        content = textwrap.dedent("""\
+        - name: Install nginx
+          ansible.builtin.apt:
+            name: nginx
+        """)
+        violation: ViolationDict = {
+            "rule_id": "L084",
+            "line": 1,
+            "file": "ansible/roles/web/tasks/main.yaml",
+        }
+        result = _apply_node(fix_subtask_prefix, content, violation)
+        assert result.applied is False
+
 
 # ---------------------------------------------------------------------------
 # L013 transform: changed_when

@@ -26,9 +26,6 @@ def fix_subtask_prefix(task: CommentedMap, violation: ViolationDict) -> bool:
     if not isinstance(name, str) or not name:
         return False
 
-    if "|" in name:
-        return False
-
     file_path = str(violation.get("file") or "")
     if not file_path:
         return False
@@ -37,5 +34,12 @@ def fix_subtask_prefix(task: CommentedMap, violation: ViolationDict) -> bool:
     if not stem or stem in ("main",):
         return False
 
-    task["name"] = f"{stem} | {name}"
+    if "|" in name:
+        prefix = name.split("|", 1)[0].strip()
+        if prefix.lower() == stem.lower():
+            return False
+        description = name.split("|", 1)[1].strip()
+        task["name"] = f"{stem} | {description}"
+    else:
+        task["name"] = f"{stem} | {name}"
     return True

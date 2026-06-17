@@ -657,6 +657,43 @@ class TestL084SubtaskPrefixGraphRule:
         g, tid = _make_task(name="Install nginx", file_path="site.yml")
         assert not rule.match(g, tid)
 
+    def test_violation_wrong_prefix(self, rule: SubtaskPrefixGraphRule) -> None:
+        """Legacy 'sub | ...' name where prefix doesn't match filename violates.
+
+        Args:
+            rule: Rule instance under test.
+        """
+        fp = self._role_subtask_path()
+        g, tid = _make_task(name="sub | Install nginx", file_path=fp)
+        assert rule.match(g, tid)
+        result = rule.process(g, tid)
+        assert result is not None
+        assert result.verdict is True
+
+    def test_no_match_main_yaml(self, rule: SubtaskPrefixGraphRule) -> None:
+        """main.yaml (not just main.yml) under roles is excluded.
+
+        Args:
+            rule: Rule instance under test.
+        """
+        g, tid = _make_task(
+            name="Install nginx",
+            file_path="project/roles/web/tasks/main.yaml",
+        )
+        assert not rule.match(g, tid)
+
+    def test_case_insensitive_prefix(self, rule: SubtaskPrefixGraphRule) -> None:
+        """Prefix comparison is case-insensitive.
+
+        Args:
+            rule: Rule instance under test.
+        """
+        fp = self._role_subtask_path()
+        g, tid = _make_task(name="Install | Install nginx", file_path=fp)
+        result = rule.process(g, tid)
+        assert result is not None
+        assert result.verdict is False
+
 
 class TestL092LoopVarInNameGraphRule:
     """Tests for ``LoopVarInNameGraphRule`` (L092)."""
