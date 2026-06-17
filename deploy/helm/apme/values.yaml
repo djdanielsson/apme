@@ -148,30 +148,89 @@ ui:
   affinity: {}
 
 # -- Abbenay AI provider (optional)
+# Abbenay is a unified AI daemon supporting 19+ LLM engines via the Vercel
+# AI SDK.  Configure one or more providers below — the chart generates
+# Abbenay's config.yaml and wires up secrets/volumes automatically.
+# See docs/guides/ABBENAY_AI.md for GCP-specific setup.
 abbenay:
   enabled: false
   image: ghcr.io/redhat-developer/abbenay:2026.4.1-alpha
+  # -- Token APME uses to authenticate with Abbenay (required when enabled)
   token: ""
+  # -- Override the default model APME selects (e.g. "vertex-claude/claude-sonnet-4-6")
   aiModel: ""
-  apiKeys:
-    openrouterApiKey: ""
-    vertexAnthropicApiKey: ""
-  # -- OpenRouter model IDs to expose (when openrouterApiKey is set)
-  openrouterModels:
-    - anthropic/claude-sonnet-4
-    - anthropic/claude-opus-4.6
-  # -- Vertex AI Anthropic configuration (keyless — uses GCP ADC)
-  vertexAnthropic:
-    enabled: false
+  # -- LLM providers.  Keys become provider names in Abbenay's config.yaml.
+  # Each entry needs at minimum `engine` and `models`.
+  # Auth options per provider (mutually exclusive):
+  #   apiKey:       inline API key (Helm creates a Secret — avoid in production)
+  #   apiKeySecret: reference to an existing K8s Secret { name, key }
+  #   (omit both)   for engines that use ADC or need no auth (vertex-anthropic, ollama)
+  #
+  # Optional fields:
+  #   baseUrl:   custom endpoint URL (proxies, self-hosted, Ollama, LM Studio)
+  #   extraEnv:  list of additional env vars to inject [{name, value}]
+  #
+  # Examples — copy into providers: block below and adjust:
+  #
+  #   # OpenRouter (API-key engine)
+  #   openrouter:
+  #     engine: openrouter
+  #     apiKey: "sk-or-..."            # OR use apiKeySecret below
+  #     # apiKeySecret:
+  #     #   name: my-openrouter-secret
+  #     #   key: api-key
+  #     models:
+  #       anthropic/claude-sonnet-4-6: {}
+  #       anthropic/claude-opus-4-6: {}
+  #
+  #   # Vertex AI Anthropic (GCP ADC — no API key needed)
+  #   vertex-claude:
+  #     engine: vertex-anthropic
+  #     models:
+  #       claude-sonnet-4-6: {}
+  #       claude-sonnet-4-5: {}
+  #       claude-haiku-4-5@20251001: {}
+  #       claude-opus-4-6: {}
+  #
+  #   # Direct Anthropic API
+  #   anthropic:
+  #     engine: anthropic
+  #     apiKeySecret:
+  #       name: anthropic-credentials
+  #       key: api-key
+  #     models:
+  #       claude-sonnet-4-6: {}
+  #
+  #   # Ollama (local, no auth)
+  #   local-ollama:
+  #     engine: ollama
+  #     baseUrl: "http://ollama.default.svc:11434/v1"
+  #     models:
+  #       llama3.2: {}
+  #
+  #   # Corporate Vertex proxy (Bearer token auth)
+  #   corp-vertex:
+  #     engine: vertex-anthropic
+  #     baseUrl: "https://your-proxy.example.com/models"
+  #     apiKeySecret:
+  #       name: vertex-proxy-token
+  #       key: bearer-token
+  #     models:
+  #       claude-sonnet-4-6: {}
+  #
+  providers: {}
+
+  # -- GCP credentials for vertex-anthropic engine (ADC authentication).
+  # Only needed when a provider uses engine: vertex-anthropic without a
+  # base_url/apiKey (i.e. direct Vertex AI, not a proxy).
+  gcp:
     project: ""
-    region: us-east5
-    # -- Vertex AI model names (e.g. claude-sonnet-4@20250929)
-    models: []
-    # -- Raw service account key JSON (helm creates the secret)
+    location: us-east5
+    # -- Raw service-account JSON (Helm creates the Secret).
+    # Prefer existingSecret in production to avoid putting keys in values files.
     serviceAccountKey: ""
-    # -- Name of an existing Secret with service-account-key.json key
-    # (use instead of serviceAccountKey to avoid putting the key in values)
-    existingGcpSecret: ""
+    # -- Name of a pre-existing Secret containing a service-account-key.json key
+    existingSecret: ""
   resources:
     requests:
       cpu: 250m
