@@ -7,7 +7,7 @@ scope: task
 
 ## Sub-task prefix (L084)
 
-Task names in included sub-task files should use a prefix separator so logs show the origin (e.g. `sub | Description`).
+Task names in included sub-task files should use the filename (without extension) as a prefix separator so logs show the origin (e.g. `install | Install package` for tasks in `install.yml`).
 
 ### Example: violation
 

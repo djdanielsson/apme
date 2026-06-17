@@ -18,6 +18,7 @@ from apme_engine.remediation.transforms.L022_pipefail import fix_pipefail
 from apme_engine.remediation.transforms.L025_name_casing import fix_name_casing
 from apme_engine.remediation.transforms.L043_bare_vars import fix_bare_vars
 from apme_engine.remediation.transforms.L046_no_free_form import fix_free_form
+from apme_engine.remediation.transforms.L084_subtask_prefix import fix_subtask_prefix
 from apme_engine.remediation.transforms.M001_fqcn import fix_fqcn
 from apme_engine.remediation.transforms.M006_become_unreachable import fix_become_unreachable
 from apme_engine.remediation.transforms.M008_bare_include import fix_bare_include
@@ -49,6 +50,8 @@ def build_default_registry() -> TransformRegistry:
     reg.register("L046", node=fix_free_form)
 
     reg.register("L020", node=fix_octal_mode)
+
+    reg.register("L084", node=fix_subtask_prefix)
 
     # Ansible validator rules (carry resolved_fqcn from ansible-core)
     # M001-M004 all report FQCN violations, so the same fix applies

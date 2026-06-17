@@ -7,9 +7,9 @@
 | Metric | Count |
 |--------|-------|
 | Implemented | 147/156 |
-| Tested | 116/156 |
+| Tested | 117/156 |
 | Documented | 155/156 |
-| Deterministic fixer | 24/156 |
+| Deterministic fixer | 25/156 |
 
 ## All Rules
 
@@ -96,7 +96,7 @@
 | L081 | Native | low | Do not number roles or playbooks. | Yes | Yes | Yes | — |
 | L082 | Native | low | Template source files should use .j2 extension. | Yes | — | Yes | — |
 | L083 | Native | low | Do not hardcode host group names in roles. | Yes | Yes | Yes | — |
-| L084 | Native | low | Task names in included sub-task files should use a prefix. | Yes | — | Yes | — |
+| L084 | Native | low | Task names in included sub-task files should use a prefix. | Yes | Yes | Yes | Yes |
 | L085 | Native | low | Use explicit role_path prefix in include paths within roles. | Yes | Yes | Yes | — |
 | L086 | Native | low | Avoid playbook/play vars for routine config; use inventory vars. | Yes | — | Yes | — |
 | L087 | Native | low | Collection root should have a LICENSE or COPYING file. | Yes | Yes | Yes | — |
@@ -228,7 +228,7 @@
 | M028 | high | first_found lookup auto-splitting paths on delimiters is deprecated (2.23) | Yes | Yes | Yes | — |
 | R118 | info | Task downloads from an external source (inbound transfer). | Yes | Yes | Yes | — |
 
-### Native (99 rules, 90 impl, 60 tested, 3 fixers)
+### Native (99 rules, 90 impl, 61 tested, 4 fixers)
 
 | Rule ID | Severity | Description | Impl | Tested | Doc | Fixer |
 |---------|----------|-------------|------|--------|-----|-------|
@@ -275,7 +275,7 @@
 | L081 | low | Do not number roles or playbooks. | Yes | Yes | Yes | — |
 | L082 | low | Template source files should use .j2 extension. | Yes | — | Yes | — |
 | L083 | low | Do not hardcode host group names in roles. | Yes | Yes | Yes | — |
-| L084 | low | Task names in included sub-task files should use a prefix. | Yes | — | Yes | — |
+| L084 | low | Task names in included sub-task files should use a prefix. | Yes | Yes | Yes | Yes |
 | L085 | low | Use explicit role_path prefix in include paths within roles. | Yes | Yes | Yes | — |
 | L086 | low | Avoid playbook/play vars for routine config; use inventory vars. | Yes | — | Yes | — |
 | L087 | low | Collection root should have a LICENSE or COPYING file. | Yes | Yes | Yes | — |
@@ -364,7 +364,7 @@
 - **R404** (Native): Expose variable_set for the task.
 - **R501** (Native): Suggest collection/role dependency.
 
-### Implemented but untested — 34
+### Implemented but untested — 33
 
 - **L032** (Native): Variable redefinition may cause confusion.
 - **L033** (Native): Overriding vars without conditions.
@@ -378,7 +378,6 @@
 - **L075** (Native): Template source files should use .j2 extension (ansible_managed best practice).
 - **L076** (Native): Use ansible_facts bracket notation instead of injected fact variables.
 - **L082** (Native): Template source files should use .j2 extension.
-- **L084** (Native): Task names in included sub-task files should use a prefix.
 - **L086** (Native): Avoid playbook/play vars for routine config; use inventory vars.
 - **L091** (Native): Use | bool for bare variables in when conditions.
 - **L092** (Native): Avoid loop variable references in task names.
@@ -429,6 +428,7 @@ Rules without fixers fall to Tier 2 (AI-proposable) or Tier 3 (manual review).
 | L026 | low | Tasks should use FQCN for modules. |
 | L043 | low | Bare variable in with_* loop directive; use {{ var }}. |
 | L046 | low | Avoid raw/command/shell without args key. |
+| L084 | low | Task names in included sub-task files should use a prefix. |
 | M001 | high | FQCN resolution — module resolved to a different canonical name. |
 | M002 | high | Deprecated module — module has deprecation metadata. |
 | M003 | high | Module redirect — module name was redirected to a new FQCN. |

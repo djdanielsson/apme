@@ -17,6 +17,25 @@ from apme_engine.validators.native.rules.graph_rule_base import GraphRule, Graph
 _TASK_TYPES = frozenset({NodeType.TASK, NodeType.HANDLER})
 
 
+def _has_filename_prefix(task_name: str, stem: str) -> bool:
+    """Check if a task name starts with the expected filename stem prefix.
+
+    The expected format is ``<stem> | <description>``.  Comparison is
+    case-insensitive so ``Install | do thing`` matches stem ``install``.
+
+    Args:
+        task_name: Full task name string.
+        stem: Filename stem (without extension) that should precede the pipe.
+
+    Returns:
+        True if the task name has the correct filename-based prefix.
+    """
+    if "|" not in task_name:
+        return False
+    prefix = task_name.split("|", 1)[0].strip()
+    return prefix.lower() == stem.lower()
+
+
 @dataclass
 class SubtaskPrefixGraphRule(GraphRule):
     """Require a ``|`` prefix pattern in task names for non-main role includes.
@@ -33,7 +52,9 @@ class SubtaskPrefixGraphRule(GraphRule):
     """
 
     rule_id: str = "L084"
-    description: str = "Task names in included sub-task files should use a prefix (e.g. 'sub | Description')"
+    description: str = (
+        "Task names in included sub-task files should use a filename prefix (e.g. '<filename> | Description')"
+    )
     enabled: bool = True
     name: str = "SubtaskPrefix"
     version: str = "v0.0.1"
@@ -63,7 +84,7 @@ class SubtaskPrefixGraphRule(GraphRule):
         return basename not in ("main.yml", "main.yaml")
 
     def process(self, graph: ContentGraph, node_id: str) -> GraphRuleResult | None:
-        """Flag task names that omit the ``sub |``-style prefix separator.
+        """Flag task names that omit the ``<filename> |``-style prefix separator.
 
         Args:
             graph: The full ContentGraph.
@@ -76,12 +97,13 @@ class SubtaskPrefixGraphRule(GraphRule):
         if node is None or not node.name:
             return None
         basename = os.path.basename(node.file_path or "")
-        verdict = "|" not in node.name
+        stem = basename.rsplit(".", 1)[0]
+        verdict = not _has_filename_prefix(node.name, stem)
         detail: YAMLDict = {}
         if verdict:
             detail["task_name"] = node.name
             detail["file"] = basename
-            detail["message"] = "task names in included files should use prefix (e.g. 'sub | Description')"
+            detail["message"] = f"task names in included files should use prefix (e.g. '{stem} | Description')"
         return GraphRuleResult(
             verdict=verdict,
             detail=detail if verdict else None,
