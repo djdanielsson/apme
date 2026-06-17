@@ -1,4 +1,10 @@
 {{- if .Values.abbenay.enabled }}
+{{- include "apme.abbenay.validateLegacyKeys" . -}}
+{{- include "apme.abbenay.validateProviderSchema" . -}}
+{{- include "apme.abbenay.validateProviderNames" . -}}
+{{- include "apme.abbenay.validateApiKeySecrets" . -}}
+{{- include "apme.abbenay.validateProviderAuth" . -}}
+{{- include "apme.abbenay.validateVertexADC" . -}}
 {{- $fullname := include "apme.fullname" . -}}
 {{- $hasGcpCreds := or .Values.abbenay.gcp.serviceAccountKey .Values.abbenay.gcp.existingSecret -}}
 {{- $hasVertexADC := false -}}

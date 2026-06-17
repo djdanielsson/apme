@@ -401,7 +401,7 @@ helm install apme ./deploy/helm/apme/ \
   --set image.tag=sha-7cb2464 \
   --set abbenay.enabled=true \
   --set abbenay.token=$APME_ABBENAY_TOKEN \
-  --set abbenay.apiKeys.openrouterApiKey=$OPENROUTER_API_KEY
+  --set-json 'abbenay.providers={"openrouter":{"engine":"openrouter","apiKey":"'$OPENROUTER_API_KEY'","models":{"anthropic/claude-sonnet-4-6":{}}}}'
 ```
 
 ### Key values
@@ -412,7 +412,7 @@ helm install apme ./deploy/helm/apme/ \
 | `engine.replicas` | Engine pod replicas (default: 1) |
 | `abbenay.enabled` | Enable AI provider (default: false) |
 | `abbenay.token` | Abbenay service token (required when `abbenay.enabled=true`) |
-| `abbenay.apiKeys.openrouterApiKey` | OpenRouter LLM provider API key |
+| `abbenay.providers` | LLM provider map (see [ABBENAY_AI.md](ABBENAY_AI.md)) |
 | `ingress.enabled` | Create Ingress resource (default: false) |
 | `route.enabled` | Create OpenShift Route (default: false) |
 

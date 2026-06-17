@@ -151,13 +151,13 @@ ui:
 # Abbenay is a unified AI daemon supporting 19+ LLM engines via the Vercel
 # AI SDK.  Configure one or more providers below — the chart generates
 # Abbenay's config.yaml and wires up secrets/volumes automatically.
-# See docs/guides/vertex-ai-deployment.md for GCP-specific setup.
+# See docs/guides/ABBENAY_AI.md for GCP-specific setup.
 abbenay:
   enabled: false
   image: ghcr.io/redhat-developer/abbenay:2026.4.1-alpha
   # -- Token APME uses to authenticate with Abbenay (required when enabled)
   token: ""
-  # -- Override the default model APME selects (e.g. "vertex-claude/claude-sonnet-4@20250514")
+  # -- Override the default model APME selects (e.g. "vertex-claude/claude-sonnet-4-6")
   aiModel: ""
   # -- LLM providers.  Keys become provider names in Abbenay's config.yaml.
   # Each entry needs at minimum `engine` and `models`.
@@ -170,50 +170,55 @@ abbenay:
   #   baseUrl:   custom endpoint URL (proxies, self-hosted, Ollama, LM Studio)
   #   extraEnv:  list of additional env vars to inject [{name, value}]
   #
-  # Examples (uncomment to use):
+  # Examples — copy into providers: block below and adjust:
+  #
+  #   # OpenRouter (API-key engine)
+  #   openrouter:
+  #     engine: openrouter
+  #     apiKey: "sk-or-..."            # OR use apiKeySecret below
+  #     # apiKeySecret:
+  #     #   name: my-openrouter-secret
+  #     #   key: api-key
+  #     models:
+  #       anthropic/claude-sonnet-4-6: {}
+  #       anthropic/claude-opus-4-6: {}
+  #
+  #   # Vertex AI Anthropic (GCP ADC — no API key needed)
+  #   vertex-claude:
+  #     engine: vertex-anthropic
+  #     models:
+  #       claude-sonnet-4-6: {}
+  #       claude-sonnet-4-5: {}
+  #       claude-haiku-4-5@20251001: {}
+  #       claude-opus-4-6: {}
+  #
+  #   # Direct Anthropic API
+  #   anthropic:
+  #     engine: anthropic
+  #     apiKeySecret:
+  #       name: anthropic-credentials
+  #       key: api-key
+  #     models:
+  #       claude-sonnet-4-6: {}
+  #
+  #   # Ollama (local, no auth)
+  #   local-ollama:
+  #     engine: ollama
+  #     baseUrl: "http://ollama.default.svc:11434/v1"
+  #     models:
+  #       llama3.2: {}
+  #
+  #   # Corporate Vertex proxy (Bearer token auth)
+  #   corp-vertex:
+  #     engine: vertex-anthropic
+  #     baseUrl: "https://your-proxy.example.com/models"
+  #     apiKeySecret:
+  #       name: vertex-proxy-token
+  #       key: bearer-token
+  #     models:
+  #       claude-sonnet-4-6: {}
+  #
   providers: {}
-    # -- OpenRouter (API-key engine)
-    # openrouter:
-    #   engine: openrouter
-    #   apiKey: "sk-or-..."            # OR use apiKeySecret below
-    #   # apiKeySecret:
-    #   #   name: my-openrouter-secret
-    #   #   key: api-key
-    #   models:
-    #     anthropic/claude-sonnet-4: {}
-    #     anthropic/claude-opus-4.6: {}
-
-    # -- Vertex AI Anthropic (GCP ADC — no API key needed)
-    # vertex-claude:
-    #   engine: vertex-anthropic
-    #   models:
-    #     claude-sonnet-4@20250514: {}
-
-    # -- Direct Anthropic API
-    # anthropic:
-    #   engine: anthropic
-    #   apiKeySecret:
-    #     name: anthropic-credentials
-    #     key: api-key
-    #   models:
-    #     claude-sonnet-4-20250514: {}
-
-    # -- Ollama (local, no auth)
-    # local-ollama:
-    #   engine: ollama
-    #   baseUrl: "http://ollama.default.svc:11434/v1"
-    #   models:
-    #     llama3.2: {}
-
-    # -- Corporate Vertex proxy (Bearer token auth)
-    # corp-vertex:
-    #   engine: vertex-anthropic
-    #   baseUrl: "https://your-proxy.example.com/models"
-    #   apiKeySecret:
-    #     name: vertex-proxy-token
-    #     key: bearer-token
-    #   models:
-    #     claude-sonnet-4@20250514: {}
 
   # -- GCP credentials for vertex-anthropic engine (ADC authentication).
   # Only needed when a provider uses engine: vertex-anthropic without a

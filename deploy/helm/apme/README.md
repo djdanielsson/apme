@@ -19,12 +19,12 @@ localhost networking per ADR-005 and pod-level scaling per ADR-012).
 helm install apme ./deploy/helm/apme/ \
   --set image.tag=sha-7cb2464
 
-# With AI enabled
+# With AI enabled (OpenRouter provider)
 helm install apme ./deploy/helm/apme/ \
   --set image.tag=sha-7cb2464 \
   --set abbenay.enabled=true \
   --set abbenay.token=$APME_ABBENAY_TOKEN \
-  --set abbenay.apiKeys.openrouterApiKey=$OPENROUTER_API_KEY
+  --set-json 'abbenay.providers={"openrouter":{"engine":"openrouter","apiKey":"'$OPENROUTER_API_KEY'","models":{"anthropic/claude-sonnet-4-6":{}}}}'
 ```
 
 ## Architecture
@@ -62,7 +62,7 @@ helm install apme ./deploy/helm/apme/ \
 | `abbenay.enabled` | `false` | Enable AI provider |
 | `abbenay.token` | `""` | Abbenay service token (required when `abbenay.enabled=true`) |
 | `abbenay.image` | `ghcr.io/redhat-developer/abbenay:2026.4.1-alpha` | Abbenay image |
-| `abbenay.apiKeys.openrouterApiKey` | `""` | OpenRouter API key |
+| `abbenay.providers` | `{}` | LLM provider map (see [ABBENAY_AI.md](../../../docs/guides/ABBENAY_AI.md)) |
 | `abbenay.aiModel` | `""` | Default AI model ID |
 | `ingress.enabled` | `false` | Create Kubernetes Ingress |
 | `route.enabled` | `false` | Create OpenShift Route |
