@@ -23,7 +23,7 @@ dependencies = [
     "httpx",
     "packaging>=23",
     "fastapi>=0.100",
-    "starlette>=1.0.1",
+    "starlette>=1.3.1",
     "uvicorn[standard]>=0.20",
     "pip-audit>=2.7",
     "ansible-core>=2.17.14",
@@ -37,7 +37,7 @@ proxy = []  # Deprecated: fastapi/uvicorn are now core deps. Kept for backwards 
 gateway = [
     "sqlalchemy>=2.0",
     "aiosqlite>=0.20",
-    "python-multipart>=0.0.6",
+    "python-multipart>=0.0.31",
 ]
 dev = [
     "pytest",
@@ -203,6 +203,12 @@ where = ["src"]
 "apme_engine.validators.opa" = ["bundle/*.rego", "bundle/*.json", "bundle/*.md"]
 "apme_engine.data" = ["*.yml", "*.yaml"]
 "galaxy_proxy" = ["py.typed"]
+
+[tool.uv]
+constraint-dependencies = [
+    "cryptography>=48.0.1",
+    "msgpack>=1.2.1",
+]
 
 [tool.uv.workspace]
 members = []

@@ -457,8 +457,8 @@ def _validate_tarball_dir(tarball_dir: str) -> Path:
     """Validate and resolve a tarball directory path.
 
     Resolves the path first (eliminating symlinks and ``..`` components),
-    then reconstructs the result relative to the matched allowlist root
-    so that the returned ``Path`` is provably rooted under a safe prefix.
+    then validates each component of the relative suffix to ensure no
+    traversal, and reconstructs the result purely from trusted roots.
 
     Args:
         tarball_dir: Untrusted path string from the request.
@@ -484,7 +484,15 @@ def _validate_tarball_dir(tarball_dir: str) -> Path:
             detail="Path must be under a session or temp directory",
         )
 
-    safe_path = matched_root / resolved.relative_to(matched_root)
+    relative_parts = resolved.relative_to(matched_root).parts
+    for part in relative_parts:
+        if part in (".", "..") or os.sep in part or (os.altsep and os.altsep in part):
+            raise HTTPException(
+                status_code=400,
+                detail="Path contains invalid components",
+            )
+
+    safe_path = matched_root.joinpath(*relative_parts) if relative_parts else matched_root
     if not safe_path.is_dir():
         raise HTTPException(status_code=400, detail="Not a directory")
 
