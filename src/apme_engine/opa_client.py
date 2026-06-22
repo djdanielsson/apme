@@ -19,7 +19,7 @@ from pathlib import Path
 
 from apme_engine.engine.models import ViolationDict, YAMLDict
 
-OPA_IMAGE = "docker.io/openpolicyagent/opa:latest"
+OPA_IMAGE = "docker.io/openpolicyagent/opa:1.17.1"
 
 _consecutive_timeouts = 0
 _opa_disabled = False
