@@ -11,10 +11,9 @@ Detects when a play references a role from Galaxy or an external source (identif
 
 Requires role metadata; cannot be tested in the playbook-only harness.
 
-### Violation (requires role metadata context)
+### Example: violation
 
 ```yaml
-# meta/main.yml of an external Galaxy role:
 galaxy_info:
   role_name: nginx
   author: geerlingguy

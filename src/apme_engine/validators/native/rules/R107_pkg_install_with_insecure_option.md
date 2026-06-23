@@ -7,13 +7,24 @@ scope: task
 
 ## Pkg install insecure (R107)
 
-Package install with insecure option (e.g. validate_certs: false). Depends on PACKAGE_INSTALL annotation.
+Flags package-install tasks that disable security checks — `validate_certs:
+false`, `disable_gpg_check: true`, or `allow_downgrade: true`.
+
+### Example: violation
+
+```yaml
+- name: Install package without GPG check
+  ansible.builtin.dnf:
+    name: custom-package
+    state: present
+    disable_gpg_check: true
+```
 
 ### Example: pass
 
 ```yaml
 - name: Install package
-  ansible.builtin.apt:
+  ansible.builtin.dnf:
     name: nginx
     state: present
 ```

@@ -11,17 +11,17 @@ A variable redefined at a lower-precedence scope will be shadowed by the higher-
 
 This rule requires the engine to resolve multi-scope variable precedence, which cannot be fully tested in the single-playbook harness.
 
-### Violation (requires multi-scope precedence context)
+### Example: violation
 
 ```yaml
-# group_vars/all.yml defines: app_port: 8080
-# The role vars/main.yml (higher precedence) already defines: app_port: 9090
-# This play-level var at lower precedence is effectively dead:
 - name: Deploy application
   hosts: appservers
   vars:
     app_port: 3000
   tasks:
+    - name: Override port
+      ansible.builtin.set_fact:
+        app_port: 8080
     - name: Show port
       ansible.builtin.debug:
         msg: "Port is {{ app_port }}"

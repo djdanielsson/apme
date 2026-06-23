@@ -12,21 +12,23 @@ from apme_engine.engine.graph_scanner import (
     load_graph_rules,
 )
 from apme_engine.engine.graph_scanner import scan as graph_scan
-from apme_engine.opa_client import run_opa_test
-from apme_engine.runner import run_scan_playbook_yaml
+from apme_engine.opa_client import opa_eval_unavailable_reason, run_opa_test
 from apme_engine.validators.opa import OpaValidator
+from tests.rule_doc_harness import run_scan_playbook_yaml
 from tests.rule_doc_parser import discover_rule_docs
 
 _GRAPH_RULE_KNOWN_FAILURES: dict[str, str] = {
+    "L034": "requires multi-scope variable precedence context; single-file harness lacks inventory/role scopes",
     "L037": "requires module resolution from Ansible validator convergence loop",
+    "L053": "role metadata rule; requires ROLE graph node from directory structure",
+    "L054": "role metadata rule; requires ROLE graph node from directory structure",
+    "L055": "role metadata rule; requires ROLE graph node from directory structure",
+    "L056": "path-based rule; single-file harness uses a temp path that won't match ignore patterns",
     "L061": "ARI engine normalizes quoted truthy strings to native booleans",
     "L062": "ARI engine expands free-form key=value into separate module options",
-    "L063": "OPA serializer maps BLOCK nodes as taskcall, so blockcall never appears in the payload",
-    "L064": "free-form meta args are stored under module_options._raw, but L064.rego checks _raw_params",
-    "L066": "play-level roles/tasks not in OPA serializer options whitelist",
-    "M018": "play-level connection and task-level vars not in OPA serializer",
-    "M025": "play-level strategy not in OPA serializer options whitelist",
+    "L093": "requires role ancestry with default_variables/role_variables populated",
     "M028": "first_found is a lookup plugin; terms live inside Jinja2 expressions",
+    "R117": "role metadata rule; requires ROLE graph node with play DEPENDENCY edge",
     "R402": "informational listing rule (no GraphRule equivalent yet)",
     "L074": "role name check requires ROLE graph node; single-file harness has no role directory",
     "L080": "requires file_path under roles/; single-file harness uses a temp path",
@@ -77,12 +79,9 @@ def _opa_unavailable_reason() -> str | None:
         Reason string when OPA cannot run in this environment, otherwise None.
     """
     success, _stdout, stderr = run_opa_test(_opa_bundle_dir())
-    if success:
-        return None
-    lowered = stderr.lower()
-    if any(token in lowered for token in ("not found", "operation not permitted", "permission denied")):
-        return stderr or "OPA runtime unavailable"
-    return None
+    if not success:
+        return stderr or "OPA bundle tests failed"
+    return opa_eval_unavailable_reason(_opa_bundle_dir())
 
 
 def _violation_ids_for_rule(violations: list[dict[str, object]], rule_id: str, validator: str) -> list[str]:

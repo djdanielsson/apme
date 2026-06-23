@@ -1272,6 +1272,25 @@ class ContentGraph:
             result.append((target, dict(data)))
         return result
 
+    def has_edge_from(self, node_id: str, edge_type: EdgeType) -> bool:
+        """Check if a node has any outgoing edge of the given type.
+
+        More efficient than ``edges_from`` when only existence is needed,
+        as it short-circuits on the first match without building a list
+        or copying edge attribute dicts.
+
+        Args:
+            node_id: Source vertex id.
+            edge_type: Edge type to check for.
+
+        Returns:
+            True if at least one matching outgoing edge exists.
+        """
+        if node_id not in self.g:
+            return False
+        ev = edge_type.value
+        return any(data.get("edge_type") == ev for _, _, data in self.g.out_edges(node_id, data=True))
+
     def edges_to(self, node_id: str, edge_type: EdgeType | None = None) -> list[tuple[str, dict[str, object]]]:
         """Return incoming edges to a node as (source_id, attrs) pairs.
 
@@ -1864,17 +1883,17 @@ class GraphBuilder:
                 if isinstance(item, Collection):
                     self._build_collection(item, scope)
 
-        playbooks = loaded.get("playbooks", ObjectList())
-        if isinstance(playbooks, ObjectList):
-            for item in playbooks.items:
-                if isinstance(item, Playbook):
-                    self._build_playbook(item, scope)
-
         roles = loaded.get("roles", ObjectList())
         if isinstance(roles, ObjectList):
             for item in roles.items:
                 if isinstance(item, Role):
                     self._build_role(item, scope)
+
+        playbooks = loaded.get("playbooks", ObjectList())
+        if isinstance(playbooks, ObjectList):
+            for item in playbooks.items:
+                if isinstance(item, Playbook):
+                    self._build_playbook(item, scope)
 
         taskfiles = loaded.get("taskfiles", ObjectList())
         if isinstance(taskfiles, ObjectList):

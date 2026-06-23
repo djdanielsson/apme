@@ -7,7 +7,18 @@ scope: task
 
 ## Inbound transfer (R106)
 
-Inbound transfer from parameterized source (annotation-based). Depends on INBOUND + is_mutable_src annotation.
+Flags inbound transfers where the source URL contains Jinja2 template
+syntax. A parameterized source is a supply-chain risk when variables are
+externally controlled.
+
+### Example: violation
+
+```yaml
+- name: Download from parameterized source
+  ansible.builtin.get_url:
+    url: "{{ download_base_url }}/package.tar.gz"
+    dest: /tmp/package.tar.gz
+```
 
 ### Example: pass
 

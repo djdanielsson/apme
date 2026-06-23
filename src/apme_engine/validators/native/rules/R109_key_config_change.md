@@ -7,14 +7,24 @@ scope: task
 
 ## Key config change (R109)
 
-Key/config change with mutable key (annotation-based). Depends on CONFIG_CHANGE + is_mutable_key annotation.
+Flags config-change tasks (`rpm_key`, `apt_key`) where the key field
+contains Jinja2 template syntax. A parameterized key is a trust-anchor
+risk when variables are externally controlled.
+
+### Example: violation
+
+```yaml
+- name: Add GPG key from parameterized URL
+  ansible.builtin.rpm_key:
+    key: "{{ gpg_key_url }}"
+    state: present
+```
 
 ### Example: pass
 
 ```yaml
-- name: Set config line
-  ansible.builtin.lineinfile:
-    path: /etc/ssh/sshd_config
-    regexp: '^#?PermitRootLogin'
-    line: 'PermitRootLogin no'
+- name: Add GPG key from fixed URL
+  ansible.builtin.rpm_key:
+    key: https://packages.example.com/gpg.key
+    state: present
 ```
