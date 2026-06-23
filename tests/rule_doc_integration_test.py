@@ -18,15 +18,20 @@ from apme_engine.validators.opa import OpaValidator
 from tests.rule_doc_parser import discover_rule_docs
 
 _GRAPH_RULE_KNOWN_FAILURES: dict[str, str] = {
+    "L034": "requires multi-scope variable precedence context; single-file harness lacks inventory/role scopes",
     "L037": "requires module resolution from Ansible validator convergence loop",
+    "L053": "role metadata rule; requires ROLE graph node from directory structure",
+    "L054": "role metadata rule; requires ROLE graph node from directory structure",
+    "L055": "role metadata rule; requires ROLE graph node from directory structure",
+    "L056": "path-based rule; single-file harness uses a temp path that won't match ignore patterns",
     "L061": "ARI engine normalizes quoted truthy strings to native booleans",
     "L062": "ARI engine expands free-form key=value into separate module options",
-    "L063": "OPA serializer maps BLOCK nodes as taskcall, so blockcall never appears in the payload",
-    "L064": "free-form meta args are stored under module_options._raw, but L064.rego checks _raw_params",
-    "L066": "play-level roles/tasks not in OPA serializer options whitelist",
-    "M018": "play-level connection and task-level vars not in OPA serializer",
-    "M025": "play-level strategy not in OPA serializer options whitelist",
+    "L063": "block example does not produce a BLOCK graph node with line info in the single-file harness",
+    "L066": "violation example uses inline roles: - common without a resolvable role directory; "
+    "single-file harness cannot create the DEPENDENCY edge needed for options.roles",
+    "L093": "requires role ancestry with default_variables/role_variables populated",
     "M028": "first_found is a lookup plugin; terms live inside Jinja2 expressions",
+    "R117": "role metadata rule; requires ROLE graph node with play DEPENDENCY edge",
     "R402": "informational listing rule (no GraphRule equivalent yet)",
     "L074": "role name check requires ROLE graph node; single-file harness has no role directory",
     "L080": "requires file_path under roles/; single-file harness uses a temp path",

@@ -13,12 +13,55 @@ Public API
 
 from __future__ import annotations
 
-import contextlib
 import datetime
+import logging
 from typing import cast
 
 from .content_graph import ContentGraph, ContentNode, EdgeType, NodeType
 from .models import Annotation, Location, RiskAnnotation, YAMLDict, YAMLValue
+
+logger = logging.getLogger(__name__)
+
+_PLAY_OPTION_KEYS: frozenset[str] = frozenset(
+    {
+        "connection",
+        "strategy",
+        "gather_facts",
+        "any_errors_fatal",
+        "max_fail_percentage",
+        "serial",
+        "order",
+        "throttle",
+        "timeout",
+        "ignore_errors",
+        "ignore_unreachable",
+        "no_log",
+        "run_once",
+        "environment",
+    }
+)
+
+_TASK_OPTION_KEYS: frozenset[str] = frozenset(
+    {
+        "when",
+        "tags",
+        "ignore_errors",
+        "ignore_unreachable",
+        "register",
+        "changed_when",
+        "become",
+        "become_user",
+        "run_once",
+        "local_action",
+        "loop",
+        "vars",
+        "connection",
+        "environment",
+        "no_log",
+    }
+)
+
+_L066_TASK_TYPES: frozenset[NodeType] = frozenset({NodeType.TASK, NodeType.BLOCK})
 
 
 def json_safe(v: YAMLValue) -> YAMLValue:
@@ -129,7 +172,10 @@ def annotation_to_dict(an: Annotation) -> YAMLDict:
 # ---------------------------------------------------------------------------
 
 
-def content_node_to_opa_dict(node: ContentNode) -> YAMLDict:
+def content_node_to_opa_dict(
+    node: ContentNode,
+    graph: ContentGraph | None = None,
+) -> YAMLDict:
     """Serialize a ``ContentNode`` to the OPA node dict format.
 
     The output shape matches ``opa_payload.node_to_dict(RunTarget)`` so
@@ -138,6 +184,7 @@ def content_node_to_opa_dict(node: ContentNode) -> YAMLDict:
 
     Args:
         node: ContentNode to serialize.
+        graph: Optional graph for structural queries (e.g. edge inspection).
 
     Returns:
         Dict with type, key, file, line, defined_in, and type-specific fields.
@@ -157,13 +204,35 @@ def content_node_to_opa_dict(node: ContentNode) -> YAMLDict:
 
     if opa_type == "playcall":
         d["name"] = node.name if node.name else None
-        become_opts: YAMLDict = {}
+        opts: YAMLDict = {}
         if node.become:
-            if node.become.get("become"):
-                become_opts["become"] = node.become["become"]
-            if node.become.get("become_user"):
-                become_opts["become_user"] = node.become["become_user"]
-        d["options"] = become_opts
+            for bkey in ("become", "become_user", "become_method", "become_flags"):
+                bval = node.become.get(bkey)
+                if bval is not None:
+                    opts[bkey] = json_safe(bval)
+        for pkey in _PLAY_OPTION_KEYS:
+            pval = node.options.get(pkey)
+            if pval is not None:
+                try:
+                    opts[pkey] = json_safe(pval)
+                except Exception:
+                    logger.debug("json_safe failed for play option %s on %s", pkey, node.node_id)
+        if node.variables:
+            try:
+                opts["vars"] = json_safe(node.variables)
+            except Exception:
+                logger.debug("json_safe failed for vars on %s", node.node_id)
+        d["options"] = opts
+
+        if graph is not None:
+            if graph.has_edge_from(node.node_id, EdgeType.DEPENDENCY):
+                opts["roles"] = True
+            for target_id, _attrs in graph.edges_from(node.node_id, EdgeType.CONTAINS):
+                target = graph.get_node(target_id)
+                if target is not None and target.node_type in _L066_TASK_TYPES:
+                    opts["tasks"] = True
+                    break
+
         if d["line"] is None and node.options:
             play_index = node.options.get("index", 0)
             if isinstance(play_index, int):
@@ -176,39 +245,37 @@ def content_node_to_opa_dict(node: ContentNode) -> YAMLDict:
 
         anns: list[YAMLValue] = []
         for an in node.annotations:
-            with contextlib.suppress(Exception):
+            try:
                 anns.append(annotation_to_dict(cast(Annotation, an)))
+            except Exception:
+                logger.debug("annotation_to_dict failed on %s", node.node_id)
         d["annotations"] = anns
 
-        _OPTION_KEYS = (
-            "when",
-            "tags",
-            "ignore_errors",
-            "ignore_unreachable",
-            "register",
-            "changed_when",
-            "become",
-            "become_user",
-            "run_once",
-            "local_action",
-            "loop",
-        )
-        opts: YAMLDict = {}
+        task_opts: YAMLDict = {}
         for key, val in node.options.items():
-            if key in _OPTION_KEYS or key.startswith("with_"):
-                with contextlib.suppress(Exception):
-                    opts[key] = json_safe(val)
-        d["options"] = opts
+            if key in _TASK_OPTION_KEYS or key.startswith("with_"):
+                try:
+                    task_opts[key] = json_safe(val)
+                except Exception:
+                    logger.debug("json_safe failed for task option %s on %s", key, node.node_id)
+        d["options"] = task_opts
 
         mo: YAMLDict = {}
         for k, v in node.module_options.items():
-            with contextlib.suppress(Exception):
+            try:
                 mo[str(k)] = json_safe(v)
+            except Exception:
+                logger.debug("json_safe failed for module_option %s on %s", k, node.node_id)
         if "_raw" in mo and "cmd" not in mo:
             raw_val = mo.get("_raw")
             if isinstance(raw_val, str):
                 mo["cmd"] = raw_val
+        if "_raw" in mo and "_raw_params" not in mo:
+            mo["_raw_params"] = mo["_raw"]
         d["module_options"] = mo
+
+    elif opa_type == "blockcall":
+        d["name"] = node.name if node.name else None
 
     return d
 
@@ -292,7 +359,7 @@ def _build_trees(graph: ContentGraph) -> list[YAMLDict]:
             content_node = sub.get_node(nid)
             if content_node is None:
                 continue
-            d = content_node_to_opa_dict(content_node)
+            d = content_node_to_opa_dict(content_node, graph=graph)
             if d:
                 nodes_list.append(d)
 
@@ -357,5 +424,5 @@ _OPA_TYPE_MAP: dict[NodeType, str] = {
     NodeType.TASKFILE: "taskfilecall",
     NodeType.TASK: "taskcall",
     NodeType.HANDLER: "taskcall",
-    NodeType.BLOCK: "taskcall",
+    NodeType.BLOCK: "blockcall",
 }

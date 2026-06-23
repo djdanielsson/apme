@@ -30,6 +30,7 @@ OPA_DIR = REPO_ROOT / "src" / "apme_engine" / "validators" / "opa" / "bundle"
 ANSIBLE_DIR = REPO_ROOT / "src" / "apme_engine" / "validators" / "ansible" / "rules"
 GITLEAKS_DIR = REPO_ROOT / "src" / "apme_engine" / "validators" / "gitleaks"
 TESTS_DIR = REPO_ROOT / "tests"
+INTEGRATION_TEST = TESTS_DIR / "rule_doc_integration_test.py"
 TRANSFORMS_INIT = REPO_ROOT / "src" / "apme_engine" / "remediation" / "transforms" / "__init__.py"
 OUTPUT = REPO_ROOT / "docs" / "rules" / "RULE_CATALOG.md"
 
@@ -153,6 +154,9 @@ _TEST_CACHE: dict[str, list[str]] | None = None
 def _get_test_cache() -> dict[str, list[str]]:
     """Build a cache of rule_id -> list of test files.
 
+    Rules in _GRAPH_RULE_KNOWN_FAILURES whose only test reference is
+    rule_doc_integration_test.py are excluded — a skip is not a test.
+
     Returns:
         Dict mapping rule_id strings to lists of test filenames.
     """
@@ -180,8 +184,29 @@ def _get_test_cache() -> dict[str, list[str]]:
             if rel not in cache[rid]:
                 cache[rid].append(rel)
 
+    known_failures = _get_known_failure_ids()
+    for rid in known_failures:
+        files = cache.get(rid, [])
+        real = [f for f in files if f != "rule_doc_integration_test.py"]
+        if real:
+            cache[rid] = real
+        else:
+            cache.pop(rid, None)
+
     _TEST_CACHE = cache
     return cache
+
+
+def _get_known_failure_ids() -> set[str]:
+    """Parse rule IDs from _GRAPH_RULE_KNOWN_FAILURES in the integration test.
+
+    Returns:
+        Set of rule_id strings that are known integration-test skips.
+    """
+    if not INTEGRATION_TEST.exists():
+        return set()
+    text = INTEGRATION_TEST.read_text(encoding="utf-8", errors="replace")
+    return set(re.findall(r'^\s*"([A-Z]\d+)":', text, re.MULTILINE))
 
 
 def _find_doc(rule_id: str, doc_dir: Path) -> Path | None:

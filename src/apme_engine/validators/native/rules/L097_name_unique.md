@@ -11,7 +11,7 @@ Each task name should be unique within the same play to make log output and debu
 
 Maps to ansible-lint `name[unique]`.
 
-### Violation (requires play-scoped sibling context)
+### Example: violation
 
 ```yaml
 - name: Deploy web application

@@ -16,7 +16,20 @@ ai_prompt: |
 
 ## Outbound transfer (R105)
 
-Outbound transfer to parameterized URL (annotation-based). Depends on OUTBOUND + is_mutable_dest annotation.
+Flags outbound data transfers (uri PUT/POST/PATCH) where the destination
+URL contains Jinja2 template syntax. A parameterized destination is a
+data-exfiltration risk when variables are externally controlled.
+
+### Example: violation
+
+```yaml
+- name: Send data to parameterized endpoint
+  ansible.builtin.uri:
+    url: "{{ webhook_url }}/api/data"
+    method: POST
+    body: "{{ payload }}"
+    body_format: json
+```
 
 ### Example: pass
 
