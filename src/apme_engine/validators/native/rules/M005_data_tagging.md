@@ -9,7 +9,7 @@ scope: task
 
 In ansible-core 2.19+, the trust model is inverted. Strings from module results (registered variables) are untrusted and will not be re-templated. Playbooks that register a variable and then use it inside `{{ }}` expressions may fail with "Conditional is marked as unsafe."
 
-### Violation (requires previous-task register context)
+### Example: violation
 
 ```yaml
 - name: Check disk space

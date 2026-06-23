@@ -11,11 +11,9 @@ Do not override role defaults/vars with `set_fact`. Using the same variable name
 
 Requires role context with `role_defaults`/`role_vars` populated by the engine.
 
-### Violation (requires role ancestry context)
+### Example: violation
 
 ```yaml
-# roles/webserver/defaults/main.yml defines: http_port: 80
-# Inside roles/webserver/tasks/main.yml:
 - name: Override port dynamically
   ansible.builtin.set_fact:
     http_port: 8080

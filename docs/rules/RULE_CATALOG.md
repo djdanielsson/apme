@@ -7,7 +7,7 @@
 | Metric | Count |
 |--------|-------|
 | Implemented | 147/156 |
-| Tested | 117/156 |
+| Tested | 113/156 |
 | Documented | 155/156 |
 | Deterministic fixer | 25/156 |
 
@@ -135,7 +135,7 @@
 | M016 | OPA | high | Empty when: conditional is deprecated; remove it or add an explicit condition (2.23) | Yes | Yes | Yes | — |
 | M017 | OPA | high | action: with a mapping value is deprecated; use string form or module key directly (2.23) | Yes | Yes | Yes | — |
 | M018 | OPA | high | paramiko_ssh connection plugin is deprecated; use ssh connection instead (removed in 2.21) | Yes | Yes | Yes | — |
-| M019 | Native | low | !!omap and !!pairs YAML tags are deprecated; standard YAML mappings preserve order in Python 3.7+ (2.23) | Yes | Yes | Yes | — |
+| M019 | Native | low | !!omap and !!pairs YAML tags are deprecated; standard YAML mappings preserve order in Python 3.7+ (2.23) | Yes | — | Yes | — |
 | M020 | Native | low | Use !vault instead of deprecated !vault-encrypted tag (2.23) | Yes | — | Yes | — |
 | M021 | OPA | high | Empty args: keyword on a task is deprecated; remove it (2.23) | Yes | Yes | Yes | — |
 | M022 | Native | medium | tree and oneline callback plugins are removed in 2.23; choose an alternative | Yes | — | Yes | — |
@@ -143,10 +143,10 @@
 | M024 | OPA | high | include_vars ignore_files must be a list, not a string (2.24) | Yes | Yes | Yes | — |
 | M025 | OPA | high | Third-party strategy plugins are deprecated; only ansible.builtin strategies are supported (2.23) | Yes | Yes | Yes | — |
 | M026 | Native | medium | Inventory variable names must be valid Python identifiers (enforced in 2.23) | Yes | — | Yes | — |
-| M027 | Native | low | Mixing inline k=v arguments with args: mapping is deprecated (2.23) | Yes | Yes | Yes | — |
+| M027 | Native | low | Mixing inline k=v arguments with args: mapping is deprecated (2.23) | Yes | — | Yes | — |
 | M028 | OPA | high | first_found lookup auto-splitting paths on delimiters is deprecated (2.23) | Yes | Yes | Yes | — |
 | M029 | Native | medium | Inventory scripts must include _meta.hostvars in JSON output (enforced in 2.23) | — | — | Yes | — |
-| M030 | Native | medium | Conditional expressions that fail Jinja2 parsing will error in 2.23 instead of being silently ignored | Yes | Yes | Yes | — |
+| M030 | Native | medium | Conditional expressions that fail Jinja2 parsing will error in 2.23 instead of being silently ignored | Yes | — | Yes | — |
 | P001 | Native | error | Validate module name (Ansible required). | — | Yes | Yes | — |
 | P002 | Native | error | Validate module argument keys (Ansible required). | — | Yes | Yes | — |
 | P003 | Native | error | Validate module argument values (Ansible required). | — | — | Yes | — |
@@ -167,7 +167,7 @@
 | R117 | Native | info | Role is from Galaxy/external source. | Yes | — | Yes | — |
 | R118 | OPA | info | Task downloads from an external source (inbound transfer). | Yes | Yes | Yes | — |
 | R401 | Native | info | Report inbound transfer sources. | Yes | — | Yes | — |
-| R402 | Native | medium | Report variables used at end of sequence. | — | Yes | Yes | — |
+| R402 | Native | medium | Report variables used at end of sequence. | — | — | Yes | — |
 | R404 | Native | medium | Expose variable_set for the task. | — | — | Yes | — |
 | R501 | Native | medium | Suggest collection/role dependency. | — | — | Yes | — |
 | SEC:* | Gitleaks | critical | Secret/credential detection (delegated to Gitleaks binary). | Yes | Yes | — | — |
@@ -228,7 +228,7 @@
 | M028 | high | first_found lookup auto-splitting paths on delimiters is deprecated (2.23) | Yes | Yes | Yes | — |
 | R118 | info | Task downloads from an external source (inbound transfer). | Yes | Yes | Yes | — |
 
-### Native (99 rules, 90 impl, 61 tested, 4 fixers)
+### Native (99 rules, 90 impl, 57 tested, 4 fixers)
 
 | Rule ID | Severity | Description | Impl | Tested | Doc | Fixer |
 |---------|----------|-------------|------|--------|-----|-------|
@@ -302,13 +302,13 @@
 | M010 | high | ansible_python_interpreter set to Python 2; dropped in 2.18+. | Yes | Yes | Yes | — |
 | M014 | medium | Use ansible_facts["name"] instead of injected ansible_* fact variables (removed in 2.24) | Yes | — | Yes | — |
 | M015 | medium | Use ansible_play_batch instead of deprecated play_hosts variable (removed in 2.23) | Yes | — | Yes | — |
-| M019 | low | !!omap and !!pairs YAML tags are deprecated; standard YAML mappings preserve order in Python 3.7+ (2.23) | Yes | Yes | Yes | — |
+| M019 | low | !!omap and !!pairs YAML tags are deprecated; standard YAML mappings preserve order in Python 3.7+ (2.23) | Yes | — | Yes | — |
 | M020 | low | Use !vault instead of deprecated !vault-encrypted tag (2.23) | Yes | — | Yes | — |
 | M022 | medium | tree and oneline callback plugins are removed in 2.23; choose an alternative | Yes | — | Yes | — |
 | M026 | medium | Inventory variable names must be valid Python identifiers (enforced in 2.23) | Yes | — | Yes | — |
-| M027 | low | Mixing inline k=v arguments with args: mapping is deprecated (2.23) | Yes | Yes | Yes | — |
+| M027 | low | Mixing inline k=v arguments with args: mapping is deprecated (2.23) | Yes | — | Yes | — |
 | M029 | medium | Inventory scripts must include _meta.hostvars in JSON output (enforced in 2.23) | — | — | Yes | — |
-| M030 | medium | Conditional expressions that fail Jinja2 parsing will error in 2.23 instead of being silently ignored | Yes | Yes | Yes | — |
+| M030 | medium | Conditional expressions that fail Jinja2 parsing will error in 2.23 instead of being silently ignored | Yes | — | Yes | — |
 | P001 | error | Validate module name (Ansible required). | — | Yes | Yes | — |
 | P002 | error | Validate module argument keys (Ansible required). | — | Yes | Yes | — |
 | P003 | error | Validate module argument values (Ansible required). | — | — | Yes | — |
@@ -328,7 +328,7 @@
 | R115 | medium | File deletion (annotation-based). | Yes | — | Yes | — |
 | R117 | info | Role is from Galaxy/external source. | Yes | — | Yes | — |
 | R401 | info | Report inbound transfer sources. | Yes | — | Yes | — |
-| R402 | medium | Report variables used at end of sequence. | — | Yes | Yes | — |
+| R402 | medium | Report variables used at end of sequence. | — | — | Yes | — |
 | R404 | medium | Expose variable_set for the task. | — | — | Yes | — |
 | R501 | medium | Suggest collection/role dependency. | — | — | Yes | — |
 
@@ -364,7 +364,7 @@
 - **R404** (Native): Expose variable_set for the task.
 - **R501** (Native): Suggest collection/role dependency.
 
-### Implemented but untested — 33
+### Implemented but untested — 36
 
 - **L032** (Native): Variable redefinition may cause confusion.
 - **L033** (Native): Overriding vars without conditions.
@@ -389,9 +389,12 @@
 - **M004** (Ansible): Removed module — tombstoned module that raises AnsiblePluginRemovedError.
 - **M014** (Native): Use ansible_facts["name"] instead of injected ansible_* fact variables (removed in 2.24)
 - **M015** (Native): Use ansible_play_batch instead of deprecated play_hosts variable (removed in 2.23)
+- **M019** (Native): !!omap and !!pairs YAML tags are deprecated; standard YAML mappings preserve order in Python 3.7+ (2.23)
 - **M020** (Native): Use !vault instead of deprecated !vault-encrypted tag (2.23)
 - **M022** (Native): tree and oneline callback plugins are removed in 2.23; choose an alternative
 - **M026** (Native): Inventory variable names must be valid Python identifiers (enforced in 2.23)
+- **M027** (Native): Mixing inline k=v arguments with args: mapping is deprecated (2.23)
+- **M030** (Native): Conditional expressions that fail Jinja2 parsing will error in 2.23 instead of being silently ignored
 - **R105** (Native): Outbound transfer (annotation-based).
 - **R106** (Native): Inbound transfer (annotation-based).
 - **R107** (Native): Package install with insecure option (annotation-based).

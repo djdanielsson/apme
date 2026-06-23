@@ -1508,7 +1508,7 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
         Yields:
             SessionEvent: Progress, Tier1Summary, and result events.
         """
-        from apme_engine.engine.content_graph import ContentGraph
+        from apme_engine.engine.content_graph import ContentGraph, EdgeType, NodeType
         from apme_engine.engine.graph_opa_payload import content_node_to_opa_dict
         from apme_engine.engine.graph_scanner import (
             graph_report_to_violations,
@@ -1601,10 +1601,17 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
                     )
                     ext_names.append("gitleaks")
 
-            # OPA: mini hierarchy from dirty nodes (key = node_id)
+            # OPA: mini hierarchy from dirty nodes + their parent plays
             opa_addr = os.environ.get("OPA_GRPC_ADDRESS")
             if opa_addr:
-                opa_dicts = [d for n in dirty_nodes if (d := content_node_to_opa_dict(n))]
+                opa_node_ids: set[str] = {n.node_id for n in dirty_nodes}
+                for n in dirty_nodes:
+                    for src_id, _attrs in g.edges_to(n.node_id, EdgeType.CONTAINS):
+                        parent = g.get_node(src_id)
+                        if parent is not None and parent.node_type == NodeType.PLAY:
+                            opa_node_ids.add(src_id)
+                opa_nodes = [node for nid in sorted(opa_node_ids) if (node := g.get_node(nid)) is not None]
+                opa_dicts = [d for n in opa_nodes if (d := content_node_to_opa_dict(n, graph=g))]
                 if opa_dicts:
                     opa_payload = {
                         "scan_id": f"{scan_id}-rescan",
@@ -1624,7 +1631,7 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
                             opa_addr,
                             ValidateRequest(
                                 request_id=f"{scan_id}-rescan",
-                                hierarchy_payload=json.dumps(opa_payload).encode(),
+                                hierarchy_payload=json.dumps(opa_payload, default=str).encode(),
                             ),
                         )
                     )
@@ -1634,7 +1641,9 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
             ans_addr = os.environ.get("ANSIBLE_GRPC_ADDRESS")
             if ans_addr and session.venv_path:
                 task_dicts = [
-                    d for n in dirty_nodes if (d := content_node_to_opa_dict(n)) and d.get("type") == "taskcall"
+                    d
+                    for n in dirty_nodes
+                    if (d := content_node_to_opa_dict(n, graph=g)) and d.get("type") == "taskcall"
                 ]
                 if task_dicts:
                     ans_payload = {
@@ -1656,7 +1665,7 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
                             ans_addr,
                             ValidateRequest(
                                 request_id=f"{scan_id}-rescan",
-                                hierarchy_payload=json.dumps(ans_payload).encode(),
+                                hierarchy_payload=json.dumps(ans_payload, default=str).encode(),
                                 venv_path=session.venv_path,
                                 session_id=ans_opts.session_id if ans_opts else "",
                                 ansible_core_version=(ans_opts.ansible_core_version if ans_opts else ""),
