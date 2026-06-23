@@ -12,9 +12,9 @@ from apme_engine.engine.graph_scanner import (
     load_graph_rules,
 )
 from apme_engine.engine.graph_scanner import scan as graph_scan
-from apme_engine.opa_client import run_opa_test
-from apme_engine.runner import run_scan_playbook_yaml
+from apme_engine.opa_client import opa_eval_unavailable_reason, run_opa_test
 from apme_engine.validators.opa import OpaValidator
+from tests.rule_doc_harness import run_scan_playbook_yaml
 from tests.rule_doc_parser import discover_rule_docs
 
 _GRAPH_RULE_KNOWN_FAILURES: dict[str, str] = {
@@ -79,12 +79,9 @@ def _opa_unavailable_reason() -> str | None:
         Reason string when OPA cannot run in this environment, otherwise None.
     """
     success, _stdout, stderr = run_opa_test(_opa_bundle_dir())
-    if success:
-        return None
-    lowered = stderr.lower()
-    if any(token in lowered for token in ("not found", "operation not permitted", "permission denied")):
-        return stderr or "OPA runtime unavailable"
-    return None
+    if not success:
+        return stderr or "OPA bundle tests failed"
+    return opa_eval_unavailable_reason(_opa_bundle_dir())
 
 
 def _violation_ids_for_rule(violations: list[dict[str, object]], rule_id: str, validator: str) -> list[str]:

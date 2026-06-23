@@ -210,6 +210,58 @@ def run_opa_test(bundle_path: str | Path, timeout: int = 120) -> tuple[bool, str
     return (out.returncode == 0, out.stdout or "", out.stderr or "")
 
 
+def opa_eval_unavailable_reason(
+    bundle_path: str | Path,
+    entrypoint: str = "data.apme.rules.violations",
+    timeout: int = 60,
+) -> str | None:
+    """Return a reason when OPA eval cannot complete, else None.
+
+    Args:
+        bundle_path: Path to OPA bundle directory.
+        entrypoint: Rego entrypoint for the probe eval.
+        timeout: Timeout in seconds.
+
+    Returns:
+        Error message when eval fails, otherwise None.
+    """
+    if _opa_disabled:
+        return "OPA evaluation disabled by circuit breaker"
+
+    bundle = Path(bundle_path)
+    if not bundle.is_dir():
+        return f"OPA bundle path is not a directory: {bundle_path}"
+
+    input_str = json.dumps({"hierarchy": []})
+    use_podman = os.environ.get("OPA_USE_PODMAN", "1").lower() not in ("0", "false", "no")
+
+    out: subprocess.CompletedProcess[str] | None = None
+    if use_podman:
+        try:
+            out = _run_opa_podman(input_str, bundle, entrypoint, timeout)
+        except FileNotFoundError:
+            out = None
+        except subprocess.TimeoutExpired:
+            return f"OPA eval timed out after {timeout}s via Podman"
+    if out is None:
+        try:
+            out = _run_opa_local(input_str, bundle, entrypoint, timeout)
+        except FileNotFoundError:
+            if use_podman:
+                return "podman: command not found. Set OPA_USE_PODMAN=0 to use local opa, or install podman."
+            return "opa: command not found. Install OPA or set OPA_USE_PODMAN=1 to use the OPA container."
+        except subprocess.TimeoutExpired:
+            return f"OPA eval timed out after {timeout}s via local binary"
+
+    if out.returncode != 0:
+        return (out.stderr or out.stdout or "OPA eval failed").strip()
+    try:
+        json.loads(out.stdout)
+    except json.JSONDecodeError:
+        return f"OPA returned invalid JSON: {(out.stdout or '')[:200]}"
+    return None
+
+
 def run_opa(
     input_data: YAMLDict, bundle_path: str, entrypoint: str = "data.apme.rules.violations"
 ) -> list[ViolationDict]:

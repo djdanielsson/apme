@@ -910,6 +910,19 @@ class TestTask:
         assert t.module == ""
         assert t.index == -1
 
+    def test_set_yaml_lines_jsonpath_before_empty_task_guard(self) -> None:
+        """Jsonpath lookup runs before empty task_name/module_options early return."""
+        yaml_str = "- hosts: localhost\n  tasks:\n    - block:\n        - ansible.builtin.debug:\n            msg: hi\n"
+        task = Task()
+        task.set_yaml_lines(
+            yaml_lines=yaml_str,
+            task_name="",
+            module_options=None,
+            jsonpath=".0.tasks.0",
+        )
+        assert task.yaml_lines
+        assert task.line_num_in_file
+
 
 class TestRoleMetadataModel:
     """Tests for RoleMetadata from_dict, equality, and inequality."""

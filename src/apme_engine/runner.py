@@ -2,103 +2,13 @@
 
 import logging
 import os
-import tempfile
 import time
 from pathlib import Path
-
-import yaml
 
 from apme_engine.engine.scanner import AnsibleProjectLoader
 from apme_engine.validators.base import EngineDiagnostics, ScanContext
 
 logger = logging.getLogger("apme.engine")
-
-_ROLE_STUB_TASK = "- name: apme role stub\n  ansible.builtin.meta: end_host\n"
-
-
-def _role_names_from_playbook_yaml(yaml_content: str) -> set[str]:
-    """Extract short role names referenced from play ``roles:`` lists.
-
-    Args:
-        yaml_content: Playbook YAML string.
-
-    Returns:
-        Set of role names to scaffold under ``roles/<name>/``.
-    """
-    try:
-        data = yaml.safe_load(yaml_content)
-    except Exception:
-        return set()
-    if data is None:
-        return set()
-
-    plays: list[object]
-    if isinstance(data, list):
-        plays = data
-    elif isinstance(data, dict):
-        plays = [data]
-    else:
-        return set()
-
-    names: set[str] = set()
-    for play in plays:
-        if not isinstance(play, dict):
-            continue
-        roles_raw = play.get("roles")
-        if not isinstance(roles_raw, list):
-            continue
-        for entry in roles_raw:
-            if isinstance(entry, str) and entry:
-                names.add(entry.split("/")[-1])
-            elif isinstance(entry, dict):
-                role_val = entry.get("role") or entry.get("name")
-                if isinstance(role_val, str) and role_val:
-                    names.add(role_val.split("/")[-1])
-    return names
-
-
-def _scaffold_inline_roles(project_root: str, yaml_content: str) -> None:
-    """Create minimal on-disk role trees for inline ``roles:`` references.
-
-    Args:
-        project_root: Scan root directory.
-        yaml_content: Playbook YAML that may declare ``roles:``.
-    """
-    for role_name in _role_names_from_playbook_yaml(yaml_content):
-        tasks_dir = os.path.join(project_root, "roles", role_name, "tasks")
-        tasks_file = os.path.join(tasks_dir, "main.yml")
-        if os.path.isfile(tasks_file):
-            continue
-        os.makedirs(tasks_dir, exist_ok=True)
-        with open(tasks_file, "w") as f:
-            f.write(_ROLE_STUB_TASK)
-
-
-def run_scan_playbook_yaml(
-    yaml_content: str,
-    project_root: str | None = None,
-    include_scandata: bool = True,
-) -> ScanContext:
-    """Run the engine on a playbook given as a YAML string (e.g. for integration tests).
-
-    Writes content to a temporary playbook file and runs the scanner.
-
-    Args:
-        yaml_content: Full playbook YAML string (e.g. a list of plays with hosts and tasks).
-        project_root: Root directory for the scan. If None, a temp directory is used.
-        include_scandata: If True, attach the SingleScan to context for native validator.
-
-    Returns:
-        ScanContext with hierarchy_payload and optionally scandata.
-
-    """
-    with tempfile.TemporaryDirectory(prefix="apme_rule_doc_") as tmpdir:
-        _scaffold_inline_roles(tmpdir, yaml_content)
-        playbook_path = os.path.join(tmpdir, "playbook.yml")
-        with open(playbook_path, "w") as f:
-            f.write(yaml_content)
-        # Use temp dir as project root so scanner writes under tmpdir (works in sandbox)
-        return run_scan(playbook_path, tmpdir, include_scandata=include_scandata)
 
 
 def run_scan(
