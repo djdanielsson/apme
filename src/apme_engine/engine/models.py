@@ -2293,18 +2293,18 @@ class Task(Object, Resolvable):
             previous_task_line: Skip lines before this line number (1-based).
             jsonpath: Jsonpath to locate the task block directly.
         """
-        if not task_name and not module_options:
-            return
-
-        lines: list[str] = []
-        lines = yaml_lines.splitlines() if yaml_lines else Path(fullpath).read_text().splitlines()
-
         if jsonpath:
             found_yaml, line_num = identify_lines_with_jsonpath(fpath=fullpath, yaml_str=yaml_lines, jsonpath=jsonpath)
             if found_yaml and line_num:
                 self.yaml_lines = found_yaml
                 self.line_num_in_file = list(line_num)
                 return
+
+        if not task_name and not module_options:
+            return
+
+        lines: list[str] = []
+        lines = yaml_lines.splitlines() if yaml_lines else Path(fullpath).read_text().splitlines()
 
         # search candidates that match either of the following conditions
         #   - task name is included in the line
