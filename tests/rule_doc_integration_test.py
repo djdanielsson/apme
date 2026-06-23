@@ -12,9 +12,9 @@ from apme_engine.engine.graph_scanner import (
     load_graph_rules,
 )
 from apme_engine.engine.graph_scanner import scan as graph_scan
-from apme_engine.opa_client import run_opa_test
-from apme_engine.runner import run_scan_playbook_yaml
+from apme_engine.opa_client import opa_eval_unavailable_reason, run_opa_test
 from apme_engine.validators.opa import OpaValidator
+from tests.rule_doc_harness import run_scan_playbook_yaml
 from tests.rule_doc_parser import discover_rule_docs
 
 _GRAPH_RULE_KNOWN_FAILURES: dict[str, str] = {
@@ -26,9 +26,6 @@ _GRAPH_RULE_KNOWN_FAILURES: dict[str, str] = {
     "L056": "path-based rule; single-file harness uses a temp path that won't match ignore patterns",
     "L061": "ARI engine normalizes quoted truthy strings to native booleans",
     "L062": "ARI engine expands free-form key=value into separate module options",
-    "L063": "block example does not produce a BLOCK graph node with line info in the single-file harness",
-    "L066": "violation example uses inline roles: - common without a resolvable role directory; "
-    "single-file harness cannot create the DEPENDENCY edge needed for options.roles",
     "L093": "requires role ancestry with default_variables/role_variables populated",
     "M028": "first_found is a lookup plugin; terms live inside Jinja2 expressions",
     "R117": "role metadata rule; requires ROLE graph node with play DEPENDENCY edge",
@@ -82,12 +79,9 @@ def _opa_unavailable_reason() -> str | None:
         Reason string when OPA cannot run in this environment, otherwise None.
     """
     success, _stdout, stderr = run_opa_test(_opa_bundle_dir())
-    if success:
-        return None
-    lowered = stderr.lower()
-    if any(token in lowered for token in ("not found", "operation not permitted", "permission denied")):
-        return stderr or "OPA runtime unavailable"
-    return None
+    if not success:
+        return stderr or "OPA bundle tests failed"
+    return opa_eval_unavailable_reason(_opa_bundle_dir())
 
 
 def _violation_ids_for_rule(violations: list[dict[str, object]], rule_id: str, validator: str) -> list[str]:

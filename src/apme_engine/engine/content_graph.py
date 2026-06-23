@@ -1883,17 +1883,17 @@ class GraphBuilder:
                 if isinstance(item, Collection):
                     self._build_collection(item, scope)
 
-        playbooks = loaded.get("playbooks", ObjectList())
-        if isinstance(playbooks, ObjectList):
-            for item in playbooks.items:
-                if isinstance(item, Playbook):
-                    self._build_playbook(item, scope)
-
         roles = loaded.get("roles", ObjectList())
         if isinstance(roles, ObjectList):
             for item in roles.items:
                 if isinstance(item, Role):
                     self._build_role(item, scope)
+
+        playbooks = loaded.get("playbooks", ObjectList())
+        if isinstance(playbooks, ObjectList):
+            for item in playbooks.items:
+                if isinstance(item, Playbook):
+                    self._build_playbook(item, scope)
 
         taskfiles = loaded.get("taskfiles", ObjectList())
         if isinstance(taskfiles, ObjectList):

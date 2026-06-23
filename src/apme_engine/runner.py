@@ -2,7 +2,6 @@
 
 import logging
 import os
-import tempfile
 import time
 from pathlib import Path
 
@@ -10,32 +9,6 @@ from apme_engine.engine.scanner import AnsibleProjectLoader
 from apme_engine.validators.base import EngineDiagnostics, ScanContext
 
 logger = logging.getLogger("apme.engine")
-
-
-def run_scan_playbook_yaml(
-    yaml_content: str,
-    project_root: str | None = None,
-    include_scandata: bool = True,
-) -> ScanContext:
-    """Run the engine on a playbook given as a YAML string (e.g. for integration tests).
-
-    Writes content to a temporary playbook file and runs the scanner.
-
-    Args:
-        yaml_content: Full playbook YAML string (e.g. a list of plays with hosts and tasks).
-        project_root: Root directory for the scan. If None, a temp directory is used.
-        include_scandata: If True, attach the SingleScan to context for native validator.
-
-    Returns:
-        ScanContext with hierarchy_payload and optionally scandata.
-
-    """
-    with tempfile.TemporaryDirectory(prefix="apme_rule_doc_") as tmpdir:
-        playbook_path = os.path.join(tmpdir, "playbook.yml")
-        with open(playbook_path, "w") as f:
-            f.write(yaml_content)
-        # Use temp dir as project root so scanner writes under tmpdir (works in sandbox)
-        return run_scan(playbook_path, tmpdir, include_scandata=include_scandata)
 
 
 def run_scan(
