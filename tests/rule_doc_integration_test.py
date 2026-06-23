@@ -26,9 +26,6 @@ _GRAPH_RULE_KNOWN_FAILURES: dict[str, str] = {
     "L056": "path-based rule; single-file harness uses a temp path that won't match ignore patterns",
     "L061": "ARI engine normalizes quoted truthy strings to native booleans",
     "L062": "ARI engine expands free-form key=value into separate module options",
-    "L063": "block example does not produce a BLOCK graph node with line info in the single-file harness",
-    "L066": "violation example uses inline roles: - common without a resolvable role directory; "
-    "single-file harness cannot create the DEPENDENCY edge needed for options.roles",
     "L093": "requires role ancestry with default_variables/role_variables populated",
     "M028": "first_found is a lookup plugin; terms live inside Jinja2 expressions",
     "R117": "role metadata rule; requires ROLE graph node with play DEPENDENCY edge",
