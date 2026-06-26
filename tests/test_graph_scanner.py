@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import pytest
+
 from apme_engine.engine.content_graph import (
     ContentGraph,
     ContentNode,
@@ -284,12 +286,12 @@ class TestLoadGraphRules:
 
     def test_empty_dir_returns_empty(self) -> None:
         """Verify empty rules_dir returns empty list."""
-        rules = load_graph_rules(rules_dir="")
+        rules, _ = load_graph_rules(rules_dir="")
         assert rules == []
 
     def test_nonexistent_dir_returns_empty(self) -> None:
         """Verify non-existent directory is skipped."""
-        rules = load_graph_rules(rules_dir="/nonexistent/path")
+        rules, _ = load_graph_rules(rules_dir="/nonexistent/path")
         assert rules == []
 
     def test_all_graph_rules_load_without_errors(self) -> None:
@@ -324,3 +326,128 @@ class TestLoadGraphRules:
         )
         assert errors == [], f"Graph rule load errors: {errors}"
         assert len(classes) >= len(graph_files), f"Loaded {len(classes)} rules from {len(graph_files)} *_graph.py files"
+
+    def test_default_load_skips_disabled_by_default_rules(self) -> None:
+        """Disabled-by-default rules are omitted when no rule_id_list is given."""
+        from pathlib import Path
+
+        import apme_engine.validators.native.rules as rules_pkg
+
+        rules_dir = str(Path(rules_pkg.__file__).parent)
+        rule_ids = {r.rule_id for r in load_graph_rules(rules_dir=rules_dir)[0]}
+        assert "R402" not in rule_ids
+        assert "R404" not in rule_ids
+
+    def test_rule_id_list_opt_in_loads_disabled_rules(self) -> None:
+        """Explicit rule_id_list opt-in loads disabled-by-default audit rules."""
+        from pathlib import Path
+
+        import apme_engine.validators.native.rules as rules_pkg
+
+        rules_dir = str(Path(rules_pkg.__file__).parent)
+        rules, _ = load_graph_rules(rules_dir=rules_dir, rule_id_list=["R402", "R404"])
+        rule_ids = {r.rule_id for r in rules}
+        assert "R402" in rule_ids
+        assert "R404" in rule_ids
+        assert all(r.enabled is True for r in rules if r.rule_id in {"R402", "R404"})
+
+    def test_rule_id_list_excludes_even_when_explicitly_requested(self) -> None:
+        """exclude_rule_ids wins over disabled-rule opt-in."""
+        from pathlib import Path
+
+        import apme_engine.validators.native.rules as rules_pkg
+
+        rules_dir = str(Path(rules_pkg.__file__).parent)
+        rules, _ = load_graph_rules(
+            rules_dir=rules_dir,
+            rule_id_list=["R402", "R404"],
+            exclude_rule_ids=["R402"],
+        )
+        rule_ids = {r.rule_id for r in rules}
+        assert "R402" not in rule_ids
+        assert "R404" in rule_ids
+
+    def test_disabled_rules_stay_excluded_when_not_in_rule_id_list(self) -> None:
+        """Non-listed disabled rules remain excluded when rule_id_list is set."""
+        from pathlib import Path
+
+        import apme_engine.validators.native.rules as rules_pkg
+
+        rules_dir = str(Path(rules_pkg.__file__).parent)
+        rules, _ = load_graph_rules(rules_dir=rules_dir, rule_id_list=["R404"])
+        rule_ids = {r.rule_id for r in rules}
+        assert rule_ids == {"R404"}
+
+    def test_opt_in_rule_ids_enable_disabled_without_whitelist(self) -> None:
+        """opt_in_rule_ids loads audit rules while keeping other enabled rules."""
+        from pathlib import Path
+
+        import apme_engine.validators.native.rules as rules_pkg
+
+        rules_dir = str(Path(rules_pkg.__file__).parent)
+        default_ids = {r.rule_id for r in load_graph_rules(rules_dir=rules_dir)[0]}
+        rules, _ = load_graph_rules(rules_dir=rules_dir, opt_in_rule_ids=["R402"])
+        rule_ids = {r.rule_id for r in rules}
+        assert "R402" in rule_ids
+        assert "R404" not in rule_ids
+        assert default_ids.issubset(rule_ids)
+        assert all(r.enabled for r in rules if r.rule_id == "R402")
+
+    def test_preserve_disabled_defaults_keeps_catalog_enabled_false(self) -> None:
+        """Catalog registration loads opt-in rules without flipping enabled=True."""
+        from pathlib import Path
+
+        import apme_engine.validators.native.rules as rules_pkg
+
+        rules_dir = str(Path(rules_pkg.__file__).parent)
+        rules, _ = load_graph_rules(
+            rules_dir=rules_dir,
+            opt_in_rule_ids=["R402", "R404"],
+            preserve_disabled_defaults=True,
+        )
+        by_id = {r.rule_id: r for r in rules}
+        assert "R402" in by_id
+        assert "R404" in by_id
+        assert by_id["R402"].enabled is False
+        assert by_id["R404"].enabled is False
+
+    def test_graph_rule_opt_in_from_rule_configs(self) -> None:
+        """RuleConfig enabled flags map to native graph opt-in IDs."""
+        from apme.v1.primary_pb2 import RuleConfig
+        from apme_engine.engine.graph_scanner import graph_rule_opt_in_from_rule_configs
+
+        configs = [
+            RuleConfig(rule_id="R402", enabled=True),
+            RuleConfig(rule_id="L039", enabled=True),
+            RuleConfig(rule_id="R404", enabled=False),
+        ]
+        assert graph_rule_opt_in_from_rule_configs(configs) == ["R402"]
+
+    def test_rule_id_list_warns_on_missing_rule(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Requested rule IDs that fail to load emit a warning.
+
+        Args:
+            caplog: Pytest log capture fixture.
+        """
+        from pathlib import Path
+
+        import apme_engine.validators.native.rules as rules_pkg
+
+        rules_dir = str(Path(rules_pkg.__file__).parent)
+        with caplog.at_level("WARNING"):
+            rules, missing = load_graph_rules(rules_dir=rules_dir, rule_id_list=["R404", "ZZ999"])
+        assert {r.rule_id for r in rules} == {"R404"}
+        assert missing == ["ZZ999"]
+        assert any("ZZ999" in rec.message for rec in caplog.records)
+
+    def test_scan_report_carries_missing_requested_rules(self) -> None:
+        """scan() surfaces rule IDs that were requested but not loaded."""
+        from pathlib import Path
+
+        import apme_engine.validators.native.rules as rules_pkg
+
+        rules_dir = str(Path(rules_pkg.__file__).parent)
+        rules, missing = load_graph_rules(rules_dir=rules_dir, rule_id_list=["R404", "ZZ999"])
+        g = ContentGraph()
+        report = scan(g, rules, missing_requested_rule_ids=missing)
+        assert report.missing_requested_rule_ids == ["ZZ999"]
