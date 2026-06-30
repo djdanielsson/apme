@@ -17,6 +17,7 @@ from sqlalchemy import select as sa_select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apme.v1 import reporting_pb2, reporting_pb2_grpc
+from apme_engine.engine.audit_metadata import build_audit_metadata_blob
 from apme_engine.severity_defaults import severity_from_proto, severity_to_label
 from apme_gateway.db import get_session
 from apme_gateway.db.models import (
@@ -258,6 +259,7 @@ def _add_violations(db: AsyncSession, scan_id: str, violations: Sequence[object]
             line_val = v.line  # type: ignore[attr-defined]
         elif oneof == "line_range":
             line_val = v.line_range.start  # type: ignore[attr-defined]
+        audit_blob = build_audit_metadata_blob(dict(v.metadata))  # type: ignore[attr-defined]
         db.add(
             Violation(
                 scan_id=scan_id,
@@ -277,6 +279,7 @@ def _add_violations(db: AsyncSession, scan_id: str, violations: Sequence[object]
                 node_line_start=v.node_line_start,  # type: ignore[attr-defined]
                 ai_reason=v.metadata.get("ai_reason", ""),  # type: ignore[attr-defined]
                 ai_suggestion=v.metadata.get("ai_suggestion", ""),  # type: ignore[attr-defined]
+                audit_metadata=audit_blob,
             )
         )
 
@@ -379,8 +382,6 @@ def _add_manifest(db: AsyncSession, scan_id: str, manifest: object) -> None:
     for c in manifest.collections:  # type: ignore[attr-defined]
         if c.fqcn in seen_fqcns:
             logger.debug("Skipping duplicate collection FQCN '%s' for scan '%s'", c.fqcn, scan_id)
-            logger.debug("Skipping duplicate collection FQCN '%s' for scan '%s'", c.fqcn, scan_id)
-            logger.debug("Skipping duplicate collection FQCN '%s' for scan '%s'", c.fqcn, scan_id)
             continue
         seen_fqcns.add(c.fqcn)
         db.add(
@@ -393,7 +394,12 @@ def _add_manifest(db: AsyncSession, scan_id: str, manifest: object) -> None:
                 supplier=c.supplier,
             )
         )
+    seen_package_names: set[str] = set()
     for p in manifest.python_packages:  # type: ignore[attr-defined]
+        if p.name in seen_package_names:
+            logger.debug("Skipping duplicate Python package '%s' for scan '%s'", p.name, scan_id)
+            continue
+        seen_package_names.add(p.name)
         db.add(
             ScanPythonPackage(
                 scan_id=scan_id,

@@ -88,13 +88,21 @@ def _collect_native_rules() -> list[reporting_pb2.RuleDefinition]:
     """Collect rules from the Native validator via ``load_graph_rules()``.
 
     Returns:
-        List of RuleDefinition protos for all enabled native rules.
+        List of RuleDefinition protos for all native rules, including
+        disabled-by-default audit rules registered with ``enabled=False``.
     """
     try:
-        from apme_engine.engine.graph_scanner import load_graph_rules
+        from apme_engine.engine.graph_scanner import (
+            DISABLED_BY_DEFAULT_GRAPH_RULE_IDS,
+            load_graph_rules,
+        )
 
         rules_dir = str(_NATIVE_RULES_DIR)
-        graph_rules = load_graph_rules(rules_dir=rules_dir)
+        graph_rules, _ = load_graph_rules(
+            rules_dir=rules_dir,
+            opt_in_rule_ids=sorted(DISABLED_BY_DEFAULT_GRAPH_RULE_IDS),
+            preserve_disabled_defaults=True,
+        )
         defs = []
         for gr in graph_rules:
             defs.append(

@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from apme_engine.engine.content_graph import ContentGraph, NodeType
 from apme_engine.engine.models import RuleTag as Tag
 from apme_engine.engine.models import Severity, YAMLDict, YAMLValue
+from apme_engine.engine.sensitivity import redact_url_userinfo
 from apme_engine.validators.native.rules._module_risk_mapping import (
     get_risk_profile,
     resolve_field,
@@ -85,7 +86,7 @@ class ListAllInboundSrcGraphRule(GraphRule):
                 continue
             src = resolve_field(mo, profile, "src")
             if src:
-                src_list.append(src)
+                src_list.append(redact_url_userinfo(str(src)) if isinstance(src, str) else src)
 
         if not src_list:
             return GraphRuleResult(

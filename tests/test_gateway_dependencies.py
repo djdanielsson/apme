@@ -169,6 +169,34 @@ async def test_report_fix_with_manifest_persists() -> None:
         assert pkgs[0].name == "jmespath"
 
 
+async def test_report_fix_with_manifest_dedupes_python_packages() -> None:
+    """Duplicate package names in one manifest are collapsed before persistence."""
+    servicer = ReportingServicer()
+    manifest = common_pb2.ProjectManifest(
+        python_packages=[
+            common_pb2.PythonPackageRef(name="jmespath", version="1.0.1"),
+            common_pb2.PythonPackageRef(name="jmespath", version="1.0.1"),
+            common_pb2.PythonPackageRef(name="netaddr", version="0.10.1"),
+        ],
+    )
+    event = reporting_pb2.FixCompletedEvent(
+        scan_id="scan-m2",
+        session_id="sess-m2",
+        project_path="/proj",
+        source="cli",
+        manifest=manifest,
+    )
+
+    await servicer.ReportFixCompleted(event, _mock_context())
+
+    async with get_session() as db:
+        from sqlalchemy import select
+
+        p_result = await db.execute(select(ScanPythonPackage).where(ScanPythonPackage.scan_id == "scan-m2"))
+        pkgs = list(p_result.scalars().all())
+        assert [pkg.name for pkg in pkgs] == ["jmespath", "netaddr"]
+
+
 async def test_report_fix_without_manifest_ok() -> None:
     """Fix event without manifest still persists normally."""
     servicer = ReportingServicer()
