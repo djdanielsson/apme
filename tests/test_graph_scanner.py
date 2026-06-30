@@ -398,3 +398,44 @@ class TestLoadGraphRules:
         g = ContentGraph()
         report = scan(g, rules, missing_requested_rule_ids=missing)
         assert report.missing_requested_rule_ids == ["ZZ999"]
+
+    def test_rule_id_list_opt_in_loads_r404(self) -> None:
+        """Explicit rule_id_list opt-in loads disabled-by-default R404."""
+        rules_dir = native_rules_dir()
+        rules, _ = load_graph_rules(rules_dir=rules_dir, rule_id_list=["R404"])
+        rule_ids = {r.rule_id for r in rules}
+        assert rule_ids == {"R404"}
+        assert all(r.enabled is True for r in rules)
+
+    def test_rule_id_list_excludes_r404_even_when_requested(self) -> None:
+        """exclude_rule_ids wins over disabled-rule opt-in."""
+        rules_dir = native_rules_dir()
+        rules, _ = load_graph_rules(
+            rules_dir=rules_dir,
+            rule_id_list=["R404"],
+            exclude_rule_ids=["R404"],
+        )
+        assert rules == []
+
+    def test_opt_in_rule_ids_enable_r404_without_whitelist(self) -> None:
+        """opt_in_rule_ids loads R404 while keeping other enabled rules."""
+        rules_dir = native_rules_dir()
+        default_ids = {r.rule_id for r in load_graph_rules(rules_dir=rules_dir)[0]}
+        rules, _ = load_graph_rules(rules_dir=rules_dir, opt_in_rule_ids=["R404"])
+        rule_ids = {r.rule_id for r in rules}
+        assert "R404" in rule_ids
+        assert "R402" not in rule_ids
+        assert default_ids.issubset(rule_ids)
+        assert all(r.enabled for r in rules if r.rule_id == "R404")
+
+    def test_preserve_disabled_defaults_keeps_r404_catalog_enabled_false(self) -> None:
+        """Catalog registration loads R404 without flipping enabled=True."""
+        rules_dir = native_rules_dir()
+        rules, _ = load_graph_rules(
+            rules_dir=rules_dir,
+            opt_in_rule_ids=["R404"],
+            preserve_disabled_defaults=True,
+        )
+        by_id = {r.rule_id: r for r in rules}
+        assert "R404" in by_id
+        assert by_id["R404"].enabled is False

@@ -6,7 +6,7 @@
 
 | Metric | Count |
 |--------|-------|
-| Implemented | 148/156 |
+| Implemented | 149/156 |
 | Tested | 151/156 |
 | Documented | 155/156 |
 | Deterministic fixer | 25/156 |
@@ -168,7 +168,7 @@
 | R118 | OPA | info | Task downloads from an external source (inbound transfer). | Yes | Yes | Yes | — |
 | R401 | Native | info | Report inbound transfer sources. | Yes | Yes | Yes | — |
 | R402 | Native | info | Report variables used at end of sequence. | Yes | Yes | Yes | — |
-| R404 | Native | info | Expose variable_set for the task. | — | Yes | Yes | — |
+| R404 | Native | info | Expose variable_set for the task. | Yes | Yes | Yes | — |
 | R501 | Native | medium | Suggest collection/role dependency. | — | — | Yes | — |
 | SEC:* | Gitleaks | critical | Secret/credential detection (delegated to Gitleaks binary). | Yes | Yes | — | — |
 
@@ -228,7 +228,7 @@
 | M028 | high | first_found lookup auto-splitting paths on delimiters is deprecated (2.23) | Yes | Yes | Yes | — |
 | R118 | info | Task downloads from an external source (inbound transfer). | Yes | Yes | Yes | — |
 
-### Native (95 rules, 91 impl, 92 tested, 4 fixers)
+### Native (95 rules, 92 impl, 92 tested, 4 fixers)
 
 | Rule ID | Severity | Description | Impl | Tested | Doc | Fixer |
 |---------|----------|-------------|------|--------|-----|-------|
@@ -325,7 +325,7 @@
 | R117 | info | Role is from Galaxy/external source. | Yes | Yes | Yes | — |
 | R401 | info | Report inbound transfer sources. | Yes | Yes | Yes | — |
 | R402 | info | Report variables used at end of sequence. | Yes | Yes | Yes | — |
-| R404 | info | Expose variable_set for the task. | — | Yes | Yes | — |
+| R404 | info | Expose variable_set for the task. | Yes | Yes | Yes | — |
 | R501 | medium | Suggest collection/role dependency. | — | — | Yes | — |
 
 ### Ansible (11 rules, 7 impl, 9 tested, 4 fixers)
@@ -352,19 +352,18 @@
 
 ## Coverage Gaps
 
-### Planned rules (implementation pending) — 2
+### Planned rules (implementation pending) — 1
 
-- **R404** (Native): Expose variable_set for the task. — Informational/debug rule that would expose the resolved variable_set for each task. Disabled by default. Planned for future implementation using VariableProvenanceResolver.
-- **R501** (Native): Suggest collection/role dependency. — Advisory rule requiring collection dependency resolution context. The rule needs access to the Galaxy/collection index to suggest which collection provides an unresolved module. Planned for future implementation.
+- **R501** (Native): Suggest collection/role dependency. — >
 
 ### Resolved without implementation — 6
 
-- **L031** (Native): [Stub] File permission may be insecure (annotation-based). — Covered by OPA rules L020/L021 which check file mode arguments directly. This annotation-based variant is retained as a placeholder for future annotation-driven detection (requires engine annotation pipeline).
-- **M029** (Native): [Stub] Inventory scripts must include `_meta.hostvars` in JSON output (enforced in 2.23) — Detection requires executing the inventory script at runtime to inspect its JSON output. Static analysis cannot determine `_meta` presence. Disabled by design until a runtime-analysis approach is approved.
-- **P001** (Ansible): [Delegated] Validate module name (Ansible required). — Emitted by the Ansible validator via find_plugin_with_context() argspec validation (L058/L059). Not a native GraphRule — the Ansible validator owns module name resolution.
-- **P002** (Ansible): [Delegated] Validate module argument keys (Ansible required). — Emitted by the Ansible validator via argspec validation (L058/L059). Not a native GraphRule — the Ansible validator owns module argument key validation using real module argspecs.
-- **P003** (Ansible): [Delegated] Validate module argument values (Ansible required). — Emitted by the Ansible validator via argspec validation (L058/L059). Not a native GraphRule — the Ansible validator owns module argument value validation using real module argspecs.
-- **P004** (Ansible): [Delegated] Validate variables (Ansible required). — Emitted by the Ansible validator via argspec validation (L058/L059). Not a native GraphRule — the Ansible validator owns variable validation in the context of module argument resolution.
+- **L031** (Native): [Stub] File permission may be insecure (annotation-based). — >
+- **M029** (Native): [Stub] Inventory scripts must include `_meta.hostvars` in JSON output (enforced in 2.23) — >
+- **P001** (Ansible): [Delegated] Validate module name (Ansible required). — >
+- **P002** (Ansible): [Delegated] Validate module argument keys (Ansible required). — >
+- **P003** (Ansible): [Delegated] Validate module argument values (Ansible required). — >
+- **P004** (Ansible): [Delegated] Validate variables (Ansible required). — >
 
 ### Implemented but undocumented — 1
 
