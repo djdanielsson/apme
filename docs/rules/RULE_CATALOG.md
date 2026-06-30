@@ -44,14 +44,14 @@
 | L027 | Native | low | Roles should have meta/main.yml with metadata. | Yes | Yes | Yes | — |
 | L030 | Native | low | Non-builtin module used when a builtin equivalent exists. | Yes | Yes | Yes | — |
 | L031 | Native | medium | File permission may be insecure (annotation-based). | — | — | Yes | — |
-| L032 | Native | low | Variable redefinition may cause confusion. | Yes | — | Yes | — |
-| L033 | Native | low | Overriding vars without conditions. | Yes | — | Yes | — |
-| L034 | Native | low | Lower-precedence override may be unused. | Yes | — | Yes | — |
+| L032 | Native | low | Variable redefinition may cause confusion. | Yes | Yes | Yes | — |
+| L033 | Native | low | Overriding vars without conditions. | Yes | Yes | Yes | — |
+| L034 | Native | low | Lower-precedence override may be unused. | Yes | Yes | Yes | — |
 | L035 | Native | low | set_fact with random in args. | Yes | Yes | Yes | — |
 | L036 | Native | low | include_vars without when/tags. | Yes | Yes | Yes | — |
 | L037 | Native | medium | Module name could not be resolved. | Yes | Yes | Yes | — |
-| L038 | Native | medium | Role could not be resolved. | Yes | — | Yes | — |
-| L039 | Native | low | Variable use may be undefined. | Yes | — | Yes | — |
+| L038 | Native | medium | Role could not be resolved. | Yes | Yes | Yes | — |
+| L039 | Native | low | Variable use may be undefined. | Yes | Yes | Yes | — |
 | L040 | Native | info | YAML should not contain tabs; use spaces. | Yes | Yes | Yes | — |
 | L041 | Native | low | Task keys should follow canonical order (e.g. name before module). | Yes | Yes | Yes | — |
 | L042 | Native | info | Play/block has high task count. | Yes | Yes | Yes | — |
@@ -66,9 +66,9 @@
 | L051 | Native | low | Jinja spacing: {{ var }} not {{var}}. | Yes | Yes | Yes | — |
 | L052 | Native | low | Galaxy version in meta should be semantic. | Yes | Yes | Yes | — |
 | L053 | Native | low | Role meta should have valid structure. | Yes | Yes | Yes | — |
-| L054 | Native | low | Role meta galaxy_info should include galaxy_tags. | Yes | — | Yes | — |
-| L055 | Native | low | Role meta video_links should be valid URLs. | Yes | — | Yes | — |
-| L056 | Native | info | Path may match ignore pattern. | Yes | — | Yes | — |
+| L054 | Native | low | Role meta galaxy_info should include galaxy_tags. | Yes | Yes | Yes | — |
+| L055 | Native | low | Role meta video_links should be valid URLs. | Yes | Yes | Yes | — |
+| L056 | Native | info | Path may match ignore pattern. | Yes | Yes | Yes | — |
 | L057 | Ansible | error | Syntax check via ansible-playbook --syntax-check. | Yes | Yes | Yes | — |
 | L058 | Ansible | error | Argspec validation (docstring-based). | Yes | Yes | Yes | — |
 | L059 | Ansible | error | Argspec validation (mock/patch-based). | Yes | Yes | Yes | — |
@@ -85,36 +85,36 @@
 | L070 | OPA | info | Jinja in task names should only appear at the end of the name string. | Yes | Yes | Yes | — |
 | L071 | OPA | info | Consider using template instead of copy with Jinja content. | Yes | Yes | Yes | — |
 | L072 | OPA | info | Consider setting backup true on template/copy tasks. | Yes | Yes | Yes | — |
-| L073 | Native | low | YAML should use 2-space indentation. | Yes | — | Yes | — |
+| L073 | Native | low | YAML should use 2-space indentation. | Yes | Yes | Yes | — |
 | L074 | Native | low | Role names should not contain dashes. | Yes | Yes | Yes | — |
-| L075 | Native | low | Template source files should use .j2 extension (ansible_managed best practice). | Yes | — | Yes | — |
-| L076 | Native | low | Use ansible_facts bracket notation instead of injected fact variables. | Yes | — | Yes | — |
+| L075 | Native | low | Template source files should use .j2 extension (ansible_managed best practice). | Yes | Yes | Yes | — |
+| L076 | Native | low | Use ansible_facts bracket notation instead of injected fact variables. | Yes | Yes | Yes | — |
 | L077 | Native | low | Roles should have meta/argument_specs.yml for fail-fast parameter validation. | Yes | Yes | Yes | — |
 | L078 | Native | low | Use bracket notation for dict key access in Jinja. | Yes | Yes | Yes | — |
 | L079 | Native | low | Role defaults/vars should be prefixed with the role name. | Yes | Yes | Yes | — |
 | L080 | Native | low | Internal role variables should be prefixed with _ (underscore). | Yes | Yes | Yes | — |
 | L081 | Native | low | Do not number roles or playbooks. | Yes | Yes | Yes | — |
-| L082 | Native | low | Template source files should use .j2 extension. | Yes | — | Yes | — |
+| L082 | Native | low | Template source files should use .j2 extension. | Yes | Yes | Yes | — |
 | L083 | Native | low | Do not hardcode host group names in roles. | Yes | Yes | Yes | — |
 | L084 | Native | low | Task names in included sub-task files should use a prefix. | Yes | Yes | Yes | Yes |
 | L085 | Native | low | Use explicit role_path prefix in include paths within roles. | Yes | Yes | Yes | — |
-| L086 | Native | low | Avoid playbook/play vars for routine config; use inventory vars. | Yes | — | Yes | — |
+| L086 | Native | low | Avoid playbook/play vars for routine config; use inventory vars. | Yes | Yes | Yes | — |
 | L087 | Native | low | Collection root should have a LICENSE or COPYING file. | Yes | Yes | Yes | — |
 | L088 | Native | low | Collection README should document supported ansible-core versions. | Yes | Yes | Yes | — |
 | L089 | Native | low | Plugin Python files should include type hints. | Yes | Yes | Yes | — |
 | L090 | Native | low | Plugin entry files should be small; move helpers to module_utils. | Yes | Yes | Yes | — |
-| L091 | Native | low | Use \| bool for bare variables in when conditions. | Yes | — | Yes | — |
-| L092 | Native | low | Avoid loop variable references in task names. | Yes | — | Yes | — |
-| L093 | Native | low | Do not override role defaults/vars with set_fact. | Yes | — | Yes | — |
-| L094 | Native | low | Do not put dynamic dates in templates; breaks change detection. | Yes | — | Yes | — |
+| L091 | Native | low | Use \| bool for bare variables in when conditions. | Yes | Yes | Yes | — |
+| L092 | Native | low | Avoid loop variable references in task names. | Yes | Yes | Yes | — |
+| L093 | Native | low | Do not override role defaults/vars with set_fact. | Yes | Yes | Yes | — |
+| L094 | Native | low | Do not put dynamic dates in templates; breaks change detection. | Yes | Yes | Yes | — |
 | L095 | Native | error | YAML file does not match expected schema structure. | Yes | Yes | Yes | — |
 | L096 | Native | high | meta/runtime.yml should declare requires_ansible. | Yes | Yes | Yes | — |
-| L097 | Native | low | Task names should be unique within a play. | Yes | — | Yes | — |
+| L097 | Native | low | Task names should be unique within a play. | Yes | Yes | Yes | — |
 | L098 | Native | error | YAML files should not have duplicate mapping keys. | Yes | Yes | Yes | — |
 | L099 | Native | info | Prefer double quotes for YAML string values. | Yes | Yes | Yes | — |
 | L100 | Native | medium | Variable names must not be Python or Ansible keywords. | Yes | Yes | Yes | — |
-| L101 | Native | medium | Variable names must not collide with Ansible reserved names. | Yes | — | Yes | — |
-| L102 | Native | medium | Do not set read-only Ansible variables. | Yes | — | Yes | — |
+| L101 | Native | medium | Variable names must not collide with Ansible reserved names. | Yes | Yes | Yes | — |
+| L102 | Native | medium | Do not set read-only Ansible variables. | Yes | Yes | Yes | — |
 | L103 | Native | low | Collection should have a CHANGELOG file. | Yes | Yes | Yes | — |
 | L104 | Native | low | Collection should have meta/runtime.yml. | Yes | Yes | Yes | — |
 | L105 | Native | low | galaxy.yml should have a repository key. | Yes | Yes | Yes | — |
@@ -123,7 +123,7 @@
 | M001 | Ansible | high | FQCN resolution — module resolved to a different canonical name. | Yes | Yes | Yes | Yes |
 | M002 | Ansible | high | Deprecated module — module has deprecation metadata. | Yes | Yes | Yes | Yes |
 | M003 | Ansible | high | Module redirect — module name was redirected to a new FQCN. | Yes | Yes | Yes | Yes |
-| M004 | Ansible | error | Removed module — tombstoned module that raises AnsiblePluginRemovedError. | Yes | — | Yes | Yes |
+| M004 | Ansible | error | Removed module — tombstoned module that raises AnsiblePluginRemovedError. | Yes | Yes | Yes | Yes |
 | M005 | Native | high | Registered variable used in Jinja template may be untrusted in 2.19+. | Yes | Yes | Yes | — |
 | M006 | OPA | high | become with ignore_errors will not catch timeout in 2.19+. | Yes | Yes | Yes | Yes |
 | M008 | OPA | high | Bare include is removed in 2.19+; use include_tasks or import_tasks. | Yes | Yes | Yes | Yes |
@@ -135,40 +135,40 @@
 | M016 | OPA | high | Empty when: conditional is deprecated; remove it or add an explicit condition (2.23) | Yes | Yes | Yes | — |
 | M017 | OPA | high | action: with a mapping value is deprecated; use string form or module key directly (2.23) | Yes | Yes | Yes | — |
 | M018 | OPA | high | paramiko_ssh connection plugin is deprecated; use ssh connection instead (removed in 2.21) | Yes | Yes | Yes | — |
-| M019 | Native | low | !!omap and !!pairs YAML tags are deprecated; standard YAML mappings preserve order in Python 3.7+ (2.23) | Yes | — | Yes | — |
-| M020 | Native | low | Use !vault instead of deprecated !vault-encrypted tag (2.23) | Yes | — | Yes | — |
+| M019 | Native | low | !!omap and !!pairs YAML tags are deprecated; standard YAML mappings preserve order in Python 3.7+ (2.23) | Yes | Yes | Yes | — |
+| M020 | Native | low | Use !vault instead of deprecated !vault-encrypted tag (2.23) | Yes | Yes | Yes | — |
 | M021 | OPA | high | Empty args: keyword on a task is deprecated; remove it (2.23) | Yes | Yes | Yes | — |
 | M022 | Native | medium | tree and oneline callback plugins are removed in 2.23; choose an alternative | Yes | Yes | Yes | — |
 | M023 | OPA | high | follow_redirects: yes/no (string) is deprecated in url lookup; use true/false boolean (2.22) | Yes | Yes | Yes | — |
 | M024 | OPA | high | include_vars ignore_files must be a list, not a string (2.24) | Yes | Yes | Yes | — |
 | M025 | OPA | high | Third-party strategy plugins are deprecated; only ansible.builtin strategies are supported (2.23) | Yes | Yes | Yes | — |
-| M026 | Native | medium | Inventory variable names must be valid Python identifiers (enforced in 2.23) | Yes | — | Yes | — |
-| M027 | Native | low | Mixing inline k=v arguments with args: mapping is deprecated (2.23) | Yes | — | Yes | — |
+| M026 | Native | medium | Inventory variable names must be valid Python identifiers (enforced in 2.23) | Yes | Yes | Yes | — |
+| M027 | Native | low | Mixing inline k=v arguments with args: mapping is deprecated (2.23) | Yes | Yes | Yes | — |
 | M028 | OPA | high | first_found lookup auto-splitting paths on delimiters is deprecated (2.23) | Yes | Yes | Yes | — |
 | M029 | Native | medium | Inventory scripts must include _meta.hostvars in JSON output (enforced in 2.23) | — | — | Yes | — |
-| M030 | Native | medium | Conditional expressions that fail Jinja2 parsing will error in 2.23 instead of being silently ignored | Yes | — | Yes | — |
-| P001 | Native | error | Validate module name (Ansible required). | — | Yes | Yes | — |
-| P002 | Native | error | Validate module argument keys (Ansible required). | — | Yes | Yes | — |
-| P003 | Native | error | Validate module argument values (Ansible required). | — | — | Yes | — |
-| P004 | Native | error | Validate variables (Ansible required). | — | — | Yes | — |
+| M030 | Native | medium | Conditional expressions that fail Jinja2 parsing will error in 2.23 instead of being silently ignored | Yes | Yes | Yes | — |
+| P001 | Ansible | error | Validate module name (Ansible required). | — | Yes | Yes | — |
+| P002 | Ansible | error | Validate module argument keys (Ansible required). | — | Yes | Yes | — |
+| P003 | Ansible | error | Validate module argument values (Ansible required). | — | — | Yes | — |
+| P004 | Ansible | error | Validate variables (Ansible required). | — | — | Yes | — |
 | R101 | Native | medium | Task executes parameterized command (annotation-based) | Yes | Yes | Yes | — |
 | R103 | Native | medium | Task downloads and executes (annotation-based). | Yes | Yes | Yes | — |
 | R104 | Native | medium | Download from unauthorized source (annotation-based). | Yes | Yes | Yes | — |
-| R105 | Native | medium | Outbound transfer (annotation-based). | Yes | — | Yes | — |
-| R106 | Native | medium | Inbound transfer (annotation-based). | Yes | — | Yes | — |
-| R107 | Native | medium | Package install with insecure option (annotation-based). | Yes | — | Yes | — |
+| R105 | Native | medium | Outbound transfer (annotation-based). | Yes | Yes | Yes | — |
+| R106 | Native | medium | Inbound transfer (annotation-based). | Yes | Yes | Yes | — |
+| R107 | Native | medium | Package install with insecure option (annotation-based). | Yes | Yes | Yes | — |
 | R108 | Native | medium | Privilege escalation (annotation-based). | Yes | Yes | Yes | — |
-| R109 | Native | medium | Key/config change (annotation-based). | Yes | — | Yes | — |
+| R109 | Native | medium | Key/config change (annotation-based). | Yes | Yes | Yes | — |
 | R111 | Native | medium | Parameterized role import (annotation-based). | Yes | Yes | Yes | — |
 | R112 | Native | medium | Parameterized taskfile import (annotation-based). | Yes | Yes | Yes | — |
 | R113 | Native | medium | Parameterized package install (annotation-based). | Yes | Yes | Yes | — |
 | R114 | Native | medium | File change (annotation-based). | Yes | Yes | Yes | — |
-| R115 | Native | medium | File deletion (annotation-based). | Yes | — | Yes | — |
-| R117 | Native | info | Role is from Galaxy/external source. | Yes | — | Yes | — |
+| R115 | Native | medium | File deletion (annotation-based). | Yes | Yes | Yes | — |
+| R117 | Native | info | Role is from Galaxy/external source. | Yes | Yes | Yes | — |
 | R118 | OPA | info | Task downloads from an external source (inbound transfer). | Yes | Yes | Yes | — |
-| R401 | Native | info | Report inbound transfer sources. | Yes | — | Yes | — |
-| R402 | Native | medium | Report variables used at end of sequence. | — | — | Yes | — |
-| R404 | Native | medium | Expose variable_set for the task. | — | — | Yes | — |
+| R401 | Native | info | Report inbound transfer sources. | Yes | Yes | Yes | — |
+| R402 | Native | info | Report variables used at end of sequence. | — | Yes | Yes | — |
+| R404 | Native | info | Expose variable_set for the task. | — | Yes | Yes | — |
 | R501 | Native | medium | Suggest collection/role dependency. | — | — | Yes | — |
 | SEC:* | Gitleaks | critical | Secret/credential detection (delegated to Gitleaks binary). | Yes | Yes | — | — |
 
@@ -238,14 +238,14 @@
 | L027 | low | Roles should have meta/main.yml with metadata. | Yes | Yes | Yes | — |
 | L030 | low | Non-builtin module used when a builtin equivalent exists. | Yes | Yes | Yes | — |
 | L031 | medium | File permission may be insecure (annotation-based). | — | — | Yes | — |
-| L032 | low | Variable redefinition may cause confusion. | Yes | — | Yes | — |
-| L033 | low | Overriding vars without conditions. | Yes | — | Yes | — |
-| L034 | low | Lower-precedence override may be unused. | Yes | — | Yes | — |
+| L032 | low | Variable redefinition may cause confusion. | Yes | Yes | Yes | — |
+| L033 | low | Overriding vars without conditions. | Yes | Yes | Yes | — |
+| L034 | low | Lower-precedence override may be unused. | Yes | Yes | Yes | — |
 | L035 | low | set_fact with random in args. | Yes | Yes | Yes | — |
 | L036 | low | include_vars without when/tags. | Yes | Yes | Yes | — |
 | L037 | medium | Module name could not be resolved. | Yes | Yes | Yes | — |
-| L038 | medium | Role could not be resolved. | Yes | — | Yes | — |
-| L039 | low | Variable use may be undefined. | Yes | — | Yes | — |
+| L038 | medium | Role could not be resolved. | Yes | Yes | Yes | — |
+| L039 | low | Variable use may be undefined. | Yes | Yes | Yes | — |
 | L040 | info | YAML should not contain tabs; use spaces. | Yes | Yes | Yes | — |
 | L041 | low | Task keys should follow canonical order (e.g. name before module). | Yes | Yes | Yes | — |
 | L042 | info | Play/block has high task count. | Yes | Yes | Yes | — |
@@ -260,40 +260,40 @@
 | L051 | low | Jinja spacing: {{ var }} not {{var}}. | Yes | Yes | Yes | — |
 | L052 | low | Galaxy version in meta should be semantic. | Yes | Yes | Yes | — |
 | L053 | low | Role meta should have valid structure. | Yes | Yes | Yes | — |
-| L054 | low | Role meta galaxy_info should include galaxy_tags. | Yes | — | Yes | — |
-| L055 | low | Role meta video_links should be valid URLs. | Yes | — | Yes | — |
-| L056 | info | Path may match ignore pattern. | Yes | — | Yes | — |
+| L054 | low | Role meta galaxy_info should include galaxy_tags. | Yes | Yes | Yes | — |
+| L055 | low | Role meta video_links should be valid URLs. | Yes | Yes | Yes | — |
+| L056 | info | Path may match ignore pattern. | Yes | Yes | Yes | — |
 | L060 | info | Line too long (exceeds 160 characters). | Yes | Yes | Yes | — |
-| L073 | low | YAML should use 2-space indentation. | Yes | — | Yes | — |
+| L073 | low | YAML should use 2-space indentation. | Yes | Yes | Yes | — |
 | L074 | low | Role names should not contain dashes. | Yes | Yes | Yes | — |
-| L075 | low | Template source files should use .j2 extension (ansible_managed best practice). | Yes | — | Yes | — |
-| L076 | low | Use ansible_facts bracket notation instead of injected fact variables. | Yes | — | Yes | — |
+| L075 | low | Template source files should use .j2 extension (ansible_managed best practice). | Yes | Yes | Yes | — |
+| L076 | low | Use ansible_facts bracket notation instead of injected fact variables. | Yes | Yes | Yes | — |
 | L077 | low | Roles should have meta/argument_specs.yml for fail-fast parameter validation. | Yes | Yes | Yes | — |
 | L078 | low | Use bracket notation for dict key access in Jinja. | Yes | Yes | Yes | — |
 | L079 | low | Role defaults/vars should be prefixed with the role name. | Yes | Yes | Yes | — |
 | L080 | low | Internal role variables should be prefixed with _ (underscore). | Yes | Yes | Yes | — |
 | L081 | low | Do not number roles or playbooks. | Yes | Yes | Yes | — |
-| L082 | low | Template source files should use .j2 extension. | Yes | — | Yes | — |
+| L082 | low | Template source files should use .j2 extension. | Yes | Yes | Yes | — |
 | L083 | low | Do not hardcode host group names in roles. | Yes | Yes | Yes | — |
 | L084 | low | Task names in included sub-task files should use a prefix. | Yes | Yes | Yes | Yes |
 | L085 | low | Use explicit role_path prefix in include paths within roles. | Yes | Yes | Yes | — |
-| L086 | low | Avoid playbook/play vars for routine config; use inventory vars. | Yes | — | Yes | — |
+| L086 | low | Avoid playbook/play vars for routine config; use inventory vars. | Yes | Yes | Yes | — |
 | L087 | low | Collection root should have a LICENSE or COPYING file. | Yes | Yes | Yes | — |
 | L088 | low | Collection README should document supported ansible-core versions. | Yes | Yes | Yes | — |
 | L089 | low | Plugin Python files should include type hints. | Yes | Yes | Yes | — |
 | L090 | low | Plugin entry files should be small; move helpers to module_utils. | Yes | Yes | Yes | — |
-| L091 | low | Use \| bool for bare variables in when conditions. | Yes | — | Yes | — |
-| L092 | low | Avoid loop variable references in task names. | Yes | — | Yes | — |
-| L093 | low | Do not override role defaults/vars with set_fact. | Yes | — | Yes | — |
-| L094 | low | Do not put dynamic dates in templates; breaks change detection. | Yes | — | Yes | — |
+| L091 | low | Use \| bool for bare variables in when conditions. | Yes | Yes | Yes | — |
+| L092 | low | Avoid loop variable references in task names. | Yes | Yes | Yes | — |
+| L093 | low | Do not override role defaults/vars with set_fact. | Yes | Yes | Yes | — |
+| L094 | low | Do not put dynamic dates in templates; breaks change detection. | Yes | Yes | Yes | — |
 | L095 | error | YAML file does not match expected schema structure. | Yes | Yes | Yes | — |
 | L096 | high | meta/runtime.yml should declare requires_ansible. | Yes | Yes | Yes | — |
-| L097 | low | Task names should be unique within a play. | Yes | — | Yes | — |
+| L097 | low | Task names should be unique within a play. | Yes | Yes | Yes | — |
 | L098 | error | YAML files should not have duplicate mapping keys. | Yes | Yes | Yes | — |
 | L099 | info | Prefer double quotes for YAML string values. | Yes | Yes | Yes | — |
 | L100 | medium | Variable names must not be Python or Ansible keywords. | Yes | Yes | Yes | — |
-| L101 | medium | Variable names must not collide with Ansible reserved names. | Yes | — | Yes | — |
-| L102 | medium | Do not set read-only Ansible variables. | Yes | — | Yes | — |
+| L101 | medium | Variable names must not collide with Ansible reserved names. | Yes | Yes | Yes | — |
+| L102 | medium | Do not set read-only Ansible variables. | Yes | Yes | Yes | — |
 | L103 | low | Collection should have a CHANGELOG file. | Yes | Yes | Yes | — |
 | L104 | low | Collection should have meta/runtime.yml. | Yes | Yes | Yes | — |
 | L105 | low | galaxy.yml should have a repository key. | Yes | Yes | Yes | — |
@@ -308,31 +308,27 @@
 | M026 | medium | Inventory variable names must be valid Python identifiers (enforced in 2.23) | Yes | — | Yes | — |
 | M027 | low | Mixing inline k=v arguments with args: mapping is deprecated (2.23) | Yes | — | Yes | — |
 | M029 | medium | Inventory scripts must include _meta.hostvars in JSON output (enforced in 2.23) | — | — | Yes | — |
-| M030 | medium | Conditional expressions that fail Jinja2 parsing will error in 2.23 instead of being silently ignored | Yes | — | Yes | — |
-| P001 | error | Validate module name (Ansible required). | — | Yes | Yes | — |
-| P002 | error | Validate module argument keys (Ansible required). | — | Yes | Yes | — |
-| P003 | error | Validate module argument values (Ansible required). | — | — | Yes | — |
-| P004 | error | Validate variables (Ansible required). | — | — | Yes | — |
+| M030 | medium | Conditional expressions that fail Jinja2 parsing will error in 2.23 instead of being silently ignored | Yes | Yes | Yes | — |
 | R101 | medium | Task executes parameterized command (annotation-based) | Yes | Yes | Yes | — |
 | R103 | medium | Task downloads and executes (annotation-based). | Yes | Yes | Yes | — |
 | R104 | medium | Download from unauthorized source (annotation-based). | Yes | Yes | Yes | — |
-| R105 | medium | Outbound transfer (annotation-based). | Yes | — | Yes | — |
-| R106 | medium | Inbound transfer (annotation-based). | Yes | — | Yes | — |
-| R107 | medium | Package install with insecure option (annotation-based). | Yes | — | Yes | — |
+| R105 | medium | Outbound transfer (annotation-based). | Yes | Yes | Yes | — |
+| R106 | medium | Inbound transfer (annotation-based). | Yes | Yes | Yes | — |
+| R107 | medium | Package install with insecure option (annotation-based). | Yes | Yes | Yes | — |
 | R108 | medium | Privilege escalation (annotation-based). | Yes | Yes | Yes | — |
-| R109 | medium | Key/config change (annotation-based). | Yes | — | Yes | — |
+| R109 | medium | Key/config change (annotation-based). | Yes | Yes | Yes | — |
 | R111 | medium | Parameterized role import (annotation-based). | Yes | Yes | Yes | — |
 | R112 | medium | Parameterized taskfile import (annotation-based). | Yes | Yes | Yes | — |
 | R113 | medium | Parameterized package install (annotation-based). | Yes | Yes | Yes | — |
 | R114 | medium | File change (annotation-based). | Yes | Yes | Yes | — |
-| R115 | medium | File deletion (annotation-based). | Yes | — | Yes | — |
-| R117 | info | Role is from Galaxy/external source. | Yes | — | Yes | — |
-| R401 | info | Report inbound transfer sources. | Yes | — | Yes | — |
-| R402 | medium | Report variables used at end of sequence. | — | — | Yes | — |
-| R404 | medium | Expose variable_set for the task. | — | — | Yes | — |
+| R115 | medium | File deletion (annotation-based). | Yes | Yes | Yes | — |
+| R117 | info | Role is from Galaxy/external source. | Yes | Yes | Yes | — |
+| R401 | info | Report inbound transfer sources. | Yes | Yes | Yes | — |
+| R402 | info | Report variables used at end of sequence. | — | Yes | Yes | — |
+| R404 | info | Expose variable_set for the task. | — | Yes | Yes | — |
 | R501 | medium | Suggest collection/role dependency. | — | — | Yes | — |
 
-### Ansible (7 rules, 7 impl, 6 tested, 4 fixers)
+### Ansible (11 rules, 7 impl, 9 tested, 4 fixers)
 
 | Rule ID | Severity | Description | Impl | Tested | Doc | Fixer |
 |---------|----------|-------------|------|--------|-----|-------|
@@ -342,7 +338,11 @@
 | M001 | high | FQCN resolution — module resolved to a different canonical name. | Yes | Yes | Yes | Yes |
 | M002 | high | Deprecated module — module has deprecation metadata. | Yes | Yes | Yes | Yes |
 | M003 | high | Module redirect — module name was redirected to a new FQCN. | Yes | Yes | Yes | Yes |
-| M004 | error | Removed module — tombstoned module that raises AnsiblePluginRemovedError. | Yes | — | Yes | Yes |
+| M004 | error | Removed module — tombstoned module that raises AnsiblePluginRemovedError. | Yes | Yes | Yes | Yes |
+| P001 | error | Validate module name (Ansible required). | — | Yes | Yes | — |
+| P002 | error | Validate module argument keys (Ansible required). | — | Yes | Yes | — |
+| P003 | error | Validate module argument values (Ansible required). | — | — | Yes | — |
+| P004 | error | Validate variables (Ansible required). | — | — | Yes | — |
 
 ### Gitleaks (1 rules, 1 impl, 1 tested, 0 fixers)
 
@@ -352,54 +352,20 @@
 
 ## Coverage Gaps
 
-### Doc-only rules (no implementation) — 9
+### Planned rules (implementation pending) — 3
 
-- **L031** (Native): File permission may be insecure (annotation-based).
-- **M029** (Native): Inventory scripts must include _meta.hostvars in JSON output (enforced in 2.23)
-- **P001** (Native): Validate module name (Ansible required).
-- **P002** (Native): Validate module argument keys (Ansible required).
-- **P003** (Native): Validate module argument values (Ansible required).
-- **P004** (Native): Validate variables (Ansible required).
-- **R402** (Native): Report variables used at end of sequence.
-- **R404** (Native): Expose variable_set for the task.
-- **R501** (Native): Suggest collection/role dependency.
+- **R402** (Native): Report variables used at end of sequence. — Informational/reporting rule requiring deeper graph analysis to enumerate all variables referenced across a task sequence. Planned for future implementation using VariableProvenanceResolver.
+- **R404** (Native): Expose variable_set for the task. — Informational/debug rule that would expose the resolved variable_set for each task. Disabled by default. Planned for future implementation using VariableProvenanceResolver.
+- **R501** (Native): Suggest collection/role dependency. — Advisory rule requiring collection dependency resolution context. The rule needs access to the Galaxy/collection index to suggest which collection provides an unresolved module. Planned for future implementation.
 
-### Implemented but untested — 34
+### Resolved without implementation — 6
 
-- **L032** (Native): Variable redefinition may cause confusion.
-- **L033** (Native): Overriding vars without conditions.
-- **L034** (Native): Lower-precedence override may be unused.
-- **L038** (Native): Role could not be resolved.
-- **L039** (Native): Variable use may be undefined.
-- **L054** (Native): Role meta galaxy_info should include galaxy_tags.
-- **L055** (Native): Role meta video_links should be valid URLs.
-- **L056** (Native): Path may match ignore pattern.
-- **L073** (Native): YAML should use 2-space indentation.
-- **L075** (Native): Template source files should use .j2 extension (ansible_managed best practice).
-- **L076** (Native): Use ansible_facts bracket notation instead of injected fact variables.
-- **L082** (Native): Template source files should use .j2 extension.
-- **L086** (Native): Avoid playbook/play vars for routine config; use inventory vars.
-- **L091** (Native): Use | bool for bare variables in when conditions.
-- **L092** (Native): Avoid loop variable references in task names.
-- **L093** (Native): Do not override role defaults/vars with set_fact.
-- **L094** (Native): Do not put dynamic dates in templates; breaks change detection.
-- **L097** (Native): Task names should be unique within a play.
-- **L101** (Native): Variable names must not collide with Ansible reserved names.
-- **L102** (Native): Do not set read-only Ansible variables.
-- **M004** (Ansible): Removed module — tombstoned module that raises AnsiblePluginRemovedError.
-- **M015** (Native): Use ansible_play_batch instead of deprecated play_hosts variable (removed in 2.23)
-- **M019** (Native): !!omap and !!pairs YAML tags are deprecated; standard YAML mappings preserve order in Python 3.7+ (2.23)
-- **M020** (Native): Use !vault instead of deprecated !vault-encrypted tag (2.23)
-- **M026** (Native): Inventory variable names must be valid Python identifiers (enforced in 2.23)
-- **M027** (Native): Mixing inline k=v arguments with args: mapping is deprecated (2.23)
-- **M030** (Native): Conditional expressions that fail Jinja2 parsing will error in 2.23 instead of being silently ignored
-- **R105** (Native): Outbound transfer (annotation-based).
-- **R106** (Native): Inbound transfer (annotation-based).
-- **R107** (Native): Package install with insecure option (annotation-based).
-- **R109** (Native): Key/config change (annotation-based).
-- **R115** (Native): File deletion (annotation-based).
-- **R117** (Native): Role is from Galaxy/external source.
-- **R401** (Native): Report inbound transfer sources.
+- **L031** (Native): [Stub] File permission may be insecure (annotation-based). — Covered by OPA rules L020/L021 which check file mode arguments directly. This annotation-based variant is retained as a placeholder for future annotation-driven detection (requires engine annotation pipeline).
+- **M029** (Native): [Stub] Inventory scripts must include _meta.hostvars in JSON output (enforced in 2.23) — Detection requires executing the inventory script at runtime to inspect its JSON output. Static analysis cannot determine _meta presence. Disabled by design until a runtime-analysis approach is approved.
+- **P001** (Ansible): [Delegated] Validate module name (Ansible required). — Emitted by the Ansible validator via find_plugin_with_context() argspec validation (L058/L059). Not a native GraphRule — the Ansible validator owns module name resolution.
+- **P002** (Ansible): [Delegated] Validate module argument keys (Ansible required). — Emitted by the Ansible validator via argspec validation (L058/L059). Not a native GraphRule — the Ansible validator owns module argument key validation using real module argspecs.
+- **P003** (Ansible): [Delegated] Validate module argument values (Ansible required). — Emitted by the Ansible validator via argspec validation (L058/L059). Not a native GraphRule — the Ansible validator owns module argument value validation using real module argspecs.
+- **P004** (Ansible): [Delegated] Validate variables (Ansible required). — Emitted by the Ansible validator via argspec validation (L058/L059). Not a native GraphRule — the Ansible validator owns variable validation in the context of module argument resolution.
 
 ### Implemented but undocumented — 1
 

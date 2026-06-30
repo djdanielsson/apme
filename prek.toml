@@ -93,6 +93,7 @@ hooks = [
     language = "python",
     language_version = "python3.10",
     entry = "python tools/generate_rule_catalog.py",
+    additional_dependencies = ["pyyaml"],
     files = '^src/apme_engine/validators/.+\.(py|rego|md)$|^src/apme_engine/remediation/transforms/',
     pass_filenames = false
   },

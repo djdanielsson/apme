@@ -50,7 +50,7 @@ dev = [
     "types-protobuf",
     "types-PyYAML",
     "grpc-stubs",
-    "grpcio-tools>=1.80.0",
+    "grpcio-tools>=1.81.1",
     "pytest-playwright",
     "pytest-xdist>=3.5",
 ]

@@ -80,6 +80,7 @@ class ViolationDetail(BaseModel):  # type: ignore[misc]
         node_line_start: File line where the node starts.
         ai_reason: Why the AI could not fix this violation (ai_abstained only).
         ai_suggestion: Manual remediation guidance from the AI (ai_abstained only).
+        audit_metadata: Parsed audit rule payloads when present.
         suppressed: True if this violation matches an active suppression (ADR-055).
     """
 
@@ -100,6 +101,7 @@ class ViolationDetail(BaseModel):  # type: ignore[misc]
     node_line_start: int = 0
     ai_reason: str = ""
     ai_suggestion: str = ""
+    audit_metadata: dict[str, object] | None = None
     suppressed: bool = False
 
 
