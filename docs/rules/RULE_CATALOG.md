@@ -6,7 +6,7 @@
 
 | Metric | Count |
 |--------|-------|
-| Implemented | 147/156 |
+| Implemented | 148/156 |
 | Tested | 151/156 |
 | Documented | 155/156 |
 | Deterministic fixer | 25/156 |
@@ -167,7 +167,7 @@
 | R117 | Native | info | Role is from Galaxy/external source. | Yes | Yes | Yes | — |
 | R118 | OPA | info | Task downloads from an external source (inbound transfer). | Yes | Yes | Yes | — |
 | R401 | Native | info | Report inbound transfer sources. | Yes | Yes | Yes | — |
-| R402 | Native | info | Report variables used at end of sequence. | — | Yes | Yes | — |
+| R402 | Native | info | Report variables used at end of sequence. | Yes | Yes | Yes | — |
 | R404 | Native | info | Expose variable_set for the task. | — | Yes | Yes | — |
 | R501 | Native | medium | Suggest collection/role dependency. | — | — | Yes | — |
 | SEC:* | Gitleaks | critical | Secret/credential detection (delegated to Gitleaks binary). | Yes | Yes | — | — |
@@ -228,7 +228,7 @@
 | M028 | high | first_found lookup auto-splitting paths on delimiters is deprecated (2.23) | Yes | Yes | Yes | — |
 | R118 | info | Task downloads from an external source (inbound transfer). | Yes | Yes | Yes | — |
 
-### Native (95 rules, 90 impl, 92 tested, 4 fixers)
+### Native (95 rules, 91 impl, 92 tested, 4 fixers)
 
 | Rule ID | Severity | Description | Impl | Tested | Doc | Fixer |
 |---------|----------|-------------|------|--------|-----|-------|
@@ -324,7 +324,7 @@
 | R115 | medium | File deletion (annotation-based). | Yes | Yes | Yes | — |
 | R117 | info | Role is from Galaxy/external source. | Yes | Yes | Yes | — |
 | R401 | info | Report inbound transfer sources. | Yes | Yes | Yes | — |
-| R402 | info | Report variables used at end of sequence. | — | Yes | Yes | — |
+| R402 | info | Report variables used at end of sequence. | Yes | Yes | Yes | — |
 | R404 | info | Expose variable_set for the task. | — | Yes | Yes | — |
 | R501 | medium | Suggest collection/role dependency. | — | — | Yes | — |
 
@@ -352,9 +352,8 @@
 
 ## Coverage Gaps
 
-### Planned rules (implementation pending) — 3
+### Planned rules (implementation pending) — 2
 
-- **R402** (Native): Report variables used at end of sequence. — Informational/reporting rule requiring deeper graph analysis to enumerate all variables referenced across a task sequence. Planned for future implementation using VariableProvenanceResolver.
 - **R404** (Native): Expose variable_set for the task. — Informational/debug rule that would expose the resolved variable_set for each task. Disabled by default. Planned for future implementation using VariableProvenanceResolver.
 - **R501** (Native): Suggest collection/role dependency. — Advisory rule requiring collection dependency resolution context. The rule needs access to the Galaxy/collection index to suggest which collection provides an unresolved module. Planned for future implementation.
 
