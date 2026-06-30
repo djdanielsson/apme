@@ -2,9 +2,14 @@ import { useState } from 'react';
 import { PageMasthead, PageThemeSwitcher, PageNotificationsIcon } from '@ansible/ansible-ui-framework';
 import { PageMastheadDropdown } from '@ansible/ansible-ui-framework/PageMasthead/PageMastheadDropdown';
 import {
-  AboutModal,
-  Content,
+  DescriptionList,
+  DescriptionListDescription,
+  DescriptionListGroup,
+  DescriptionListTerm,
   DropdownItem,
+  Modal,
+  ModalBody,
+  Title,
   ToolbarGroup,
   ToolbarItem,
 } from '@patternfly/react-core';
@@ -16,8 +21,11 @@ export function ApmeMasthead() {
   return (
     <PageMasthead
       brand={
-        <span style={{ fontWeight: 700, fontSize: 18, letterSpacing: 1.5 }}>
-          APME
+        <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <img src="/apme.svg" alt="" height={32} width={32} aria-hidden />
+          <span style={{ fontWeight: 700, fontSize: 18, letterSpacing: 1.5 }}>
+            APME
+          </span>
         </span>
       }
     >
@@ -49,24 +57,43 @@ export function ApmeMasthead() {
         </ToolbarItem>
       </ToolbarGroup>
 
-      <AboutModal
+      <Modal
+        className="apme-about-modal"
         isOpen={aboutOpen}
         onClose={() => setAboutOpen(false)}
-        trademark={`Copyright ${new Date().getFullYear()} Red Hat, Inc.`}
-        brandImageSrc=""
-        brandImageAlt="APME"
-        productName="APME"
+        variant="medium"
+        maxWidth="36rem"
+        aria-label="About APME"
       >
-        <Content>
-          <Content component="dl">
-            <Content component="dt">Version</Content>
-            <Content component="dd">{__APME_VERSION__}</Content>
-          </Content>
-          <Content component="p" style={{ marginTop: 16, opacity: 0.7 }}>
-            Ansible Policy &amp; Modernization Engine
-          </Content>
-        </Content>
-      </AboutModal>
+        <ModalBody className="apme-about-modal__body">
+          <div className="apme-about-modal__layout">
+            <div className="apme-about-modal__brand">
+              <img
+                className="apme-about-modal__logo"
+                src="/apme.svg"
+                alt="APME logo"
+              />
+              <p className="apme-about-modal__copyright">
+                Copyright {new Date().getFullYear()} Red Hat, Inc.
+              </p>
+            </div>
+            <div className="apme-about-modal__info">
+              <Title headingLevel="h1" size="2xl">
+                APME
+              </Title>
+              <p className="apme-about-modal__tagline">
+                Ansible Policy &amp; Modernization Engine
+              </p>
+              <DescriptionList isHorizontal isCompact>
+                <DescriptionListGroup>
+                  <DescriptionListTerm>Version</DescriptionListTerm>
+                  <DescriptionListDescription>{__APME_VERSION__}</DescriptionListDescription>
+                </DescriptionListGroup>
+              </DescriptionList>
+            </div>
+          </div>
+        </ModalBody>
+      </Modal>
     </PageMasthead>
   );
 }
