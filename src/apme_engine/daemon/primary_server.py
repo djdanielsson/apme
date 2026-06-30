@@ -77,6 +77,7 @@ from apme_engine.daemon.fs_utils import write_chunked_fs as _write_chunked_fs
 from apme_engine.daemon.session import ResourceExhaustedError, SessionState, SessionStore
 from apme_engine.daemon.violation_convert import violation_dict_to_proto, violation_proto_to_dict
 from apme_engine.engine.models import RemediationClass, ViolationDict
+from apme_engine.graph.scanner import graph_rule_opt_in_from_rule_configs
 from apme_engine.log_bridge import attach_collector
 from apme_engine.remediation.graph_engine import FilePatch as SplicedFilePatch
 from apme_engine.runner import run_scan
@@ -1058,6 +1059,7 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
             session_id=sid,
             venv_path=venv_path,
             content_graph_data=content_graph_data,
+            graph_rule_opt_in=graph_rule_opt_in_from_rule_configs(rule_configs),
         )
 
         _pcb = progress_callback
@@ -1721,6 +1723,7 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
             _heartbeat=_heartbeat,
             format_content=format_content,
             format_diffs=format_diffs,
+            rule_configs=scan_rule_configs or None,
         ):
             yield event
 
@@ -1740,6 +1743,7 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
         _heartbeat: Callable[[], Awaitable[None]],
         format_content: Callable[..., object],
         format_diffs: Sequence[object],
+        rule_configs: list[object] | None = None,
     ) -> AsyncIterator[SessionEvent]:
         """Graph-engine remediation — in-memory convergence, graph-authoritative.
 
@@ -1765,6 +1769,7 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
             _heartbeat: Coroutine factory for periodic heartbeats.
             format_content: Formatter function for post-remediation pass.
             format_diffs: Accumulated format diffs from earlier step.
+            rule_configs: Per-rule overrides for opt-in audit GraphRules.
 
         Yields:
             SessionEvent: Progress, Tier1Summary, and result events.
@@ -1772,6 +1777,7 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
         from apme_engine.engine.graph_opa_payload import content_node_to_opa_dict
         from apme_engine.graph.content_graph import ContentGraph, EdgeType, NodeType
         from apme_engine.graph.scanner import (
+            graph_rule_opt_in_from_rule_configs,
             load_graph_rules,
             native_rules_dir,
         )
@@ -1803,7 +1809,15 @@ class PrimaryServicer(primary_pb2_grpc.PrimaryServicer):
         originals = await loop.run_in_executor(None, _load_yaml_originals, yaml_paths, temp_dir)
 
         # 2. Convergence: all validators on dirty nodes via gRPC
-        rules = load_graph_rules(rules_dir=native_rules_dir())
+        rules, missing_opt_in = load_graph_rules(
+            rules_dir=native_rules_dir(),
+            opt_in_rule_ids=graph_rule_opt_in_from_rule_configs(rule_configs),
+        )
+        if missing_opt_in:
+            logger.warning(
+                "Remediation: requested opt-in graph rules failed to load: %s",
+                ", ".join(missing_opt_in),
+            )
 
         async def _rescan_bridge(
             g: ContentGraph,
