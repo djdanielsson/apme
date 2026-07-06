@@ -1010,3 +1010,63 @@
   gap: 16px;
   padding: 0 24px 24px;
 }
+
+/* ── About modal ─────────────────────────────────────── */
+
+.apme-about-modal.pf-v6-c-modal-box {
+  --pf-v6-c-modal-box--BackgroundColor: var(--pf-t--global--background--color--primary--default);
+}
+
+.apme-about-modal__body {
+  padding-block-start: var(--pf-t--global--spacer--xl);
+}
+
+.apme-about-modal__layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--pf-t--global--spacer--xl);
+  align-items: center;
+}
+
+.apme-about-modal__brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--pf-t--global--spacer--lg);
+}
+
+.apme-about-modal__logo {
+  width: min(14rem, 100%);
+  height: auto;
+}
+
+.apme-about-modal__copyright {
+  margin: 0;
+  font-size: var(--pf-t--global--font--size--body--sm);
+  color: var(--pf-t--global--text--color--subtle);
+  text-align: center;
+}
+
+.apme-about-modal__info {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pf-t--global--spacer--md);
+  min-width: 0;
+}
+
+.apme-about-modal__tagline {
+  margin: 0;
+  color: var(--pf-t--global--text--color--subtle);
+}
+
+@media (max-width: 36rem) {
+  .apme-about-modal__layout {
+    grid-template-columns: 1fr;
+    text-align: center;
+  }
+
+  .apme-about-modal__info {
+    align-items: center;
+  }
+}
