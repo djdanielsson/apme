@@ -81,6 +81,7 @@ def test_collect_all_rules_registers_disabled_by_default_audit_rules() -> None:
         assert by_id[rule_id].enabled is False, f"{rule_id} must remain disabled by default in catalog"
         assert by_id[rule_id].source == "native"
     assert "R402" in by_id, "R402 must be registered in collect_all_rules()"
+    assert "R404" in by_id, "R404 must be registered in collect_all_rules()"
 
 
 def test_collect_gitleaks_rules_sec_placeholder_critical() -> None:
