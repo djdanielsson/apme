@@ -71,6 +71,18 @@ def test_collect_all_rules_non_empty_and_fields() -> None:
     assert ids == sorted(ids), "collect_all_rules must return rules sorted by rule_id"
 
 
+def test_collect_all_rules_registers_disabled_by_default_audit_rules() -> None:
+    """Disabled-by-default audit rules in the catalog have ``enabled=False`` for ADR-041 opt-in."""
+    from apme_engine.engine.graph_scanner import DISABLED_BY_DEFAULT_GRAPH_RULE_IDS
+
+    rules = collect_all_rules()
+    by_id = {r.rule_id: r for r in rules}
+    for rule_id in sorted(DISABLED_BY_DEFAULT_GRAPH_RULE_IDS & by_id.keys()):
+        assert by_id[rule_id].enabled is False, f"{rule_id} must remain disabled by default in catalog"
+        assert by_id[rule_id].source == "native"
+    assert "R402" in by_id, "R402 must be registered in collect_all_rules()"
+
+
 def test_collect_gitleaks_rules_sec_placeholder_critical() -> None:
     """Gitleaks contributes a single ``SEC:*`` placeholder with critical severity.
 
