@@ -79,6 +79,7 @@ Decisions under consideration — not yet accepted or implemented.
 | [ADR-052](ADR-052-project-operation-sse-architecture.md) | Project Operation SSE Architecture | 2026-04-14 |
 | [ADR-055](ADR-055-violation-fingerprint-suppression.md) | Content-Based Violation Fingerprinting and Suppression | 2026-05-21 |
 | [ADR-056](ADR-056-apme-owns-scm-commit-push.md) | APME Owns SCM Commit and Push | 2026-07-06 |
+| [ADR-058](ADR-058-collection-dependency-suggestion.md) | Collection Dependency Suggestion for Unresolved Modules (R501) | 2026-06-23 |
 
 ## Superseded
 
@@ -92,7 +93,7 @@ Decisions replaced by newer ADRs.
 ## Creating New ADRs
 
 1. Copy the template from `../templates/adr.md`
-2. Use the next available number (currently ADR-058)
+2. Use the next available number (currently ADR-059)
 3. Include:
    - Status (Proposed → Accepted → Implemented)
    - Date
