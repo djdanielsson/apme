@@ -6,8 +6,9 @@ path-aware extractor (``_extract_jinja_vars``) because it must match dotted
 paths such as ``vault.db_password``; the shared extractors intentionally return
 root identifiers only.
 
-Sensitivity/redaction helpers (``var_looks_sensitive``, ``value_looks_sensitive``,
-``no_log_true_in_scope``) are shared by L110 and R404.
+``no_log_true_in_scope`` is shared by L110 and R404.  Sensitivity name/value
+checks (``var_looks_sensitive``, ``value_looks_sensitive``) live in
+``apme_engine.engine.sensitivity`` and are imported directly by L110/R404.
 """
 
 from __future__ import annotations
