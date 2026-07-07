@@ -29,6 +29,7 @@ spec:
       http:
         paths:
           {{- range .paths }}
+          {{- if or (ne .service "ui") $.Values.ui.enabled }}
           - path: {{ .path }}
             pathType: {{ .pathType }}
             backend:
@@ -44,6 +45,7 @@ spec:
                 {{- else }}
                 {{- fail (printf "unsupported ingress path service %q: expected gateway or ui" .service) }}
                 {{- end }}
+          {{- end }}
           {{- end }}
     {{- end }}
 {{- end }}

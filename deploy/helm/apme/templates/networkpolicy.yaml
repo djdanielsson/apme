@@ -50,6 +50,7 @@ spec:
       ports:
         - port: 50060
           protocol: TCP
+    {{- if .Values.ui.enabled }}
     - from:
         - podSelector:
             matchLabels:
@@ -58,10 +59,12 @@ spec:
       ports:
         - port: 8080
           protocol: TCP
+    {{- end }}
     - ports:
         - port: 8080
           protocol: TCP
 ---
+{{- if .Values.ui.enabled }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -80,4 +83,5 @@ spec:
     - ports:
         - port: 8081
           protocol: TCP
+{{- end }}
 {{- end }}

@@ -129,11 +129,14 @@ gateway:
     githubToken: ""
 
 # -- UI (nginx-served React SPA)
+# Set enabled: false when an external presentation layer (e.g. Ansible
+# automation portal / Backstage) consumes the Gateway API instead.
 # The stock nginx image requires writable /var/run, /var/cache/nginx, and
 # /etc/nginx/conf.d.  The chart mounts emptyDir volumes for these paths so
 # the container works under OCP restricted-v2 SCC (arbitrary non-root UID).
 # For a proper long-term fix, rebuild the image on nginxinc/nginx-unprivileged.
 ui:
+  enabled: true
   replicas: 1
   securityContext: {}
   resources:
