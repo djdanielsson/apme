@@ -2,6 +2,7 @@
 {{- if not (.Capabilities.APIVersions.Has "route.openshift.io/v1") }}
 {{- fail "route.enabled is true but the cluster does not provide the route.openshift.io/v1 API (not an OpenShift cluster?)" }}
 {{- end }}
+{{- if .Values.ui.enabled }}
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
@@ -29,6 +30,7 @@ spec:
     insecureEdgeTerminationPolicy: {{ .Values.route.tls.insecureEdgeTerminationPolicy | default "Redirect" }}
     {{- end }}
 ---
+{{- end }}
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
@@ -44,7 +46,9 @@ spec:
   {{- if .Values.route.host }}
   host: {{ .Values.route.host }}
   {{- end }}
+  {{- if .Values.ui.enabled }}
   path: /api
+  {{- end }}
   to:
     kind: Service
     name: {{ include "apme.fullname" . }}-gateway
