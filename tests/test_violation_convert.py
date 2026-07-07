@@ -436,6 +436,93 @@ class TestRoundTrip:
         assert result["node_line_start"] == original["node_line_start"]
 
 
+class TestAnsibleCoreVersionMetadata:
+    """Tests for ansible_core_version injection into violation metadata (ADR-057)."""
+
+    def test_m_rule_gets_version_in_metadata(self) -> None:
+        """M-rule violations carry ansible_core_version in metadata map.
+
+        Returns:
+            None: Assert-only test.
+        """
+        v: ViolationDict = {"rule_id": "M008", "severity": "high", "message": "bare include"}
+        proto = violation_dict_to_proto(v)
+        assert "ansible_core_version" in proto.metadata
+        assert proto.metadata["ansible_core_version"] == ">=2.19"
+
+    def test_l_rule_has_no_version_in_metadata(self) -> None:
+        """Non-M rules do not get ansible_core_version in metadata.
+
+        Returns:
+            None: Assert-only test.
+        """
+        v: ViolationDict = {"rule_id": "L021", "severity": "low", "message": "test"}
+        proto = violation_dict_to_proto(v)
+        assert "ansible_core_version" not in proto.metadata
+
+    def test_version_metadata_round_trips(self) -> None:
+        """ansible_core_version survives proto -> dict conversion.
+
+        Returns:
+            None: Assert-only test.
+        """
+        v: ViolationDict = {"rule_id": "M014", "severity": "medium"}
+        proto = violation_dict_to_proto(v)
+        result = violation_proto_to_dict(proto)
+        assert result.get("ansible_core_version") == ">=2.24"
+
+    def test_version_metadata_different_rules(self) -> None:
+        """Different M rules get their correct version specifiers.
+
+        Returns:
+            None: Assert-only test.
+        """
+        for rule_id, expected in [("M005", ">=2.19"), ("M022", ">=2.23"), ("M024", ">=2.24")]:
+            proto = violation_dict_to_proto({"rule_id": rule_id})
+            assert proto.metadata.get("ansible_core_version") == expected, f"{rule_id} should have version {expected}"
+
+    def test_explicit_version_preserved_over_table(self) -> None:
+        """Explicit ansible_core_version in dict is preserved, not overwritten by table.
+
+        Returns:
+            None: Assert-only test.
+        """
+        v: ViolationDict = {
+            "rule_id": "M014",
+            "ansible_core_version": ">=2.25",
+        }
+        proto = violation_dict_to_proto(v)
+        assert proto.metadata["ansible_core_version"] == ">=2.25"
+
+    def test_plugin_rule_version_preserved(self) -> None:
+        """Plugin rules (not in VERSION_DEFAULTS) preserve their dict version.
+
+        Returns:
+            None: Assert-only test.
+        """
+        v: ViolationDict = {
+            "rule_id": "EXT-001",
+            "ansible_core_version": ">=2.20",
+        }
+        proto = violation_dict_to_proto(v)
+        assert proto.metadata["ansible_core_version"] == ">=2.20"
+        result = violation_proto_to_dict(proto)
+        assert result["ansible_core_version"] == ">=2.20"
+
+    def test_empty_string_version_falls_back_to_table(self) -> None:
+        """Empty-string ansible_core_version is treated as absent; table fills in.
+
+        Returns:
+            None: Assert-only test.
+        """
+        v: ViolationDict = {
+            "rule_id": "M014",
+            "ansible_core_version": "",
+        }
+        proto = violation_dict_to_proto(v)
+        assert proto.metadata["ansible_core_version"] == ">=2.24"
+
+
 class TestStringLineParsing:
     """Tests for string line format parsing in violation_dict_to_proto."""
 

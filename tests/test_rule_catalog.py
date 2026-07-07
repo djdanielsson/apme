@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
+from packaging.specifiers import SpecifierSet
 
 from apme.v1 import common_pb2, primary_pb2, reporting_pb2
 from apme_engine.daemon.primary_server import (
@@ -83,6 +84,37 @@ def test_collect_gitleaks_rules_sec_placeholder_critical() -> None:
     assert r.default_severity == common_pb2.SEVERITY_CRITICAL, "gitleaks placeholder must use CRITICAL default severity"
     assert r.category == "secrets", "gitleaks rules must be categorized as secrets"
     assert r.source == "gitleaks", "gitleaks placeholder source must be gitleaks"
+
+
+def test_m_rules_have_ansible_core_version() -> None:
+    """M-series rules in the catalog carry ``ansible_core_version`` metadata (ADR-057).
+
+    Returns:
+        None: Assert-only test.
+    """
+    rules = collect_all_rules()
+    m_rules = [r for r in rules if r.rule_id.startswith("M")]
+    assert len(m_rules) > 0, "catalog should contain at least one M-rule"
+    for r in m_rules:
+        assert r.ansible_core_version, f"M-rule {r.rule_id!r} must have ansible_core_version set"
+        try:
+            parsed = SpecifierSet(r.ansible_core_version)
+        except Exception as exc:
+            pytest.fail(f"M-rule {r.rule_id!r} has invalid PEP 440 specifier {r.ansible_core_version!r}: {exc}")
+        assert len(parsed) > 0, f"M-rule {r.rule_id!r} specifier must be non-empty, got {r.ansible_core_version!r}"
+
+
+def test_non_m_rules_have_empty_ansible_core_version() -> None:
+    """Non-M rules should have empty ``ansible_core_version`` (version-agnostic).
+
+    Returns:
+        None: Assert-only test.
+    """
+    rules = collect_all_rules()
+    non_m = [r for r in rules if not r.rule_id.startswith("M")]
+    assert len(non_m) > 0, "catalog should contain non-M rules"
+    for r in non_m:
+        assert r.ansible_core_version == "", f"non-M rule {r.rule_id!r} should have empty ansible_core_version"
 
 
 def test_apply_rule_configs_filters_disabled_rule() -> None:
