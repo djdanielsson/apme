@@ -18,6 +18,15 @@ def test_redact_url_userinfo_strips_credentials() -> None:
     assert redact_url_userinfo(raw) == "https://[REDACTED]@example.com/path"
 
 
+def test_redact_url_userinfo_password_with_at_sign() -> None:
+    """Passwords containing @ are fully redacted (userinfo ends at host delimiter)."""
+    raw = "https://user:p@ss@example.com/path"
+    redacted = redact_url_userinfo(raw)
+    assert redacted == "https://[REDACTED]@example.com/path"
+    assert "p@ss" not in redacted
+    assert "ss@" not in redacted
+
+
 def test_build_audit_metadata_blob_decodes_proto_strings() -> None:
     """Gateway persistence decodes per-key JSON metadata once."""
     payload = [{"name": "x", "source": "play"}]

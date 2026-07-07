@@ -50,7 +50,7 @@ _OPAQUE_TOKEN_RE = re.compile(
     r")"
 )
 _WORD_BOUNDARY_RE = re.compile(r"(?:^|[_.'\"\[])({})(?:[_.'\"\[\]]|$)".format("|".join(_SENSITIVE_WORDS)))
-_URL_USERINFO_RE = re.compile(r"^([^:]+)://([^/@]+):([^/@]+)@")
+_URL_USERINFO_RE = re.compile(r"^([^:/]+)://([^/]*)@")
 
 
 def redact_url_userinfo(url: str) -> str:
