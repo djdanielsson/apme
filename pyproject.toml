@@ -17,7 +17,7 @@ dependencies = [
     "rapidfuzz",
     "joblib",
     "grpcio>=1.80.0",
-    "grpcio-health-checking>=1.80.0",
+    "grpcio-health-checking>=1.80.0,<1.82",
     "protobuf>=6.31.1,<7",
     "networkx>=3.1",
     "httpx",
@@ -40,7 +40,7 @@ gateway = [
     "python-multipart>=0.0.31",
 ]
 dev = [
-    "pytest",
+    "pytest>=9.0.3",
     "pytest-cov",
     "pytest-mock",
     "pytest-asyncio>=0.24",
@@ -56,7 +56,7 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["tests", "src/apme_engine/validators/native/rules"]
+testpaths = ["tests", "src/apme_engine/graph/rules"]
 norecursedirs = ["tests/fixtures"]
 pythonpath = ["src"]
 addopts = "-v --tb=short -m 'not integration and not ui'"
@@ -200,6 +200,7 @@ where = ["src"]
 [tool.setuptools.package-data]
 "apme_engine.engine" = ["*.txt", "*.json"]
 "apme_engine.engine.annotators" = ["ansible.builtin/*.py"]
+"apme_engine.graph.rules" = ["*.md", "*.json"]
 "apme_engine.validators.opa" = ["bundle/*.rego", "bundle/*.json", "bundle/*.md"]
 "apme_engine.data" = ["*.yml", "*.yaml"]
 "galaxy_proxy" = ["py.typed"]
@@ -207,8 +208,18 @@ where = ["src"]
 [tool.uv]
 constraint-dependencies = [
     "cryptography>=48.0.1",
+    "idna>=3.15",
     "msgpack>=1.2.1",
+    "pip>=26.1",
+    "pygments>=2.20.0",
+    "requests>=2.33.0",
+    "urllib3>=2.7.0",
 ]
 
 [tool.uv.workspace]
 members = []
+
+[dependency-groups]
+dev = [
+    "ansible-dev-tools>=25.10.0",
+]

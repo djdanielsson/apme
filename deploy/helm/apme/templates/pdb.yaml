@@ -27,6 +27,7 @@ spec:
       {{- include "apme.selectorLabels" . | nindent 6 }}
       app.kubernetes.io/component: gateway
 ---
+{{- if .Values.ui.enabled }}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
@@ -40,4 +41,5 @@ spec:
     matchLabels:
       {{- include "apme.selectorLabels" . | nindent 6 }}
       app.kubernetes.io/component: ui
+{{- end }}
 {{- end }}

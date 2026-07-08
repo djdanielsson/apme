@@ -12,7 +12,9 @@ Components deployed:
   - Dependency Audit validator
 {{- end }}
   - Gateway (REST API + gRPC reporting)
+{{- if .Values.ui.enabled }}
   - UI (React SPA)
+{{- end }}
 {{- if .Values.abbenay.enabled }}
   - Abbenay AI provider
 {{- end }}
@@ -21,8 +23,12 @@ Components deployed:
 
 OpenShift Routes:
 {{- if .Values.route.host }}
+{{- if .Values.ui.enabled }}
   UI:      https://{{ .Values.route.host }}/
   API:     https://{{ .Values.route.host }}/api
+{{- else }}
+  API:     https://{{ .Values.route.host }}/
+{{- end }}
 {{- else }}
   Route hosts are auto-assigned by OpenShift and may differ per Route.
   To view the actual hosts, run:
@@ -37,6 +43,7 @@ Ingress:
 {{- else }}
 
 No Ingress or Route is enabled.
+{{- if .Values.ui.enabled }}
 
 UI port-forward (static assets only):
   kubectl port-forward svc/{{ include "apme.fullname" . }}-ui 8081:8081
@@ -46,6 +53,7 @@ NOTE: The UI makes same-origin requests to /api/v1/... which will not
 reach the Gateway when only the UI Service is port-forwarded.
 For a fully functional browser UI, enable Ingress or an OpenShift Route
 so that /api is routed to the Gateway Service.
+{{- end }}
 
 Access the Gateway API directly via port-forward:
   kubectl port-forward svc/{{ include "apme.fullname" . }}-gateway 8080:8080

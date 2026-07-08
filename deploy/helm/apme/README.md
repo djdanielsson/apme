@@ -45,7 +45,9 @@ helm install apme ./deploy/helm/apme/ \
 - **Engine Deployment**: All validators run as sidecars in one pod. HPA scales
   the entire engine stack together.
 - **Gateway Deployment**: REST API + gRPC Reporting + SQLite persistence.
-- **UI Deployment**: nginx-served React SPA, proxies `/api/` to Gateway.
+- **UI Deployment** (optional): nginx-served React SPA, proxies `/api/` to Gateway.
+  Disable with `ui.enabled: false` when an external UI (e.g. automation portal)
+  consumes the Gateway API.
 - **Abbenay Deployment** (optional): AI provider for Tier 2 remediation.
 
 ## Key values
@@ -59,6 +61,8 @@ helm install apme ./deploy/helm/apme/ \
 | `collectionHealth.enabled` | `true` | Enable Collection Health validator |
 | `depAudit.enabled` | `true` | Enable Dependency Audit validator |
 | `gateway.replicas` | `1` | Gateway replicas |
+| `ui.enabled` | `true` | Deploy standalone UI (set `false` for portal-only) |
+| `ui.replicas` | `1` | UI replicas (when `ui.enabled`) |
 | `abbenay.enabled` | `false` | Enable AI provider |
 | `abbenay.token` | `""` | Abbenay service token (required when `abbenay.enabled=true`) |
 | `abbenay.image` | `ghcr.io/redhat-developer/abbenay:2026.4.1-alpha` | Abbenay image |
@@ -111,6 +115,28 @@ route:
 ```
 
 When `host` is empty, OpenShift auto-assigns separate hosts per Route.
+
+### Portal / external UI (backend only)
+
+When automation portal or another Backstage instance is the presentation
+layer, deploy APME without the standalone UI and expose only the Gateway:
+
+```yaml
+ui:
+  enabled: false
+
+image:
+  registry: quay.io/your-org
+  tag: sha-7cb2464
+
+route:
+  enabled: true
+  host: apme-api.apps.ocp.example.com
+```
+
+With `ui.enabled: false`, the API Route serves the Gateway at `/` (no `/api`
+path prefix). Portal plugins should reach the Gateway via in-cluster DNS,
+e.g. `http://<release>-gateway:8080`.
 
 ## Scaling
 

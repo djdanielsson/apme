@@ -5,7 +5,7 @@ from collections.abc import Mapping
 from apme.v1 import common_pb2
 from apme.v1.common_pb2 import LineRange, Violation
 from apme_engine.engine.models import RemediationClass, RemediationResolution, RuleScope, ViolationDict
-from apme_engine.severity_defaults import (
+from apme_engine.graph.severity import (
     Severity,
     get_severity,
     severity_from_label,
@@ -13,6 +13,7 @@ from apme_engine.severity_defaults import (
     severity_to_label,
     severity_to_proto,
 )
+from apme_engine.version_defaults import get_version_spec_str
 
 _COMMON_KEYS = frozenset(
     {
@@ -51,6 +52,7 @@ _METADATA_KEYS = frozenset(
         "dep_fix_versions",
         "ai_reason",
         "ai_suggestion",
+        "ansible_core_version",
     }
 )
 
@@ -219,6 +221,11 @@ def violation_dict_to_proto(v: ViolationDict | Mapping[str, str | int | list[int
                 out.metadata[key] = ",".join(str(x) for x in val)
             else:
                 out.metadata[key] = str(val)
+
+    if not out.metadata.get("ansible_core_version"):
+        version_spec = get_version_spec_str(out.rule_id)
+        if version_spec:
+            out.metadata["ansible_core_version"] = version_spec
 
     return out
 

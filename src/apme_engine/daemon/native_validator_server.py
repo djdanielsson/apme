@@ -18,14 +18,14 @@ from apme.v1 import common_pb2, validate_pb2, validate_pb2_grpc
 from apme.v1.common_pb2 import HealthResponse, ValidatorDiagnostics
 from apme.v1.validate_pb2 import ValidateResponse
 from apme_engine.daemon.violation_convert import violation_dict_to_proto
-from apme_engine.engine.content_graph import ContentGraph
-from apme_engine.engine.graph_scanner import (
+from apme_engine.engine.models import ViolationDict
+from apme_engine.graph.content_graph import ContentGraph
+from apme_engine.graph.scanner import (
     GraphScanReport,
     graph_report_to_violations,
     load_graph_rules,
 )
-from apme_engine.engine.graph_scanner import scan as graph_scan
-from apme_engine.engine.models import ViolationDict
+from apme_engine.graph.scanner import scan as graph_scan
 from apme_engine.log_bridge import attach_collector
 
 logger = logging.getLogger("apme.native")
@@ -50,9 +50,11 @@ def _default_rules_dir() -> str:
     """Return default path to the native rules directory.
 
     Returns:
-        Absolute path to ``validators/native/rules``.
+        Absolute path to ``graph/rules`` (ADR-059).
     """
-    return os.path.join(os.path.dirname(os.path.dirname(__file__)), "validators", "native", "rules")
+    from apme_engine.graph.scanner import native_rules_dir  # noqa: PLC0415
+
+    return native_rules_dir()
 
 
 def _run_graph(raw_graph_data: bytes) -> _GraphRunResult:

@@ -57,7 +57,7 @@ from apme.v1.primary_pb2 import (
     SessionCommand,
 )
 from apme_engine.daemon.chunked_fs import yield_scan_chunks
-from apme_engine.severity_defaults import severity_from_proto, severity_to_label
+from apme_engine.graph.severity import severity_from_proto, severity_to_label
 from apme_gateway.db import get_session
 from apme_gateway.db.queries import list_rules_with_resolved_config
 
@@ -488,7 +488,7 @@ async def handle_session(
 
             ansible_version: str = options.get("ansible_version", "")
             collections: list[str] = options.get("collections", [])
-            enable_ai: bool = options.get("enable_ai", True)
+            enable_ai: bool = options.get("enable_ai", False)
             ai_model: str = options.get("ai_model", "")
 
             scan_id = str(uuid.uuid4())

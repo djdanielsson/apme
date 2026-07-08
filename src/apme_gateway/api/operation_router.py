@@ -1,7 +1,7 @@
 """REST + SSE endpoints for project operations (ADR-052).
 
 Provides ``POST``, ``GET``, ``POST /approve``, ``POST /cancel``,
-``POST /create-pr``, and ``GET /events`` under
+``POST /submit``, and ``GET /events`` under
 ``/api/v1/projects/{project_id}/operation``.
 """
 
@@ -11,20 +11,25 @@ import asyncio
 import contextlib
 import json
 import logging
+import time
 import uuid
+from collections.abc import Sequence
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from apme_engine.severity_defaults import severity_from_proto, severity_to_label
+from apme_engine.graph.severity import severity_from_proto, severity_to_label
+from apme_gateway.api.schemas import SubmitRequest, SubmitResponse
 from apme_gateway.db import get_session
 from apme_gateway.db import queries as q
+from apme_gateway.db.models import PatchedFile, Scan
 from apme_gateway.operation_registry import _now_iso, get_operation_registry
 from apme_gateway.operation_types import (
     TERMINAL_STATUSES,
     OperationResult,
+    OperationState,
     OperationStatus,
     ProgressEntry,
     Proposal,
@@ -218,105 +223,215 @@ async def cancel_operation(project_id: str) -> dict[str, str]:
     return {"status": "cancelled"}
 
 
-@operation_router.post("/create-pr")  # type: ignore[untyped-decorator]
-async def create_pr_from_operation(project_id: str) -> dict[str, Any]:
-    """Create a pull request from a completed remediation.
+@operation_router.post("/submit")  # type: ignore[untyped-decorator]
+async def submit_operation(
+    project_id: str,
+    body: SubmitRequest | None = None,
+) -> SubmitResponse:
+    """Push patched files to a branch and optionally open a PR (ADR-050).
 
-    Delegates to the existing ``/activity/{id}/pull-request`` logic
-    internally — the scan must be persisted already.
+    This is the unified SCM submit endpoint that replaces the former
+    ``/activity/{id}/pull-request`` and ``/operation/create-pr`` endpoints.
+
+    Two modes:
+
+    - **Live operation** (no ``activity_id``): uses the in-memory
+      ``OperationRegistry`` for the project — requires a completed
+      remediation operation.
+    - **Historical activity** (``activity_id`` provided): loads patched
+      files from the database — works for any past remediation that still
+      has stored patches.
 
     Args:
         project_id: Target project UUID.
+        body: Optional submit options (branch name, create_pr flag, etc.).
 
     Returns:
-        PR URL and metadata.
+        Branch, commit SHA, optional PR URL, and provider.
 
     Raises:
-        HTTPException: 404/409/422 depending on state.
+        HTTPException: 404/409/422/502 depending on state.
     """
     from apme_gateway.config import load_config
     from apme_gateway.scm import detect_provider, get_provider
 
-    registry = get_operation_registry()
-    state = registry.get_by_project(project_id)
-    if state is None:
-        raise HTTPException(status_code=404, detail="No operation for this project")
-    if state.status != OperationStatus.COMPLETED:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Cannot create PR: operation is '{state.status.value}', not 'completed'",
-        )
-    if state.scan_type != "remediate":
-        raise HTTPException(status_code=409, detail="PR creation requires a remediate operation")
-    if not state.result or not state.result.patches:
-        raise HTTPException(status_code=409, detail="No patches available for PR creation")
-
-    registry.transition(state.operation_id, OperationStatus.SUBMITTING_PR)
+    if body is None:
+        body = SubmitRequest()
 
     cfg = load_config()
 
-    async with get_session() as db:
-        scan = await q.get_scan(db, state.scan_id)
-        if scan is None:
-            registry.transition(state.operation_id, OperationStatus.COMPLETED)
-            raise HTTPException(status_code=404, detail="Scan not persisted yet")
-        if scan.pr_url:
-            registry.set_pr_url(state.operation_id, scan.pr_url)
-            return {"pr_url": scan.pr_url, "status": "already_created"}
+    if body.activity_id:
+        scan_id, state = body.activity_id, None
+    else:
+        scan_id, state = _resolve_live_operation(project_id)
 
-        project = await q.get_project(db, state.project_id)
+    async with get_session() as db:
+        scan = await q.get_scan(db, scan_id)
+        if scan is None:
+            if state:
+                registry = get_operation_registry()
+                registry.transition(state.operation_id, OperationStatus.COMPLETED)
+            raise HTTPException(status_code=404, detail="Activity not found")
+
+        if body.activity_id and scan.project_id != project_id:
+            raise HTTPException(
+                status_code=404,
+                detail="Activity does not belong to this project",
+            )
+
+        if body.activity_id and scan.scan_type != "remediate":
+            raise HTTPException(
+                status_code=409,
+                detail="Submit requires a remediate activity",
+            )
+
+        if scan.pr_url:
+            if state:
+                get_operation_registry().set_pr_url(state.operation_id, scan.pr_url)
+            raise HTTPException(
+                status_code=409,
+                detail=f"PR already created for this activity: {scan.pr_url}",
+            )
+
+        project = await q.get_project(db, project_id)
         if project is None:
-            registry.transition(state.operation_id, OperationStatus.COMPLETED)
+            if state:
+                get_operation_registry().transition(
+                    state.operation_id,
+                    OperationStatus.COMPLETED,
+                )
             raise HTTPException(status_code=404, detail="Project not found")
 
-        patched = await q.get_patched_files(db, state.scan_id)
+        patched = await q.get_patched_files(db, scan_id)
         if not patched:
-            registry.transition(state.operation_id, OperationStatus.COMPLETED)
+            if state:
+                get_operation_registry().transition(
+                    state.operation_id,
+                    OperationStatus.COMPLETED,
+                )
             raise HTTPException(status_code=404, detail="No patched files found")
 
-    token = project.scm_token or cfg.scm_token
+    if state:
+        get_operation_registry().transition(
+            state.operation_id,
+            OperationStatus.SUBMITTING_PR,
+        )
+
+    inline_token = body.scm_token.strip() if body.scm_token else None
+    token = inline_token or project.scm_token or cfg.scm_token
     if not token:
-        registry.transition(state.operation_id, OperationStatus.COMPLETED)
+        if state:
+            get_operation_registry().transition(
+                state.operation_id,
+                OperationStatus.COMPLETED,
+            )
         raise HTTPException(status_code=422, detail="No SCM token configured")
 
     provider_type = project.scm_provider or detect_provider(project.repo_url)
     if not provider_type:
-        registry.transition(state.operation_id, OperationStatus.COMPLETED)
-        raise HTTPException(status_code=422, detail=f"Cannot detect SCM provider from URL: {project.repo_url}")
+        if state:
+            get_operation_registry().transition(
+                state.operation_id,
+                OperationStatus.COMPLETED,
+            )
+        raise HTTPException(
+            status_code=422,
+            detail=f"Cannot detect SCM provider from URL: {project.repo_url}",
+        )
 
     api_base = cfg.github_api_url if provider_type == "github" else None
     try:
         provider = get_provider(provider_type, api_base_url=api_base)
     except ValueError as exc:
-        registry.transition(state.operation_id, OperationStatus.COMPLETED)
+        if state:
+            get_operation_registry().transition(
+                state.operation_id,
+                OperationStatus.COMPLETED,
+            )
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    short_id = state.scan_id[:8]
-    branch_name = f"apme/remediate-{short_id}"
-    pr_title = f"fix: APME remediation — {scan.fixed_count} findings resolved"
+    short_id = scan_id[:8]
+    branch_name = body.branch_name or f"apme/remediate-{short_id}"
+    commit_title = body.title or f"fix: APME remediation — {scan.fixed_count} findings resolved"
 
     try:
         await provider.create_branch(project.repo_url, project.branch, branch_name, token)
         files = {pf.path: pf.content for pf in patched}
-        await provider.push_files(project.repo_url, branch_name, files, pr_title, token)
-        result = await provider.create_pull_request(
+        commit_sha = await provider.push_files(
             project.repo_url,
-            project.branch,
             branch_name,
-            pr_title,
-            f"Automated remediation by APME — {scan.fixed_count} findings fixed.",
+            files,
+            commit_title,
             token,
         )
+
+        pr_url: str | None = None
+        if body.create_pr:
+            pr_body = body.body or _build_pr_body(scan, patched)
+            pr_result = await provider.create_pull_request(
+                project.repo_url,
+                project.branch,
+                branch_name,
+                commit_title,
+                pr_body,
+                token,
+            )
+            pr_url = pr_result.pr_url
     except Exception as exc:
-        logger.exception("SCM provider error creating PR for operation %s", state.operation_id)
-        registry.transition(state.operation_id, OperationStatus.COMPLETED, error=str(exc))
+        logger.exception("SCM provider error for project %s", project_id)
+        if state:
+            get_operation_registry().transition(
+                state.operation_id,
+                OperationStatus.COMPLETED,
+                error=str(exc),
+            )
         raise HTTPException(status_code=502, detail="SCM provider error") from exc
 
-    async with get_session() as db:
-        await q.set_scan_pr_url(db, state.scan_id, result.pr_url)
+    if pr_url:
+        async with get_session() as db:
+            await q.set_scan_pr_url(db, scan_id, pr_url)
+        if state:
+            get_operation_registry().set_pr_url(state.operation_id, pr_url)
+    elif state:
+        get_operation_registry().transition(
+            state.operation_id,
+            OperationStatus.COMPLETED,
+        )
 
-    registry.set_pr_url(state.operation_id, result.pr_url)
-    return {"pr_url": result.pr_url, "branch_name": result.branch_name, "provider": result.provider}
+    return SubmitResponse(
+        branch_name=branch_name,
+        commit_sha=commit_sha,
+        pr_url=pr_url,
+        provider=provider_type,
+    )
+
+
+def _resolve_live_operation(project_id: str) -> tuple[str, OperationState]:
+    """Look up the live operation for a project and validate it.
+
+    Args:
+        project_id: Target project UUID.
+
+    Returns:
+        Tuple of (scan_id, operation_state).
+
+    Raises:
+        HTTPException: 404 if no operation, 409 if wrong state.
+    """
+    registry = get_operation_registry()
+    state: OperationState | None = registry.get_by_project(project_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="No active operation for this project")
+    if state.status != OperationStatus.COMPLETED:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot submit: operation is '{state.status.value}', not 'completed'",
+        )
+    if state.scan_type != "remediate":
+        raise HTTPException(status_code=409, detail="Submit requires a remediate operation")
+    if not state.result or not state.result.patches:
+        raise HTTPException(status_code=409, detail="No patches available for submission")
+    return state.scan_id, state
 
 
 # ── SSE endpoint ──────────────────────────────────────────────────────
@@ -404,7 +519,110 @@ def _sse_format(event: str, data: dict[str, Any]) -> str:
     return f"event: {event}\ndata: {payload}\n\n"
 
 
+# ── PR body builder ───────────────────────────────────────────────────
+
+
+def _build_pr_body(scan: Scan, patched_files: Sequence[PatchedFile]) -> str:
+    """Generate a Markdown PR body from scan data (ADR-050).
+
+    Args:
+        scan: The Scan ORM row.
+        patched_files: PatchedFile rows for this activity.
+
+    Returns:
+        Markdown string.
+    """
+    lines: list[str] = [
+        "## APME Automated Remediation",
+        "",
+        f"**Findings resolved:** {scan.fixed_count}",
+        f"**Total violations (before):** {scan.total_violations}",
+        f"**Scan type:** {scan.scan_type}",
+        "",
+        "### Files modified",
+        "",
+    ]
+    for pf in patched_files:
+        lines.append(f"- `{pf.path}`")
+    lines.extend(
+        [
+            "",
+            "---",
+            "*This PR was auto-generated by [APME](https://github.com/ansible/apme).*",
+        ]
+    )
+    return "\n".join(lines)
+
+
 # ── Operation driver (replaces WebSocket tunnel logic) ────────────────
+
+_SCAN_PERSIST_WAIT_S = 60.0
+_SCAN_PERSIST_POLL_S = 0.25
+
+
+async def finalize_operation_scan(
+    *,
+    project_id: str,
+    scan_id: str,
+    scan_type: str,
+    clone_commit: str,
+    captured_patches: list[dict[str, str]],
+    ai_proposed_count: int,
+    ai_declined_count: int,
+    ai_accepted_count: int,
+) -> None:
+    """Link a completed operation to its persisted scan row and store patches.
+
+    The engine commits the scan via ``ReportFixCompleted`` asynchronously. If
+    the gateway tries to insert ``scan_patches`` before that row exists, SQLite
+    raises a foreign-key error. Poll until the scan row appears or timeout.
+
+    Args:
+        project_id: Owning project UUID.
+        scan_id: Engine scan identifier.
+        scan_type: ``check`` or ``remediate``.
+        clone_commit: Cloned repo HEAD SHA (may be empty).
+        captured_patches: Per-file diffs from the session result event.
+        ai_proposed_count: AI proposals offered during the operation.
+        ai_declined_count: AI proposals declined by the engine.
+        ai_accepted_count: AI proposals approved by the user.
+
+    Raises:
+        TimeoutError: When the reporting servicer never persisted the scan row.
+    """
+    deadline = time.monotonic() + _SCAN_PERSIST_WAIT_S
+
+    while time.monotonic() < deadline:
+        async with get_session() as db:
+            scan = await q.get_scan(db, scan_id)
+            if scan is not None:
+                if clone_commit:
+                    await q.update_project_commit(db, project_id, clone_commit)
+                await q.link_scan_to_project(
+                    db,
+                    scan_id,
+                    project_id,
+                    trigger="ui",
+                    scan_type=scan_type,
+                    source="gateway",
+                )
+                await q.update_ai_counts(
+                    db,
+                    scan_id,
+                    ai_proposed=ai_proposed_count,
+                    ai_declined=ai_declined_count,
+                    ai_accepted=ai_accepted_count,
+                )
+                if captured_patches and not scan.patches:
+                    await q.store_patches(db, scan_id, captured_patches)
+                await q.update_project_health(db, project_id)
+                return
+
+        await asyncio.sleep(_SCAN_PERSIST_POLL_S)
+
+    raise TimeoutError(
+        f"Scan {scan_id} was not persisted within {_SCAN_PERSIST_WAIT_S:.0f}s (ReportFixCompleted may have failed)"
+    )
 
 
 async def _drive_operation(
@@ -585,7 +803,7 @@ async def _drive_operation(
             remediate=remediate,
             ansible_version=str(options.get("ansible_version", "")),
             collection_specs=specs,
-            enable_ai=bool(options.get("enable_ai", True)),
+            enable_ai=bool(options.get("enable_ai", False)),
             ai_model=str(options.get("ai_model", "")),
             progress_callback=_progress_cb,
             approval_queue=approval_queue,
@@ -604,27 +822,16 @@ async def _drive_operation(
             op.clone_commit = clone_commit
 
         scan_type_str = "remediate" if remediate else "check"
-        async with get_session() as db:
-            if clone_commit:
-                await q.update_project_commit(db, project_id, clone_commit)
-            await q.link_scan_to_project(
-                db,
-                scan_id,
-                project_id,
-                trigger="ui",
-                scan_type=scan_type_str,
-                source="gateway",
-            )
-            await q.update_ai_counts(
-                db,
-                scan_id,
-                ai_proposed=ai_proposed_count,
-                ai_declined=ai_declined_count,
-                ai_accepted=ai_accepted_count,
-            )
-            if captured_patches:
-                await q.store_patches(db, scan_id, captured_patches)
-            await q.update_project_health(db, project_id)
+        await finalize_operation_scan(
+            project_id=project_id,
+            scan_id=scan_id,
+            scan_type=scan_type_str,
+            clone_commit=clone_commit,
+            captured_patches=captured_patches,
+            ai_proposed_count=ai_proposed_count,
+            ai_declined_count=ai_declined_count,
+            ai_accepted_count=ai_accepted_count,
+        )
 
         op = registry.get(operation_id)
         if op is not None and op.status not in TERMINAL_STATUSES:

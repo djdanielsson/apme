@@ -217,40 +217,22 @@ describe("api service", () => {
     );
   });
 
-  // ADR-050 Pull Request API tests
-
-  it("createPullRequest calls POST with correct path and body", async () => {
+  it("submitActivity posts activity_id to /operation/submit", async () => {
     mockFetch.mockReturnValueOnce(jsonResponse({
-      pr_url: "https://github.com/org/repo/pull/42",
-      branch_name: "apme/remediate-abc",
-      provider: "github",
-    }));
-    const { createPullRequest } = await import("../services/api");
-    const result = await createPullRequest("scan-123", { title: "Fix issues" });
-    expect(result.pr_url).toBe("https://github.com/org/repo/pull/42");
-    expect(result.provider).toBe("github");
-    expect(mockFetch).toHaveBeenCalledWith(
-      "/api/v1/activity/scan-123/pull-request",
-      expect.objectContaining({
-        method: "POST",
-        headers: expect.objectContaining({ "Content-Type": "application/json" }),
-      }),
-    );
-  });
-
-  it("createPullRequest sends empty body when no options provided", async () => {
-    mockFetch.mockReturnValueOnce(jsonResponse({
+      branch_name: "apme/remediate-abc12345",
+      commit_sha: "deadbeef",
       pr_url: "https://github.com/org/repo/pull/1",
-      branch_name: "apme/remediate-xyz",
       provider: "github",
     }));
-    const { createPullRequest } = await import("../services/api");
-    await createPullRequest("scan-456");
+    const { submitActivity } = await import("../services/api");
+    const result = await submitActivity("proj-1", "act-42");
+    expect(result.branch_name).toBe("apme/remediate-abc12345");
+    expect(result.pr_url).toBe("https://github.com/org/repo/pull/1");
     expect(mockFetch).toHaveBeenCalledWith(
-      "/api/v1/activity/scan-456/pull-request",
+      "/api/v1/projects/proj-1/operation/submit",
       expect.objectContaining({
         method: "POST",
-        body: "{}",
+        body: JSON.stringify({ activity_id: "act-42" }),
       }),
     );
   });

@@ -14,7 +14,7 @@ import contextlib
 import logging
 import os
 import uuid
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator
 from typing import cast
 
 from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
@@ -22,7 +22,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
-from apme_engine.severity_defaults import severity_from_proto, severity_to_label
+from apme_engine.graph.severity import severity_from_proto, severity_to_label
 from apme_gateway.api.schemas import (
     ActiveOperationSummary,
     ActivityDetail,
@@ -37,8 +37,6 @@ from apme_gateway.api.schemas import (
     ComponentHealth,
     CreateGalaxyServerRequest,
     CreateProjectRequest,
-    CreatePullRequestRequest,
-    CreatePullRequestResponse,
     CreateSuppressionRequest,
     DashboardSummary,
     DepHealthSummary,
@@ -70,7 +68,7 @@ from apme_gateway.api.schemas import (
 )
 from apme_gateway.db import get_session
 from apme_gateway.db import queries as q
-from apme_gateway.db.models import GalaxyServer, PatchedFile, Project, Rule, RuleOverride, Scan, ScanManifest
+from apme_gateway.db.models import GalaxyServer, Project, Rule, RuleOverride, Scan, ScanManifest
 
 logger = logging.getLogger(__name__)
 
@@ -447,6 +445,35 @@ async def create_project(body: CreateProjectRequest) -> ProjectSummary:
         has_scm_token=bool(proj.scm_token),
         last_scanned_commit=proj.last_scanned_commit,
     )
+
+
+@router.get("/projects/lookup")  # type: ignore[untyped-decorator]
+async def lookup_project_by_repo_url(
+    repo_url: str = Query(..., min_length=1),
+    branch: str | None = Query(default=None, min_length=1),
+) -> ProjectDetail:
+    """Resolve a project by normalized SCM clone URL.
+
+    Used by the Backstage portal to map catalog git-repository entities to
+    APME projects without fetching the full project list.
+
+    Args:
+        repo_url: HTTPS clone URL (with or without ``.git`` suffix).
+        branch: Optional branch name. When provided, both URL and branch must
+            match (required when one repo is registered per branch).
+
+    Returns:
+        Full project detail for the matching project.
+
+    Raises:
+        HTTPException: 404 when no project matches the normalized URL.
+    """
+    async with get_session() as db:
+        proj = await q.find_project_by_repo_url(db, repo_url, branch=branch)
+        if proj is None:
+            raise HTTPException(status_code=404, detail="Project not found")
+        project_id = proj.id
+    return cast(ProjectDetail, await get_project_detail(project_id))
 
 
 @router.get("/projects")  # type: ignore[untyped-decorator]
@@ -1499,162 +1526,6 @@ async def delete_activity(activity_id: str) -> None:
         raise HTTPException(status_code=404, detail="Activity not found")
 
 
-@router.post("/activity/{activity_id}/pull-request")  # type: ignore[untyped-decorator]
-async def create_pull_request(
-    activity_id: str,
-    body: CreatePullRequestRequest | None = None,
-) -> CreatePullRequestResponse:
-    """Create a pull request from a remediation activity's patched files (ADR-050).
-
-    Resolves the SCM token (project → global fallback), determines the
-    provider, creates a branch, pushes patched files, and opens a PR.
-
-    Args:
-        activity_id: UUID of the remediation activity (``scans.scan_id``).
-        body: Optional PR customisation (branch name, title, body).
-
-    Returns:
-        PR URL and metadata.
-
-    Raises:
-        HTTPException: 404/409/422/502 depending on the failure mode.
-    """
-    from apme_gateway.config import load_config
-    from apme_gateway.scm import detect_provider, get_provider
-
-    if body is None:
-        body = CreatePullRequestRequest()
-
-    cfg = load_config()
-
-    async with get_session() as db:
-        scan = await q.get_scan(db, activity_id)
-        if scan is None:
-            raise HTTPException(status_code=404, detail="Activity not found")
-
-        if scan.pr_url:
-            raise HTTPException(
-                status_code=409,
-                detail=f"PR already created for this activity: {scan.pr_url}",
-            )
-
-        if scan.project_id is None:
-            raise HTTPException(
-                status_code=404,
-                detail="Activity is not linked to a project",
-            )
-
-        project = await q.get_project(db, scan.project_id)
-        if project is None:
-            raise HTTPException(status_code=404, detail="Associated project not found")
-
-        patched = await q.get_patched_files(db, activity_id)
-        if not patched:
-            raise HTTPException(
-                status_code=404,
-                detail="No patched files found for this activity",
-            )
-
-    # Token priority: inline request > project config > global env
-    # Strip whitespace to prevent whitespace-only tokens overriding valid fallbacks
-    inline_token = body.scm_token.strip() if body.scm_token else None
-    token = inline_token or project.scm_token or cfg.scm_token
-    if not token:
-        raise HTTPException(
-            status_code=422,
-            detail="No SCM token configured (set project scm_token or APME_SCM_TOKEN)",
-        )
-
-    provider_type = project.scm_provider or detect_provider(project.repo_url)
-    if not provider_type:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Cannot detect SCM provider from URL: {project.repo_url}",
-        )
-
-    api_base = cfg.github_api_url if provider_type == "github" else None
-    try:
-        provider = get_provider(provider_type, api_base_url=api_base)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-    short_id = activity_id[:8]
-    branch_name = body.branch_name or f"apme/remediate-{short_id}"
-    pr_title = body.title or f"fix: APME remediation — {scan.fixed_count} findings resolved"
-    pr_body = body.body or _build_pr_body(scan, patched)
-
-    try:
-        await provider.create_branch(project.repo_url, project.branch, branch_name, token)
-        files = {pf.path: pf.content for pf in patched}
-        await provider.push_files(
-            project.repo_url,
-            branch_name,
-            files,
-            pr_title,
-            token,
-        )
-        result = await provider.create_pull_request(
-            project.repo_url,
-            project.branch,
-            branch_name,
-            pr_title,
-            pr_body,
-            token,
-        )
-    except Exception as exc:
-        logger.exception("SCM provider error creating PR for activity %s", activity_id)
-        raise HTTPException(
-            status_code=502,
-            detail="SCM provider error while creating pull request",
-        ) from exc
-
-    async with get_session() as db:
-        updated = await q.set_scan_pr_url(db, activity_id, result.pr_url)
-        if not updated:
-            raise HTTPException(
-                status_code=409,
-                detail="PR was already created for this activity (concurrent request)",
-            )
-
-    return CreatePullRequestResponse(
-        pr_url=result.pr_url,
-        branch_name=result.branch_name,
-        provider=result.provider,
-    )
-
-
-def _build_pr_body(scan: Scan, patched_files: Sequence[PatchedFile]) -> str:
-    """Generate a Markdown PR body from activity data (ADR-050).
-
-    Args:
-        scan: The Scan ORM row.
-        patched_files: PatchedFile rows for this activity.
-
-    Returns:
-        Markdown string.
-    """
-    lines: list[str] = [
-        "## APME Automated Remediation",
-        "",
-        f"**Findings resolved:** {scan.fixed_count}",
-        f"**Total violations (before):** {scan.total_violations}",
-        f"**Scan type:** {scan.scan_type}",
-        "",
-        "### Files modified",
-        "",
-    ]
-    for pf in patched_files:
-        lines.append(f"- `{pf.path}`")
-    lines.extend(
-        [
-            "",
-            "---",
-            "*This PR was auto-generated by [APME](https://github.com/ansible/apme).*",
-        ]
-    )
-    return "\n".join(lines)
-
-
 @router.get("/violations/top")  # type: ignore[untyped-decorator]
 async def top_violations(
     limit: int = Query(default=20, ge=1, le=100),
@@ -2462,7 +2333,7 @@ async def project_operate_ws(
                     remediate=True,
                     ansible_version=str(options.get("ansible_version", "")),
                     collection_specs=specs,
-                    enable_ai=bool(options.get("enable_ai", True)),
+                    enable_ai=bool(options.get("enable_ai", False)),
                     ai_model=str(options.get("ai_model", "")),
                     progress_callback=_progress_cb,
                     approval_queue=approval_queue,
@@ -2517,26 +2388,19 @@ async def project_operate_ws(
 
         if completed_scan_id:
             op_scan_type = "remediate" if is_remediate else "check"
+            from apme_gateway.api.operation_router import finalize_operation_scan  # noqa: PLC0415
+
+            await finalize_operation_scan(
+                project_id=proj.id,
+                scan_id=completed_scan_id,
+                scan_type=op_scan_type,
+                clone_commit=clone_commit,
+                captured_patches=captured_patches,
+                ai_proposed_count=ai_proposed_count,
+                ai_declined_count=ai_declined_count,
+                ai_accepted_count=ai_accepted_count,
+            )
             async with get_session() as db:
-                if clone_commit:
-                    await q.update_project_commit(db, proj.id, clone_commit)
-                await q.link_scan_to_project(
-                    db,
-                    completed_scan_id,
-                    proj.id,
-                    trigger="ui",
-                    scan_type=op_scan_type,
-                    source="gateway",
-                )
-                await q.update_ai_counts(
-                    db,
-                    completed_scan_id,
-                    ai_proposed=ai_proposed_count,
-                    ai_declined=ai_declined_count,
-                    ai_accepted=ai_accepted_count,
-                )
-                if captured_patches:
-                    await q.store_patches(db, completed_scan_id, captured_patches)
                 scan_row = await q.get_scan(db, completed_scan_id)
                 proj_row = (await db.execute(select(Project).where(Project.id == proj.id))).scalar_one_or_none()
                 old_hs = proj_row.health_score if proj_row else None
@@ -2559,8 +2423,6 @@ async def project_operate_ws(
                     )
                     await db.commit()
                     broadcast_notifications(notif_payloads)
-                else:
-                    await q.update_project_health(db, proj.id)
 
         await websocket.send_json({"type": "closed"})
     except WebSocketDisconnect:
