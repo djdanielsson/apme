@@ -25,7 +25,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-NATIVE_DIR = REPO_ROOT / "src" / "apme_engine" / "validators" / "native" / "rules"
+NATIVE_DIR = REPO_ROOT / "src" / "apme_engine" / "graph" / "rules"
 OPA_DIR = REPO_ROOT / "src" / "apme_engine" / "validators" / "opa" / "bundle"
 ANSIBLE_DIR = REPO_ROOT / "src" / "apme_engine" / "validators" / "ansible" / "rules"
 GITLEAKS_DIR = REPO_ROOT / "src" / "apme_engine" / "validators" / "gitleaks"
@@ -79,7 +79,7 @@ def _parse_frontmatter(path: Path) -> dict[str, str]:
 
 
 def _get_severity(rule_id: str) -> str:
-    """Look up severity from severity_defaults.py.
+    """Look up severity from apme_engine.graph.severity.
 
     Args:
         rule_id: Rule identifier.
@@ -88,7 +88,7 @@ def _get_severity(rule_id: str) -> str:
         Severity label string.
     """
     try:
-        from apme_engine.severity_defaults import get_severity, severity_to_label
+        from apme_engine.graph.severity import get_severity, severity_to_label
 
         return severity_to_label(get_severity(rule_id))
     except Exception:
