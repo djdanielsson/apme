@@ -17,7 +17,7 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from apme_engine.severity_defaults import (  # noqa: E402
+from apme_engine.graph.severity import (  # noqa: E402
     SEVERITY_DEFAULTS,
     Severity,
     get_severity,
