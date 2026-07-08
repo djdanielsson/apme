@@ -108,10 +108,10 @@ def _check_mode(mode_value: object) -> tuple[bool, str]:
 
     if isinstance(mode_value, int):
         octal_str = oct(mode_value).replace("0o", "0")
-        if _world_writable(octal_str):
-            return True, f"mode {mode_value} (octal {octal_str}) is world-writable"
         if octal_str in _INSECURE_MODES:
             return True, f"mode {mode_value} (octal {octal_str}) is overly permissive"
+        if _world_writable(octal_str):
+            return True, f"mode {mode_value} (octal {octal_str}) is world-writable"
         return False, ""
 
     mode_str = str(mode_value).strip()

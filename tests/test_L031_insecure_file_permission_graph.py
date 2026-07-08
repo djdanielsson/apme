@@ -127,7 +127,7 @@ class TestCheckMode:
         """Integer 511 (0o777) is insecure."""
         is_insecure, reason = _check_mode(0o777)
         assert is_insecure is True
-        assert "world-writable" in reason
+        assert "permissive" in reason
 
     def test_integer_mode_644(self) -> None:
         """Integer 420 (0o644) is not insecure."""

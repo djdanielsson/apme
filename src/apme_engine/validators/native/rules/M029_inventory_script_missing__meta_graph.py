@@ -167,7 +167,7 @@ class InventoryScriptMissingMetaGraphRule(GraphRule):
         missing_meta: list[str] = []
         for script_path in scripts:
             try:
-                with open(script_path) as f:
+                with open(script_path, encoding="utf-8") as f:
                     source = f.read()
             except OSError:
                 continue

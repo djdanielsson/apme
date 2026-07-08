@@ -12,6 +12,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+import yaml
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
@@ -122,7 +124,6 @@ AUTO_PROMOTION_CANDIDATES: dict[str, str] = {
 }
 
 _FRONTMATTER = re.compile(r"^---\s*\n(.*?)\n---", re.DOTALL)
-_KV = re.compile(r"^(\w+):\s*(.+)$", re.MULTILINE)
 
 
 @dataclass
@@ -149,8 +150,14 @@ def _parse_frontmatter(path: Path) -> dict[str, str]:
     m = _FRONTMATTER.match(text)
     if not m:
         return {}
-    pairs = _KV.findall(m.group(1))
-    return {k: v.strip("\"'") for k, v in pairs}
+    loaded = yaml.safe_load(m.group(1))
+    if not isinstance(loaded, dict):
+        return {}
+    return {
+        str(key): str(value)
+        for key, value in loaded.items()
+        if value is not None and isinstance(value, (str, int, float, bool))
+    }
 
 
 def _find_doc(rule_id: str, doc_dir: Path) -> Path | None:
