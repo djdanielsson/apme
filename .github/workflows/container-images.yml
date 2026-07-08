@@ -20,25 +20,11 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       base-image: ${{ steps.base-ref.outputs.image }}
-      push-to-quay: ${{ steps.quay-check.outputs.enabled }}
-      quay-ns: ${{ steps.quay-check.outputs.ns }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - id: owner
         run: echo "lc=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
-
-      - id: quay-check
-        run: |
-          if [ -n "$QUAY_USER" ]; then
-            echo "enabled=true" >> "$GITHUB_OUTPUT"
-            echo "ns=${QUAY_ORG:-${{ steps.owner.outputs.lc }}}" >> "$GITHUB_OUTPUT"
-          else
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
-          fi
-        env:
-          QUAY_USER: ${{ secrets.QUAY_USERNAME }}
-          QUAY_ORG: ${{ secrets.QUAY_NAMESPACE }}
 
       - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
 
@@ -48,19 +34,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4
-        if: steps.quay-check.outputs.enabled == 'true'
-        with:
-          registry: ${{ env.QUAY_REGISTRY }}
-          username: ${{ secrets.QUAY_USERNAME }}
-          password: ${{ secrets.QUAY_PASSWORD }}
-
       - id: meta
         uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6
         with:
-          images: |
-            ${{ env.GHCR_REGISTRY }}/${{ steps.owner.outputs.lc }}/apme-base
-            ${{ steps.quay-check.outputs.enabled == 'true' && format('{0}/{1}/apme-base', env.QUAY_REGISTRY, steps.quay-check.outputs.ns) || '' }}
+          images: ${{ env.GHCR_REGISTRY }}/${{ steps.owner.outputs.lc }}/apme-base
           tags: |
             type=sha
             type=semver,pattern={{version}},enable=${{ github.ref_type == 'tag' }}
@@ -116,6 +93,18 @@ jobs:
       - id: owner
         run: echo "lc=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
 
+      - id: quay-check
+        run: |
+          if [ -n "$QUAY_USER" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "ns=${QUAY_ORG:-${{ steps.owner.outputs.lc }}}" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          QUAY_USER: ${{ secrets.QUAY_USERNAME }}
+          QUAY_ORG: ${{ secrets.QUAY_NAMESPACE }}
+
       - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
 
       - uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4
@@ -125,7 +114,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4
-        if: needs.build-base.outputs.push-to-quay == 'true'
+        if: steps.quay-check.outputs.enabled == 'true'
         with:
           registry: ${{ env.QUAY_REGISTRY }}
           username: ${{ secrets.QUAY_USERNAME }}
@@ -136,7 +125,7 @@ jobs:
         with:
           images: |
             ${{ env.GHCR_REGISTRY }}/${{ steps.owner.outputs.lc }}/apme-${{ matrix.image.name }}
-            ${{ needs.build-base.outputs.push-to-quay == 'true' && format('{0}/{1}/apme-{2}', env.QUAY_REGISTRY, needs.build-base.outputs.quay-ns, matrix.image.name) || '' }}
+            ${{ steps.quay-check.outputs.enabled == 'true' && format('{0}/{1}/apme-{2}', env.QUAY_REGISTRY, steps.quay-check.outputs.ns, matrix.image.name) || '' }}
           tags: |
             type=sha
             type=semver,pattern={{version}},enable=${{ github.ref_type == 'tag' }}
