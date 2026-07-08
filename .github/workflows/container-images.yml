@@ -18,6 +18,9 @@ env:
 jobs:
   build-base:
     runs-on: ubuntu-latest
+    env:
+      PUSH_TO_QUAY: ${{ secrets.QUAY_USERNAME != '' }}
+      QUAY_NS: ${{ secrets.QUAY_NAMESPACE }}
     outputs:
       base-image: ${{ steps.base-ref.outputs.image }}
     steps:
@@ -35,21 +38,22 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4
-        if: ${{ secrets.QUAY_USERNAME != '' }}
+        if: env.PUSH_TO_QUAY == 'true'
         with:
           registry: ${{ env.QUAY_REGISTRY }}
           username: ${{ secrets.QUAY_USERNAME }}
           password: ${{ secrets.QUAY_PASSWORD }}
 
-      - id: quay-ns
-        run: echo "ns=${{ secrets.QUAY_NAMESPACE || steps.owner.outputs.lc }}" >> "$GITHUB_OUTPUT"
+      - id: quay-target
+        if: env.PUSH_TO_QUAY == 'true'
+        run: echo "image=${{ env.QUAY_REGISTRY }}/${{ env.QUAY_NS || steps.owner.outputs.lc }}/apme-base" >> "$GITHUB_OUTPUT"
 
       - id: meta
         uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6
         with:
           images: |
             ${{ env.GHCR_REGISTRY }}/${{ steps.owner.outputs.lc }}/apme-base
-            ${{ secrets.QUAY_USERNAME != '' && format('{0}/{1}/apme-base', env.QUAY_REGISTRY, steps.quay-ns.outputs.ns) || '' }}
+            ${{ steps.quay-target.outputs.image }}
           tags: |
             type=sha
             type=semver,pattern={{version}},enable=${{ github.ref_type == 'tag' }}
@@ -73,6 +77,9 @@ jobs:
   build-images:
     needs: build-base
     runs-on: ubuntu-latest
+    env:
+      PUSH_TO_QUAY: ${{ secrets.QUAY_USERNAME != '' }}
+      QUAY_NS: ${{ secrets.QUAY_NAMESPACE }}
     strategy:
       fail-fast: false
       matrix:
@@ -114,21 +121,22 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4
-        if: ${{ secrets.QUAY_USERNAME != '' }}
+        if: env.PUSH_TO_QUAY == 'true'
         with:
           registry: ${{ env.QUAY_REGISTRY }}
           username: ${{ secrets.QUAY_USERNAME }}
           password: ${{ secrets.QUAY_PASSWORD }}
 
-      - id: quay-ns
-        run: echo "ns=${{ secrets.QUAY_NAMESPACE || steps.owner.outputs.lc }}" >> "$GITHUB_OUTPUT"
+      - id: quay-target
+        if: env.PUSH_TO_QUAY == 'true'
+        run: echo "image=${{ env.QUAY_REGISTRY }}/${{ env.QUAY_NS || steps.owner.outputs.lc }}/apme-${{ matrix.image.name }}" >> "$GITHUB_OUTPUT"
 
       - id: meta
         uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6
         with:
           images: |
             ${{ env.GHCR_REGISTRY }}/${{ steps.owner.outputs.lc }}/apme-${{ matrix.image.name }}
-            ${{ secrets.QUAY_USERNAME != '' && format('{0}/{1}/apme-{2}', env.QUAY_REGISTRY, steps.quay-ns.outputs.ns, matrix.image.name) || '' }}
+            ${{ steps.quay-target.outputs.image }}
           tags: |
             type=sha
             type=semver,pattern={{version}},enable=${{ github.ref_type == 'tag' }}
