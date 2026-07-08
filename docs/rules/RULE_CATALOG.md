@@ -145,7 +145,7 @@
 | M026 | Native | medium | Inventory variable names must be valid Python identifiers (enforced in 2.23) | Yes | Yes | Yes | — |
 | M027 | Native | low | Mixing inline k=v arguments with args: mapping is deprecated (2.23) | Yes | Yes | Yes | — |
 | M028 | OPA | high | first_found lookup auto-splitting paths on delimiters is deprecated (2.23) | Yes | Yes | Yes | — |
-| M029 | Native | medium | Inventory scripts must include _meta.hostvars in JSON output (enforced in 2.23) | — | — | Yes | — |
+| M029 | Native | medium | Inventory scripts must include `_meta.hostvars` in JSON output (enforced in 2.23) | — | — | Yes | — |
 | M030 | Native | medium | Conditional expressions that fail Jinja2 parsing will error in 2.23 instead of being silently ignored | Yes | Yes | Yes | — |
 | P001 | Ansible | error | Validate module name (Ansible required). | — | Yes | Yes | — |
 | P002 | Ansible | error | Validate module argument keys (Ansible required). | — | Yes | Yes | — |
@@ -307,7 +307,7 @@
 | M022 | medium | tree and oneline callback plugins are removed in 2.23; choose an alternative | Yes | Yes | Yes | — |
 | M026 | medium | Inventory variable names must be valid Python identifiers (enforced in 2.23) | Yes | Yes | Yes | — |
 | M027 | low | Mixing inline k=v arguments with args: mapping is deprecated (2.23) | Yes | Yes | Yes | — |
-| M029 | medium | Inventory scripts must include _meta.hostvars in JSON output (enforced in 2.23) | — | — | Yes | — |
+| M029 | medium | Inventory scripts must include `_meta.hostvars` in JSON output (enforced in 2.23) | — | — | Yes | — |
 | M030 | medium | Conditional expressions that fail Jinja2 parsing will error in 2.23 instead of being silently ignored | Yes | Yes | Yes | — |
 | R101 | medium | Task executes parameterized command (annotation-based) | Yes | Yes | Yes | — |
 | R103 | medium | Task downloads and executes (annotation-based). | Yes | Yes | Yes | — |
@@ -361,7 +361,7 @@
 ### Resolved without implementation — 6
 
 - **L031** (Native): [Stub] File permission may be insecure (annotation-based). — Covered by OPA rules L020/L021 which check file mode arguments directly. This annotation-based variant is retained as a placeholder for future annotation-driven detection (requires engine annotation pipeline).
-- **M029** (Native): [Stub] Inventory scripts must include _meta.hostvars in JSON output (enforced in 2.23) — Detection requires executing the inventory script at runtime to inspect its JSON output. Static analysis cannot determine _meta presence. Disabled by design until a runtime-analysis approach is approved.
+- **M029** (Native): [Stub] Inventory scripts must include `_meta.hostvars` in JSON output (enforced in 2.23) — Detection requires executing the inventory script at runtime to inspect its JSON output. Static analysis cannot determine `_meta` presence. Disabled by design until a runtime-analysis approach is approved.
 - **P001** (Ansible): [Delegated] Validate module name (Ansible required). — Emitted by the Ansible validator via find_plugin_with_context() argspec validation (L058/L059). Not a native GraphRule — the Ansible validator owns module name resolution.
 - **P002** (Ansible): [Delegated] Validate module argument keys (Ansible required). — Emitted by the Ansible validator via argspec validation (L058/L059). Not a native GraphRule — the Ansible validator owns module argument key validation using real module argspecs.
 - **P003** (Ansible): [Delegated] Validate module argument values (Ansible required). — Emitted by the Ansible validator via argspec validation (L058/L059). Not a native GraphRule — the Ansible validator owns module argument value validation using real module argspecs.
