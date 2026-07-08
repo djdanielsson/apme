@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import re
 
-from apme_engine.engine.content_graph import ContentGraph, NodeType
+from apme_engine.graph.content_graph import ContentGraph, NodeType
 
 TASK_TYPES: frozenset[NodeType] = frozenset({NodeType.TASK, NodeType.HANDLER})
 

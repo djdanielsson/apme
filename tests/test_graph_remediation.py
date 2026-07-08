@@ -26,6 +26,7 @@ from apme_engine.graph.scanner import (
     rescan_dirty,
     scan,
 )
+from apme_engine.graph.types import RuleScope
 from apme_engine.remediation.graph_engine import (
     GraphRemediationEngine,
     splice_modifications,

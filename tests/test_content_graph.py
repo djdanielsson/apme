@@ -857,13 +857,13 @@ class TestGraphReportToViolations:
         import json
 
         from apme_engine.daemon.violation_convert import violation_dict_to_proto, violation_proto_to_dict
-        from apme_engine.engine.graph_scanner import (
+        from apme_engine.engine.models import RuleMetadata, YAMLValue
+        from apme_engine.graph.rule_base import GraphRuleResult
+        from apme_engine.graph.scanner import (
             GraphNodeResult,
             GraphScanReport,
             graph_report_to_violations,
         )
-        from apme_engine.engine.models import RuleMetadata, YAMLValue
-        from apme_engine.validators.native.rules.graph_rule_base import GraphRuleResult
 
         variables_used: list[YAMLValue] = [
             cast(YAMLValue, {"name": "nginx_port", "source": "play", "task": "site.yml/plays[0]/tasks[0]"})
@@ -925,13 +925,13 @@ class TestGraphReportToViolations:
                 msg = "cannot serialize"
                 raise TypeError(msg)
 
-        from apme_engine.engine.graph_scanner import (
+        from apme_engine.engine.models import RuleMetadata, YAMLDict
+        from apme_engine.graph.rule_base import GraphRuleResult
+        from apme_engine.graph.scanner import (
             GraphNodeResult,
             GraphScanReport,
             graph_report_to_violations,
         )
-        from apme_engine.engine.models import RuleMetadata, YAMLDict
-        from apme_engine.validators.native.rules.graph_rule_base import GraphRuleResult
 
         node = ContentNode(
             identity=NodeIdentity(path="site.yml/plays[0]/tasks[0]", node_type=NodeType.TASK),

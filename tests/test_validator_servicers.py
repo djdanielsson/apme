@@ -170,7 +170,7 @@ class TestNativeValidatorServicer:
     async def test_validate_passes_graph_rule_opt_in(self) -> None:
         """graph_rule_opt_in from ValidateRequest is forwarded to _run_graph."""
         from apme_engine.daemon.native_validator_server import NativeValidatorServicer, _GraphRunResult
-        from apme_engine.engine.content_graph import ContentGraph
+        from apme_engine.graph.content_graph import ContentGraph
 
         graph = ContentGraph()
         graph_data = json.dumps(graph.to_dict()).encode()

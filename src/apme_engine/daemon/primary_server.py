@@ -73,8 +73,8 @@ from apme.v1.validate_pb2 import ValidateRequest
 from apme_engine.daemon.event_emitter import emit_fix_completed, emit_register_rules, start_sinks
 from apme_engine.daemon.session import ResourceExhaustedError, SessionState, SessionStore
 from apme_engine.daemon.violation_convert import violation_dict_to_proto, violation_proto_to_dict
-from apme_engine.graph.scanner import graph_rule_opt_in_from_rule_configs
 from apme_engine.engine.models import RemediationClass, ViolationDict
+from apme_engine.graph.scanner import graph_rule_opt_in_from_rule_configs
 from apme_engine.log_bridge import attach_collector
 from apme_engine.runner import run_scan
 from apme_engine.venv_manager.session import (
