@@ -340,8 +340,6 @@ class TestLoadGraphRules:
 
     def test_graph_rule_opt_in_from_rule_configs(self) -> None:
         """RuleConfig enabled flags map to native graph opt-in IDs."""
-        from apme_engine.graph.scanner import graph_rule_opt_in_from_rule_configs
-
         from apme.v1.primary_pb2 import RuleConfig
         from apme_engine.graph.scanner import graph_rule_opt_in_from_rule_configs
 

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import cast
 
-from apme_engine.engine.sensitivity import var_looks_sensitive
 from apme_engine.engine.models import YAMLDict
 from apme_engine.engine.sensitivity import var_looks_sensitive
 from apme_engine.graph.content_graph import (

@@ -21,7 +21,6 @@ from apme_engine.graph.rule_base import (
     GraphRule,
     GraphRuleResult,
 )
-from apme_engine.graph.types import RuleScope
 from apme_engine.graph.scanner import (
     graph_report_to_violations,
     rescan_dirty,

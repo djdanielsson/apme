@@ -73,7 +73,7 @@ def test_collect_all_rules_non_empty_and_fields() -> None:
 
 def test_collect_all_rules_registers_disabled_by_default_audit_rules() -> None:
     """Disabled-by-default audit rules in the catalog have ``enabled=False`` for ADR-041 opt-in."""
-    from apme_engine.engine.graph_scanner import DISABLED_BY_DEFAULT_GRAPH_RULE_IDS
+    from apme_engine.graph.scanner import DISABLED_BY_DEFAULT_GRAPH_RULE_IDS
 
     rules = collect_all_rules()
     by_id = {r.rule_id: r for r in rules}
