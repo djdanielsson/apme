@@ -228,7 +228,7 @@ The Settings page (`/settings`) provides a model picker that queries available A
 The OPA container uses a multi-stage Dockerfile:
 
 1. **Stage 1**: Copies the `opa` binary from `docker.io/openpolicyagent/opa:latest`
-2. **Stage 2**: Python slim image with `grpcio`, project code, and the Rego bundle
+2. **Stage 2**: Python 3.12 UBI10 base image with `grpcio`, project code, and the Rego bundle
 
 At runtime, `entrypoint.sh`:
 
