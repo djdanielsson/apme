@@ -21,6 +21,7 @@ from apme_engine.graph.rule_base import (
 from apme_engine.graph.scanner import (
     GraphScanReport,
     load_graph_rules,
+    native_rules_dir,
     scan,
 )
 
@@ -329,11 +330,7 @@ class TestLoadGraphRules:
 
     def test_default_load_skips_disabled_by_default_rules(self) -> None:
         """Disabled-by-default rules are omitted when no rule_id_list is given."""
-        from pathlib import Path
-
-        import apme_engine.validators.native.rules as rules_pkg
-
-        rules_dir = str(Path(rules_pkg.__file__).parent)
+        rules_dir = native_rules_dir()
         rule_ids = {r.rule_id for r in load_graph_rules(rules_dir=rules_dir)[0]}
         assert "R402" not in rule_ids
         assert "R404" not in rule_ids
@@ -352,11 +349,7 @@ class TestLoadGraphRules:
 
     def test_rule_id_list_opt_in_loads_r402(self) -> None:
         """Explicit rule_id_list opt-in loads disabled-by-default R402."""
-        from pathlib import Path
-
-        import apme_engine.validators.native.rules as rules_pkg
-
-        rules_dir = str(Path(rules_pkg.__file__).parent)
+        rules_dir = native_rules_dir()
         rules, _ = load_graph_rules(rules_dir=rules_dir, rule_id_list=["R402"])
         rule_ids = {r.rule_id for r in rules}
         assert rule_ids == {"R402"}
@@ -364,11 +357,7 @@ class TestLoadGraphRules:
 
     def test_opt_in_rule_ids_enable_r402_without_whitelist(self) -> None:
         """opt_in_rule_ids loads R402 while keeping other enabled rules."""
-        from pathlib import Path
-
-        import apme_engine.validators.native.rules as rules_pkg
-
-        rules_dir = str(Path(rules_pkg.__file__).parent)
+        rules_dir = native_rules_dir()
         default_ids = {r.rule_id for r in load_graph_rules(rules_dir=rules_dir)[0]}
         rules, _ = load_graph_rules(rules_dir=rules_dir, opt_in_rule_ids=["R402"])
         rule_ids = {r.rule_id for r in rules}
@@ -379,11 +368,7 @@ class TestLoadGraphRules:
 
     def test_preserve_disabled_defaults_keeps_r402_catalog_enabled_false(self) -> None:
         """Catalog registration loads R402 without flipping enabled=True."""
-        from pathlib import Path
-
-        import apme_engine.validators.native.rules as rules_pkg
-
-        rules_dir = str(Path(rules_pkg.__file__).parent)
+        rules_dir = native_rules_dir()
         rules, _ = load_graph_rules(
             rules_dir=rules_dir,
             opt_in_rule_ids=["R402"],
@@ -399,11 +384,7 @@ class TestLoadGraphRules:
         Args:
             caplog: Pytest log capture fixture.
         """
-        from pathlib import Path
-
-        import apme_engine.validators.native.rules as rules_pkg
-
-        rules_dir = str(Path(rules_pkg.__file__).parent)
+        rules_dir = native_rules_dir()
         with caplog.at_level("WARNING"):
             rules, missing = load_graph_rules(rules_dir=rules_dir, rule_id_list=["R402", "ZZ999"])
         assert {r.rule_id for r in rules} == {"R402"}
@@ -412,11 +393,7 @@ class TestLoadGraphRules:
 
     def test_scan_report_carries_missing_requested_rules(self) -> None:
         """scan() surfaces rule IDs that were requested but not loaded."""
-        from pathlib import Path
-
-        import apme_engine.validators.native.rules as rules_pkg
-
-        rules_dir = str(Path(rules_pkg.__file__).parent)
+        rules_dir = native_rules_dir()
         rules, missing = load_graph_rules(rules_dir=rules_dir, rule_id_list=["R402", "ZZ999"])
         g = ContentGraph()
         report = scan(g, rules, missing_requested_rule_ids=missing)
