@@ -354,16 +354,16 @@
 
 ### Planned rules (implementation pending) — 1
 
-- **R501** (Native): Suggest collection/role dependency. — >
+- **R501** (Native): Suggest collection/role dependency. — Advisory rule requiring collection dependency resolution context. The rule needs access to the Galaxy/collection index to suggest which collection provides an unresolved module. Planned for future implementation.
 
 ### Resolved without implementation — 6
 
-- **L031** (Native): [Stub] File permission may be insecure (annotation-based). — >
-- **M029** (Native): [Stub] Inventory scripts must include `_meta.hostvars` in JSON output (enforced in 2.23) — >
-- **P001** (Ansible): [Delegated] Validate module name (Ansible required). — >
-- **P002** (Ansible): [Delegated] Validate module argument keys (Ansible required). — >
-- **P003** (Ansible): [Delegated] Validate module argument values (Ansible required). — >
-- **P004** (Ansible): [Delegated] Validate variables (Ansible required). — >
+- **L031** (Native): [Stub] File permission may be insecure (annotation-based). — Covered by OPA rules L020/L021 which check file mode arguments directly. This annotation-based variant is retained as a placeholder for future annotation-driven detection (requires engine annotation pipeline).
+- **M029** (Native): [Stub] Inventory scripts must include `_meta.hostvars` in JSON output (enforced in 2.23) — Detection requires executing the inventory script at runtime to inspect its JSON output. Static analysis cannot determine `_meta` presence. Disabled by design until a runtime-analysis approach is approved.
+- **P001** (Ansible): [Delegated] Validate module name (Ansible required). — Emitted by the Ansible validator via find_plugin_with_context() argspec validation (L058/L059). Not a native GraphRule — the Ansible validator owns module name resolution.
+- **P002** (Ansible): [Delegated] Validate module argument keys (Ansible required). — Emitted by the Ansible validator via argspec validation (L058/L059). Not a native GraphRule — the Ansible validator owns module argument key validation using real module argspecs.
+- **P003** (Ansible): [Delegated] Validate module argument values (Ansible required). — Emitted by the Ansible validator via argspec validation (L058/L059). Not a native GraphRule — the Ansible validator owns module argument value validation using real module argspecs.
+- **P004** (Ansible): [Delegated] Validate variables (Ansible required). — Emitted by the Ansible validator via argspec validation (L058/L059). Not a native GraphRule — the Ansible validator owns variable validation in the context of module argument resolution.
 
 ### Implemented but undocumented — 1
 
