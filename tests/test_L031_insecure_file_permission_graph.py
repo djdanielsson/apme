@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from apme_engine.engine.content_graph import (
+from apme_engine.engine.models import YAMLDict
+from apme_engine.graph.content_graph import (
     ContentGraph,
     ContentNode,
     EdgeType,
@@ -12,8 +13,7 @@ from apme_engine.engine.content_graph import (
     NodeScope,
     NodeType,
 )
-from apme_engine.engine.models import YAMLDict
-from apme_engine.validators.native.rules.L031_insecure_file_permission_graph import (
+from apme_engine.graph.rules.L031_insecure_file_permission_graph import (
     InsecureFilePermissionGraphRule,
     _check_mode,
     _world_writable,

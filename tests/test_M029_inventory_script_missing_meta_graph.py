@@ -6,14 +6,14 @@ from pathlib import Path
 
 import pytest
 
-from apme_engine.engine.content_graph import (
+from apme_engine.graph.content_graph import (
     ContentGraph,
     ContentNode,
     NodeIdentity,
     NodeScope,
     NodeType,
 )
-from apme_engine.validators.native.rules.M029_inventory_script_missing__meta_graph import (
+from apme_engine.graph.rules.M029_inventory_script_missing__meta_graph import (
     InventoryScriptMissingMetaGraphRule,
     _has_meta_reference,
     _looks_like_inventory_script,

@@ -15,14 +15,14 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from apme_engine.engine.content_graph import ContentGraph, NodeType
-from apme_engine.engine.models import RuleTag as Tag
-from apme_engine.engine.models import Severity, YAMLDict
-from apme_engine.validators.native.rules.graph_rule_base import (
+from apme_engine.graph.content_graph import ContentGraph, NodeType
+from apme_engine.graph.rule_base import (
     GraphRule,
     GraphRuleResult,
     is_templated,
 )
+from apme_engine.graph.types import RuleTag as Tag
+from apme_engine.graph.types import Severity, YAMLDict
 
 _TASK_TYPES = frozenset({NodeType.TASK, NodeType.HANDLER})
 
