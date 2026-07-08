@@ -288,11 +288,10 @@ def rescan_dirty(
 ) -> GraphScanReport:
     """Re-evaluate rules against only the specified (dirty) nodes.
 
-    Used by the graph-aware convergence loop to avoid a full-graph scan
-    after each transform pass.  This function covers *native* graph
-    rules only.  The ``rescan_fn`` bridge in ``primary_server.py``
-    wraps this call and additionally fans out to external validators
-    (OPA, Ansible, Gitleaks) with scoped dirty-node data via gRPC.
+    Called in two contexts: (1) by the native validator servicer when
+    ``dirty_node_ids`` are present in a ``ValidateRequest`` (gRPC path),
+    and (2) by ``GraphRemediationEngine`` as a fallback when no external
+    ``rescan_fn`` bridge is configured (in-process path).
 
     Args:
         graph: ContentGraph (may have been mutated since last scan).
