@@ -50,6 +50,22 @@ class OperationRegistry:
         self._terminal_times: dict[str, float] = {}
         self._terminal_ttl = terminal_ttl
         self._reaper_task: asyncio.Task[None] | None = None
+        self._project_locks: dict[str, asyncio.Lock] = {}
+
+    def project_lock(self, project_id: str) -> asyncio.Lock:
+        """Return a per-project lock for operate/abandon critical sections.
+
+        Args:
+            project_id: Project UUID.
+
+        Returns:
+            Lock shared by all callers for this project.
+        """
+        lock = self._project_locks.get(project_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._project_locks[project_id] = lock
+        return lock
 
     # ── lifecycle ──────────────────────────────────────────────────────
 
@@ -74,6 +90,7 @@ class OperationRegistry:
         self._ops.clear()
         self._by_project.clear()
         self._terminal_times.clear()
+        self._project_locks.clear()
 
     # ── CRUD ──────────────────────────────────────────────────────────
 
@@ -163,6 +180,11 @@ class OperationRegistry:
         self._terminal_times.pop(operation_id, None)
         if self._by_project.get(op.project_id) == operation_id:
             del self._by_project[op.project_id]
+            # Drop idle lock so long-lived gateways do not retain one entry
+            # per historical project_id (Copilot: unbounded _project_locks).
+            lock = self._project_locks.get(op.project_id)
+            if lock is not None and not lock.locked():
+                self._project_locks.pop(op.project_id, None)
         for q in op.sse_subscribers:
             with contextlib.suppress(asyncio.QueueFull):
                 q.put_nowait({"_close": True})
@@ -271,6 +293,18 @@ class OperationRegistry:
                 ],
             },
         )
+
+    def broadcast_proposal_updated(self, operation_id: str, proposals: list[dict[str, Any]]) -> None:
+        """Broadcast optimistic draft updates (ADR-062 Phase 2).
+
+        Args:
+            operation_id: The operation to notify.
+            proposals: Updated proposal detail dicts.
+        """
+        op = self._ops.get(operation_id)
+        if op is None:
+            return
+        self._broadcast(op, SSEEventType.PROPOSAL_UPDATED, {"proposals": proposals})
 
     def set_result(self, operation_id: str, result: OperationResult) -> None:
         """Store the operation result and transition to COMPLETED.
