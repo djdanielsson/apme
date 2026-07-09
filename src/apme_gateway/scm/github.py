@@ -12,7 +12,7 @@ import base64
 import logging
 import os
 import ssl
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 import httpx
 
@@ -80,6 +80,36 @@ def _parse_owner_repo(repo_url: str) -> tuple[str, str]:
     return owner, repo
 
 
+def _branch_ref_url(api: str, owner: str, repo: str, branch: str) -> str:
+    """Build the GitHub git ref URL for a branch head (slashes URL-encoded).
+
+    Args:
+        api: GitHub API base URL.
+        owner: Repository owner.
+        repo: Repository name.
+        branch: Branch name.
+
+    Returns:
+        Fully qualified REST URL for the branch ref.
+    """
+    return f"{api}/repos/{owner}/{repo}/git/ref/heads/{quote(branch, safe='')}"
+
+
+def _branch_refs_update_url(api: str, owner: str, repo: str, branch: str) -> str:
+    """Build the GitHub git refs update URL for a branch head.
+
+    Args:
+        api: GitHub API base URL.
+        owner: Repository owner.
+        repo: Repository name.
+        branch: Branch name.
+
+    Returns:
+        Fully qualified REST URL for updating the branch ref.
+    """
+    return f"{api}/repos/{owner}/{repo}/git/refs/heads/{quote(branch, safe='')}"
+
+
 class GitHubProvider:
     """GitHub REST API v3 implementation of :class:`ScmProvider`."""
 
@@ -129,7 +159,7 @@ class GitHubProvider:
         owner, repo = _parse_owner_repo(repo_url)
         async with self._client(timeout=30) as client:
             resp = await client.get(
-                f"{self._api}/repos/{owner}/{repo}/git/ref/heads/{branch}",
+                _branch_ref_url(self._api, owner, repo, branch),
                 headers=self._headers(token),
             )
             if resp.status_code == 404:
@@ -143,7 +173,7 @@ class GitHubProvider:
         base_branch: str,
         new_branch: str,
         token: str,
-    ) -> None:
+    ) -> str:
         """Create a Git ref for *new_branch* from the HEAD of *base_branch*.
 
         Args:
@@ -151,19 +181,23 @@ class GitHubProvider:
             base_branch: Source branch.
             new_branch: New branch name.
             token: GitHub PAT or app installation token.
+
+        Returns:
+            Commit SHA at the tip of *new_branch* after creation (or if it already exists).
         """
         owner, repo = _parse_owner_repo(repo_url)
-        if await self.branch_head_sha(repo_url, new_branch, token):
+        existing = await self.branch_head_sha(repo_url, new_branch, token)
+        if existing:
             logger.info("Branch %s already exists on %s/%s", new_branch, owner, repo)
-            return
+            return existing
 
         async with self._client(timeout=30) as client:
             ref_resp = await client.get(
-                f"{self._api}/repos/{owner}/{repo}/git/ref/heads/{base_branch}",
+                _branch_ref_url(self._api, owner, repo, base_branch),
                 headers=self._headers(token),
             )
             ref_resp.raise_for_status()
-            sha = ref_resp.json()["object"]["sha"]
+            sha = str(ref_resp.json()["object"]["sha"])
 
             create_resp = await client.post(
                 f"{self._api}/repos/{owner}/{repo}/git/refs",
@@ -172,6 +206,7 @@ class GitHubProvider:
             )
             create_resp.raise_for_status()
         logger.info("Created branch %s from %s@%s on %s/%s", new_branch, base_branch, sha[:8], owner, repo)
+        return sha
 
     async def push_files(
         self,
@@ -180,6 +215,8 @@ class GitHubProvider:
         files: dict[str, bytes],
         commit_message: str,
         token: str,
+        *,
+        parent_commit_sha: str | None = None,
     ) -> str:
         """Push files atomically via the Git Trees + Commits API.
 
@@ -189,6 +226,8 @@ class GitHubProvider:
             files: Mapping of path → content.
             commit_message: Commit message.
             token: GitHub PAT.
+            parent_commit_sha: Optional parent commit when the branch ref is not
+                yet readable (e.g. immediately after :meth:`create_branch`).
 
         Returns:
             SHA of the new commit.
@@ -197,12 +236,15 @@ class GitHubProvider:
         async with self._client(timeout=60) as client:
             headers = self._headers(token)
 
-            ref_resp = await client.get(
-                f"{self._api}/repos/{owner}/{repo}/git/ref/heads/{branch}",
-                headers=headers,
-            )
-            ref_resp.raise_for_status()
-            commit_sha_head = ref_resp.json()["object"]["sha"]
+            if parent_commit_sha:
+                commit_sha_head = parent_commit_sha
+            else:
+                ref_resp = await client.get(
+                    _branch_ref_url(self._api, owner, repo, branch),
+                    headers=headers,
+                )
+                ref_resp.raise_for_status()
+                commit_sha_head = str(ref_resp.json()["object"]["sha"])
 
             commit_detail = await client.get(
                 f"{self._api}/repos/{owner}/{repo}/git/commits/{commit_sha_head}",
@@ -254,7 +296,7 @@ class GitHubProvider:
             commit_sha: str = commit_resp.json()["sha"]
 
             update_resp = await client.patch(
-                f"{self._api}/repos/{owner}/{repo}/git/refs/heads/{branch}",
+                _branch_refs_update_url(self._api, owner, repo, branch),
                 headers=headers,
                 json={"sha": commit_sha},
             )

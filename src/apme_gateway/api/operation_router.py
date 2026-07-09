@@ -363,7 +363,7 @@ async def submit_operation(
                 existing_head = head
 
         if existing_head is None:
-            await provider.create_branch(project.repo_url, project.branch, branch_name, token)
+            parent_sha = await provider.create_branch(project.repo_url, project.branch, branch_name, token)
             files = {pf.path: pf.content for pf in patched}
             commit_sha = await provider.push_files(
                 project.repo_url,
@@ -371,6 +371,7 @@ async def submit_operation(
                 files,
                 commit_title,
                 token,
+                parent_commit_sha=parent_sha,
             )
         elif body.create_pr:
             # Two-step UI flow: branch was pushed earlier; only open the PR now.

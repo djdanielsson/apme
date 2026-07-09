@@ -421,7 +421,7 @@ class TestSubmitEndpoint:
             patch("apme_gateway.config.load_config") as mock_cfg,
         ):
             mock_provider = AsyncMock()
-            mock_provider.create_branch = AsyncMock()
+            mock_provider.create_branch = AsyncMock(return_value="parent_sha")
             mock_provider.push_files = AsyncMock(return_value="abc123def")
             mock_provider.create_pull_request = AsyncMock(return_value=_MOCK_PR_RESULT)
             mock_get.return_value = mock_provider
@@ -451,7 +451,7 @@ class TestSubmitEndpoint:
             patch("apme_gateway.config.load_config") as mock_cfg,
         ):
             mock_provider = AsyncMock()
-            mock_provider.create_branch = AsyncMock()
+            mock_provider.create_branch = AsyncMock(return_value="parent_sha")
             mock_provider.push_files = AsyncMock(return_value="deadbeef")
             mock_get.return_value = mock_provider
             mock_cfg.return_value.scm_token = ""
@@ -466,6 +466,8 @@ class TestSubmitEndpoint:
         data = resp.json()
         assert data["pr_url"] is None
         assert data["commit_sha"] == "deadbeef"
+        mock_provider.push_files.assert_called_once()
+        assert mock_provider.push_files.call_args.kwargs.get("parent_commit_sha") == "parent_sha"
         mock_provider.create_pull_request.assert_not_called()
 
     async def test_no_operation(self, client: AsyncClient) -> None:
@@ -543,7 +545,7 @@ class TestSubmitEndpoint:
             patch("apme_gateway.config.load_config") as mock_cfg,
         ):
             mock_provider = AsyncMock()
-            mock_provider.create_branch = AsyncMock()
+            mock_provider.create_branch = AsyncMock(return_value="parent_sha")
             mock_provider.push_files = AsyncMock(return_value="abc123")
             mock_provider.create_pull_request = AsyncMock(return_value=_MOCK_PR_RESULT)
             mock_get.return_value = mock_provider
@@ -568,7 +570,7 @@ class TestSubmitEndpoint:
             patch("apme_gateway.config.load_config") as mock_cfg,
         ):
             mock_provider = AsyncMock()
-            mock_provider.create_branch = AsyncMock()
+            mock_provider.create_branch = AsyncMock(return_value="parent_sha")
             mock_provider.push_files = AsyncMock(return_value="abc123")
             mock_provider.create_pull_request = AsyncMock(
                 return_value=PullRequestResult(
@@ -631,7 +633,7 @@ class TestSubmitEndpoint:
             patch("apme_gateway.config.load_config") as mock_cfg,
         ):
             mock_provider = AsyncMock()
-            mock_provider.create_branch = AsyncMock()
+            mock_provider.create_branch = AsyncMock(return_value="parent_sha")
             mock_provider.push_files = AsyncMock(return_value="db_commit_sha")
             mock_provider.create_pull_request = AsyncMock(return_value=_MOCK_PR_RESULT)
             mock_get.return_value = mock_provider
@@ -662,7 +664,7 @@ class TestSubmitEndpoint:
         ):
             mock_provider = AsyncMock()
             mock_provider.branch_head_sha = AsyncMock(return_value="existing_commit_sha")
-            mock_provider.create_branch = AsyncMock()
+            mock_provider.create_branch = AsyncMock(return_value="parent_sha")
             mock_provider.push_files = AsyncMock(return_value="should_not_push")
             mock_provider.create_pull_request = AsyncMock(return_value=_MOCK_PR_RESULT)
             mock_get.return_value = mock_provider
