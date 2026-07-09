@@ -123,7 +123,11 @@ artifact type, translate it:
    docstrings against the code they describe. Did you rename something
    but leave the old name in prose? Did you change behavior but leave
    an old description? Check ADRs, `CLAUDE.md`, `AGENTS.md`, and
-   `docs/` for stale references.
+   `docs/` for stale references. When implementation adds an
+   intentional filter or exception (e.g. stamp only compatible
+   members of a mixed group), update any ADR/doc that still says
+   "all" / "every" — prose that overclaims is drift even if the
+   code is correct.
 
 5. **Are dependencies and versions pinned to intent?** Check every
    version range, action tag, and base image. Does each one express
@@ -131,16 +135,32 @@ artifact type, translate it:
 
 6. **Is there dead weight?** Check for unused imports, unreachable
    branches, written-but-never-read variables, parameters accepted
-   but ignored.
+   but ignored. Also flag **paid-for-but-wasteful work**: parsing
+   the same JSON twice in one loop body; `list.pop(0)` / repeated
+   `list.insert(0, …)` when a `deque` (or reverse + `pop()`) would
+   be O(1); `len(list(seq))` when `len(seq)` works; nested scans
+   that are O(P×V) when an id→row map would be O(P+V) — reviewers
+   treat these as dead weight even when functionally correct.
 
 7. **Is this internally and externally consistent?** Within each
    module: do all code paths use the same patterns (e.g., registry
    lookups vs hardcoded values)? Are exports named consistently?
-   Across the repo: do proto RPCs have matching servicer methods in
-   `daemon/`? Do rule IDs follow ADR-008 conventions (L/M/R/P/SEC)?
-   Does `_DEFAULT_PORTS` match the services actually started? Are
-   `event_emitter` calls consistent with the reporting sink protocol?
-   Cross-artifact mismatches (proto declaration vs Python
+   When a function accepts multiple input shapes (dataclass vs
+   mapping, ORM vs dict), do both paths normalize and branch the
+   same way for the same logical fields — or can one path skip a
+   transform the other applies? When overlaying fields from a
+   second source (e.g. outcome ``tier`` onto a pre-grouped
+   proposal), do dependent fields (``source``/``gate``/``tier``,
+   status→review mapping) stay aligned for *all* pre-group
+   sources — not only when the pre-group source was a sentinel
+   like ``"outcome"``? When adding fields to an existing
+   Pydantic/schema module, match sibling default patterns
+   (`Field(default_factory=list)` vs mutable `=[]`)? Across the
+   repo: do proto RPCs have matching servicer methods in `daemon/`?
+   Do rule IDs follow ADR-008 conventions (L/M/R/P/SEC)? Does
+   `_DEFAULT_PORTS` match the services actually started? Are
+   `event_emitter` calls consistent with the reporting sink
+   protocol? Cross-artifact mismatches (proto declaration vs Python
    implementation) are the easiest to miss and the most embarrassing
    to ship.
 
@@ -155,6 +175,23 @@ artifact type, translate it:
    consumer has moved on? What happens when `asyncio.gather()`
    returns a mix of results and exceptions — does every caller
    handle `return_exceptions=True` correctly?
+   For persistence and aggregation helpers, also construct:
+   - **Concurrent writers** — two sessions calling the same
+     select-then-insert / claim path before either commits (lost
+     updates, double-counts, `IntegrityError`). Prefer atomic
+     upsert or compare-and-set claims.
+   - **Non-unique lookup keys** — dicts keyed by `(file, rule_id)`
+     or similar when duplicates are realistic; last-write-wins
+     silently corrupts overlays.
+   - **Mixed members of a group** — after grouping/bucketing, does
+     a single decision stamp apply to every member, including ones
+     of a different class (e.g. Tier 1 fixed + AI-candidate +
+     MANUAL_REVIEW on the same node path)? Filters must be
+     allowlists of the intended class, not "everything except X"
+     — the latter silently includes unrelated classes.
+   - **Docstring vs deny-by-default** — if prose says "only when
+     compatible" / "same class", the fallback branch must not return
+     ``True`` unconditionally for unknown/sentinel sources.
 
 9. **Do inherited contracts hold?** When implementing a Protocol
    or extending a base class, check that the subclass honors the
@@ -213,17 +250,25 @@ actionable.
    undisclosed I/O, inconsistency with sibling functions)
 4. Is everything still true after this change? (prose vs code drift —
    renamed symbols with old docstrings, changed behavior with old
-   descriptions, stale ADR/doc references)
+   descriptions, stale ADR/doc references; ADR "all/every" claims
+   that no longer match filtered implementation)
 5. Are dependencies and versions pinned to intent?
 6. Is there dead weight? (unused imports, unreachable branches,
-   written-but-never-read variables)
+   written-but-never-read variables; also repeated parse/work,
+   O(n) queue ops, `len(list(seq))`, and O(P×V) nested scans that
+   should be O(1) / O(P+V))
 7. Is this internally and externally consistent? (patterns, naming,
    cross-artifact parity — e.g., proto RPCs must have matching
-   servicer methods in daemon/, rule IDs must follow ADR-008)
+   servicer methods in daemon/, rule IDs must follow ADR-008;
+   dual input shapes must normalize identically; overlay fields
+   like tier/source/gate must stay aligned)
 8. Would a constructed scenario break this? (edge-case inputs,
    empty-but-not-falsy values, temporal failures — async dependency
    never responds, asyncio.gather with return_exceptions=True
-   returning a mix of results and exceptions)
+   returning a mix of results and exceptions; concurrent
+   select-then-insert races; non-unique dict keys that overwrite;
+   mixed members of a group stamped with one decision; unbounded
+   SQL IN lists vs SQLite parameter limits)
 9. Do inherited contracts hold? (Protocol/base class implementations
    honor runtime semantics — validators are read-only per ADR-009,
    gRPC servicers use grpc.aio per ADR-007)
