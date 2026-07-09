@@ -110,6 +110,33 @@ class GitHubProvider:
         """
         return httpx.AsyncClient(timeout=timeout, verify=_http_verify())
 
+    async def branch_head_sha(
+        self,
+        repo_url: str,
+        branch: str,
+        token: str,
+    ) -> str | None:
+        """Return the commit SHA at the tip of *branch*, if it exists.
+
+        Args:
+            repo_url: HTTPS clone URL.
+            branch: Branch name.
+            token: GitHub PAT.
+
+        Returns:
+            Commit SHA when the branch exists, else ``None``.
+        """
+        owner, repo = _parse_owner_repo(repo_url)
+        async with self._client(timeout=30) as client:
+            resp = await client.get(
+                f"{self._api}/repos/{owner}/{repo}/git/ref/heads/{branch}",
+                headers=self._headers(token),
+            )
+            if resp.status_code == 404:
+                return None
+            resp.raise_for_status()
+            return str(resp.json()["object"]["sha"])
+
     async def create_branch(
         self,
         repo_url: str,
@@ -126,6 +153,10 @@ class GitHubProvider:
             token: GitHub PAT or app installation token.
         """
         owner, repo = _parse_owner_repo(repo_url)
+        if await self.branch_head_sha(repo_url, new_branch, token):
+            logger.info("Branch %s already exists on %s/%s", new_branch, owner, repo)
+            return
+
         async with self._client(timeout=30) as client:
             ref_resp = await client.get(
                 f"{self._api}/repos/{owner}/{repo}/git/ref/heads/{base_branch}",
@@ -256,9 +287,10 @@ class GitHubProvider:
         """
         owner, repo = _parse_owner_repo(repo_url)
         async with self._client(timeout=30) as client:
+            headers = self._headers(token)
             resp = await client.post(
                 f"{self._api}/repos/{owner}/{repo}/pulls",
-                headers=self._headers(token),
+                headers=headers,
                 json={
                     "title": title,
                     "body": body,
@@ -266,6 +298,22 @@ class GitHubProvider:
                     "base": base_branch,
                 },
             )
+            if resp.status_code == 422:
+                existing = await client.get(
+                    f"{self._api}/repos/{owner}/{repo}/pulls",
+                    headers=headers,
+                    params={
+                        "head": f"{owner}:{head_branch}",
+                        "base": base_branch,
+                        "state": "open",
+                    },
+                )
+                existing.raise_for_status()
+                pulls = existing.json()
+                if pulls:
+                    pr_url = pulls[0]["html_url"]
+                    logger.info("Reusing existing PR %s on %s/%s", pr_url, owner, repo)
+                    return PullRequestResult(pr_url=pr_url, branch_name=head_branch, provider="github")
             resp.raise_for_status()
             data = resp.json()
 

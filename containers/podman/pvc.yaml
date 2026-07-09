@@ -1,0 +1,45 @@
+# Podman named volumes for local development (same PVC shape as deploy/helm/apme).
+# Applied by containers/podman/up.sh before pod.yaml. Ignored by Kubernetes when
+# using the Helm chart, which defines its own PVCs in templates/pvc.yaml.
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: apme-sessions
+  annotations:
+    volume.podman.io/uid: "1001"
+    volume.podman.io/gid: "0"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: apme-gateway-data
+  annotations:
+    volume.podman.io/uid: "1001"
+    volume.podman.io/gid: "0"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: apme-proxy-cache
+  annotations:
+    volume.podman.io/uid: "1001"
+    volume.podman.io/gid: "0"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi

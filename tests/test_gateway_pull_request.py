@@ -648,6 +648,40 @@ class TestSubmitEndpoint:
         assert data["pr_url"] == "https://github.com/org/repo/pull/99"
         assert data["commit_sha"] == "db_commit_sha"
 
+    async def test_submit_create_pr_skips_push_when_branch_exists(self, client: AsyncClient) -> None:
+        """PR-only submit reuses an existing branch from the prior push step.
+
+        Args:
+            client: Async test client.
+        """
+        await _seed_project_with_remediation(scm_token="ghp_test123")
+
+        with (
+            patch("apme_gateway.scm.get_provider") as mock_get,
+            patch("apme_gateway.config.load_config") as mock_cfg,
+        ):
+            mock_provider = AsyncMock()
+            mock_provider.branch_head_sha = AsyncMock(return_value="existing_commit_sha")
+            mock_provider.create_branch = AsyncMock()
+            mock_provider.push_files = AsyncMock(return_value="should_not_push")
+            mock_provider.create_pull_request = AsyncMock(return_value=_MOCK_PR_RESULT)
+            mock_get.return_value = mock_provider
+            mock_cfg.return_value.scm_token = ""
+            mock_cfg.return_value.github_api_url = "https://api.github.com"
+
+            resp = await client.post(
+                "/api/v1/projects/proj-1/operation/submit",
+                json={"activity_id": "scan-1", "create_pr": True},
+            )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["pr_url"] == "https://github.com/org/repo/pull/99"
+        assert data["commit_sha"] == "existing_commit_sha"
+        mock_provider.create_branch.assert_not_called()
+        mock_provider.push_files.assert_not_called()
+        mock_provider.create_pull_request.assert_called_once()
+
     async def test_activity_id_wrong_project(self, client: AsyncClient) -> None:
         """Reject activity_id that does not belong to the project.
 

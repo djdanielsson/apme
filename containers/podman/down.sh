@@ -14,6 +14,16 @@ podman pod rm  apme-pod 2>/dev/null || true
 echo "Pod stopped."
 
 if [[ "${1:-}" == "--wipe" ]]; then
+  for vol in apme-sessions apme-gateway-data apme-proxy-cache; do
+    if podman volume exists "$vol" 2>/dev/null; then
+      podman volume rm "$vol"
+      echo "Removed volume: $vol"
+    else
+      echo "No volume found: $vol"
+    fi
+  done
+
+  # Legacy hostPath cache (pre-PVC local deployments).
   CACHE_PATH="${APME_CACHE_HOST_PATH:-${XDG_CACHE_HOME:-$HOME/.cache}/apme}"
 
   if [[ "$CACHE_PATH" != /* ]]; then
