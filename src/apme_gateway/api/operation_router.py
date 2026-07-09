@@ -355,15 +355,36 @@ async def submit_operation(
     commit_title = body.title or f"fix: APME remediation — {scan.fixed_count} findings resolved"
 
     try:
-        await provider.create_branch(project.repo_url, project.branch, branch_name, token)
-        files = {pf.path: pf.content for pf in patched}
-        commit_sha = await provider.push_files(
-            project.repo_url,
-            branch_name,
-            files,
-            commit_title,
-            token,
-        )
+        existing_head: str | None = None
+        branch_head_sha = getattr(provider, "branch_head_sha", None)
+        if callable(branch_head_sha):
+            head = await branch_head_sha(project.repo_url, branch_name, token)
+            if isinstance(head, str) and head:
+                existing_head = head
+
+        if existing_head is None:
+            parent_sha = await provider.create_branch(project.repo_url, project.branch, branch_name, token)
+            files = {pf.path: pf.content for pf in patched}
+            commit_sha = await provider.push_files(
+                project.repo_url,
+                branch_name,
+                files,
+                commit_title,
+                token,
+                parent_commit_sha=parent_sha,
+            )
+        elif body.create_pr:
+            # Two-step UI flow: branch was pushed earlier; only open the PR now.
+            commit_sha = existing_head
+        else:
+            files = {pf.path: pf.content for pf in patched}
+            commit_sha = await provider.push_files(
+                project.repo_url,
+                branch_name,
+                files,
+                commit_title,
+                token,
+            )
 
         pr_url: str | None = None
         if body.create_pr:

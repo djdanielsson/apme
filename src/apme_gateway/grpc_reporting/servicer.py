@@ -450,8 +450,6 @@ def _add_manifest(db: AsyncSession, scan_id: str, manifest: object) -> None:
     for c in manifest.collections:  # type: ignore[attr-defined]
         if c.fqcn in seen_fqcns:
             logger.debug("Skipping duplicate collection FQCN '%s' for scan '%s'", c.fqcn, scan_id)
-            logger.debug("Skipping duplicate collection FQCN '%s' for scan '%s'", c.fqcn, scan_id)
-            logger.debug("Skipping duplicate collection FQCN '%s' for scan '%s'", c.fqcn, scan_id)
             continue
         seen_fqcns.add(c.fqcn)
         db.add(
@@ -464,7 +462,12 @@ def _add_manifest(db: AsyncSession, scan_id: str, manifest: object) -> None:
                 supplier=c.supplier,
             )
         )
+    seen_pkg_names: set[str] = set()
     for p in manifest.python_packages:  # type: ignore[attr-defined]
+        if p.name in seen_pkg_names:
+            logger.debug("Skipping duplicate python package '%s' for scan '%s'", p.name, scan_id)
+            continue
+        seen_pkg_names.add(p.name)
         db.add(
             ScanPythonPackage(
                 scan_id=scan_id,

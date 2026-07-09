@@ -35,7 +35,7 @@ class ScmProvider(Protocol):
         base_branch: str,
         new_branch: str,
         token: str,
-    ) -> None:
+    ) -> str:
         """Create a new branch from the tip of *base_branch*.
 
         Args:
@@ -43,6 +43,9 @@ class ScmProvider(Protocol):
             base_branch: Branch to fork from.
             new_branch: Name for the new branch.
             token: Authentication token.
+
+        Returns:
+            Commit SHA at the tip of *new_branch*.
         """
         ...
 
@@ -53,6 +56,8 @@ class ScmProvider(Protocol):
         files: dict[str, bytes],
         commit_message: str,
         token: str,
+        *,
+        parent_commit_sha: str | None = None,
     ) -> str:
         """Push file contents to *branch* and return the commit SHA.
 
@@ -62,6 +67,8 @@ class ScmProvider(Protocol):
             files: Mapping of relative path → file content.
             commit_message: Commit message for the push.
             token: Authentication token.
+            parent_commit_sha: Optional parent commit when the branch ref is not
+                yet readable (e.g. immediately after branch creation).
 
         Returns:
             The SHA of the new commit.

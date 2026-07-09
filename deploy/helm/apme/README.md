@@ -171,15 +171,19 @@ bases (ADR-061).
 - The UI container mounts emptyDir volumes for nginx writable paths
 - No privilege escalation is required
 
-For vanilla Kubernetes, set explicit security contexts:
+For vanilla Kubernetes, set explicit security contexts (UBI images run as UID 1001):
 
 ```yaml
 podSecurityContext:
-  fsGroup: 1000
+  fsGroup: 1001
 securityContext:
   runAsNonRoot: true
-  runAsUser: 1000
+  runAsUser: 1001
 ```
+
+`fsGroup` ensures PVC mounts for `/sessions`, `/data`, and `/cache` are writable by
+the application UID. Local Podman uses the same PVC definitions in
+`containers/podman/pvc.yaml` (with `volume.podman.io/uid` annotations).
 
 ## Uninstall
 

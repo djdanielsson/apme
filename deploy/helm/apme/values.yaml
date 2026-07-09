@@ -316,10 +316,10 @@ podAnnotations: {}
 
 # -- Pod-level security context.
 # Defaults to empty so OCP restricted-v2 SCC can inject its own UID/GID range.
-# For vanilla Kubernetes set: podSecurityContext: { fsGroup: 1000 }
+# For vanilla Kubernetes set: podSecurityContext: { fsGroup: 1001 }
 podSecurityContext: {}
 
 # -- Container-level security context.
 # Defaults to empty so OCP restricted-v2 SCC can inject its own UID/GID range.
-# For vanilla Kubernetes set: securityContext: { runAsNonRoot: true, runAsUser: 1000 }
+# For vanilla Kubernetes set: securityContext: { runAsNonRoot: true, runAsUser: 1001 }
 securityContext: {}

@@ -169,6 +169,41 @@ async def test_report_fix_with_manifest_persists() -> None:
         assert pkgs[0].name == "jmespath"
 
 
+async def test_report_fix_deduplicates_duplicate_python_packages() -> None:
+    """Duplicate python package names in manifest do not fail persistence."""
+    servicer = ReportingServicer()
+    manifest = common_pb2.ProjectManifest(
+        python_packages=[
+            common_pb2.PythonPackageRef(
+                name="ansible-collection-ansible-posix",
+                version="2.2.1",
+                supplier="Ansible (github.com/ansible)",
+            ),
+            common_pb2.PythonPackageRef(
+                name="ansible-collection-ansible-posix",
+                version="2.2.1",
+                supplier="Ansible (github.com/ansible)",
+            ),
+        ],
+    )
+    event = reporting_pb2.FixCompletedEvent(
+        scan_id="scan-dedupe",
+        session_id="sess-dedupe",
+        project_path="/proj",
+        source="cli",
+        manifest=manifest,
+    )
+    await servicer.ReportFixCompleted(event, _mock_context())
+
+    async with get_session() as db:
+        from sqlalchemy import select
+
+        p_result = await db.execute(select(ScanPythonPackage).where(ScanPythonPackage.scan_id == "scan-dedupe"))
+        pkgs = list(p_result.scalars().all())
+        assert len(pkgs) == 1
+        assert pkgs[0].name == "ansible-collection-ansible-posix"
+
+
 async def test_report_fix_without_manifest_ok() -> None:
     """Fix event without manifest still persists normally."""
     servicer = ReportingServicer()

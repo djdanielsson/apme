@@ -21,6 +21,7 @@ FROM ${UBI_NGINX_IMAGE}
 USER root
 RUN dnf install -y gettext && dnf clean all
 
+COPY containers/ui/nginx.conf /etc/nginx/nginx.conf
 COPY containers/ui/nginx.conf.template /etc/nginx/conf.d/default.conf.template
 COPY containers/ui/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
