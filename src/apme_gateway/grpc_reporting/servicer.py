@@ -13,6 +13,7 @@ from collections.abc import Sequence
 from datetime import datetime, timezone
 
 import grpc
+from sqlalchemy import delete as sa_delete
 from sqlalchemy import select as sa_select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,7 +22,6 @@ from apme_engine.graph.severity import severity_from_proto, severity_to_label
 from apme_gateway.db import get_session
 from apme_gateway.db.models import (
     PatchedFile,
-    Proposal,
     Rule,
     Scan,
     ScanCollection,
@@ -32,6 +32,13 @@ from apme_gateway.db.models import (
     ScanPythonPackage,
     Session,
     Violation,
+)
+from apme_gateway.proposals.flush import replace_scan_proposals
+from apme_gateway.proposals.grouping import (
+    group_violations,
+    merge_outcomes,
+    review_status_for_proposal,
+    violation_accepts_review_status,
 )
 
 logger = logging.getLogger(__name__)
@@ -87,26 +94,52 @@ class ReportingServicer(reporting_pb2_grpc.ReportingServicer):
         try:
             async with get_session() as db:
                 await _upsert_session(db, request.session_id, request.project_path)
-                scan = Scan(
-                    scan_id=request.scan_id,
-                    session_id=request.session_id,
-                    project_id=None,
-                    project_path=request.project_path,
-                    source=request.source or "cli",
-                    trigger="cli",
-                    created_at=_now_iso(),
-                    scan_type="remediate",
-                    total_violations=request.summary.total if request.summary else 0,
-                    auto_fixable=request.summary.auto_fixable if request.summary else 0,
-                    ai_candidate=request.summary.ai_candidate if request.summary else 0,
-                    manual_review=request.summary.manual_review if request.summary else 0,
-                    fixed_count=request.report.fixed if request.report else 0,
-                    diagnostics_json=_diagnostics_to_json(request.diagnostics),
-                )
-                db.add(scan)
+                existing = (
+                    await db.execute(sa_select(Scan).where(Scan.scan_id == request.scan_id))
+                ).scalar_one_or_none()
+                if existing is None:
+                    scan = Scan(
+                        scan_id=request.scan_id,
+                        session_id=request.session_id,
+                        project_id=None,
+                        project_path=request.project_path,
+                        source=request.source or "cli",
+                        trigger="cli",
+                        created_at=_now_iso(),
+                        scan_type="remediate",
+                        total_violations=request.summary.total if request.summary else 0,
+                        auto_fixable=request.summary.auto_fixable if request.summary else 0,
+                        ai_candidate=request.summary.ai_candidate if request.summary else 0,
+                        manual_review=request.summary.manual_review if request.summary else 0,
+                        fixed_count=request.report.fixed if request.report else 0,
+                        diagnostics_json=_diagnostics_to_json(request.diagnostics),
+                    )
+                    db.add(scan)
+                else:
+                    # Live ProposalsReady may have created a stub scan (ADR-062 Phase 2).
+                    scan = existing
+                    scan.session_id = request.session_id
+                    scan.project_path = request.project_path
+                    if not scan.source or scan.source == "gateway":
+                        scan.source = request.source or scan.source or "cli"
+                    scan.total_violations = request.summary.total if request.summary else scan.total_violations
+                    scan.auto_fixable = request.summary.auto_fixable if request.summary else scan.auto_fixable
+                    scan.ai_candidate = request.summary.ai_candidate if request.summary else scan.ai_candidate
+                    scan.manual_review = request.summary.manual_review if request.summary else scan.manual_review
+                    scan.fixed_count = request.report.fixed if request.report else scan.fixed_count
+                    scan.diagnostics_json = _diagnostics_to_json(request.diagnostics)
+                    # Idempotent replay: clear append-only children before re-add.
+                    # Keep Proposal rows until replace_scan_proposals bridges them.
+                    await _clear_scan_children_for_replay(db, request.scan_id)
+                await db.flush()
                 _add_violations(db, request.scan_id, list(request.remaining_violations))
                 _add_violations(db, request.scan_id, list(request.fixed_violations))
-                _add_proposals(db, request.scan_id, list(request.proposals))
+                await db.flush()
+                await _persist_grouped_proposals(
+                    db,
+                    scan_id=request.scan_id,
+                    outcomes=list(request.proposals),
+                )
                 _add_logs(db, request.scan_id, list(request.logs))
                 _add_patches(db, request.scan_id, list(request.patches))
                 _add_manifest(db, request.scan_id, request.manifest)
@@ -225,6 +258,29 @@ async def _reconcile_rules(
     return added, removed, unchanged
 
 
+async def _clear_scan_children_for_replay(db: AsyncSession, scan_id: str) -> None:
+    """Delete append-only scan children so ReportFixCompleted can re-insert.
+
+    Preserves ``Proposal`` rows so the live stub → archival bridge in
+    ``replace_scan_proposals`` still sees prior gate-commit state.
+
+    Args:
+        db: Active async session.
+        scan_id: Scan whose child rows to clear.
+    """
+    for model in (
+        Violation,
+        ScanLog,
+        ScanPatch,
+        PatchedFile,
+        ScanManifest,
+        ScanCollection,
+        ScanPythonPackage,
+        ScanGraph,
+    ):
+        await db.execute(sa_delete(model).where(model.scan_id == scan_id))
+
+
 async def _upsert_session(db: AsyncSession, session_id: str, project_path: str) -> None:
     """Create or update the session row with the latest timestamp.
 
@@ -277,30 +333,100 @@ def _add_violations(db: AsyncSession, scan_id: str, violations: Sequence[object]
                 node_line_start=v.node_line_start,  # type: ignore[attr-defined]
                 ai_reason=v.metadata.get("ai_reason", ""),  # type: ignore[attr-defined]
                 ai_suggestion=v.metadata.get("ai_suggestion", ""),  # type: ignore[attr-defined]
+                review_status=None,
             )
         )
 
 
-def _add_proposals(db: AsyncSession, scan_id: str, proposals: Sequence[object]) -> None:
-    """Convert proto ProposalOutcome to ORM rows.
+async def _persist_grouped_proposals(
+    db: AsyncSession,
+    *,
+    scan_id: str,
+    outcomes: Sequence[object],
+) -> None:
+    """Build ADR-062 working-set proposals from persisted violations.
+
+    When the engine sends ProposalOutcome rows without matching violations
+    (legacy thin outcome path), fall back to outcome-only proposals so
+    historical activity still has a working set.
 
     Args:
-        db: Active async database session.
-        scan_id: Owning scan UUID.
-        proposals: Proto ProposalOutcome messages.
+        db: Active async session (violations already flushed).
+        scan_id: Owning scan id.
+        outcomes: Engine ProposalOutcome messages to overlay.
     """
-    for p in proposals:
-        db.add(
-            Proposal(
-                scan_id=scan_id,
-                proposal_id=p.proposal_id,  # type: ignore[attr-defined]
-                rule_id=p.rule_id,  # type: ignore[attr-defined]
-                file=p.file,  # type: ignore[attr-defined]
-                tier=p.tier,  # type: ignore[attr-defined]
-                confidence=p.confidence,  # type: ignore[attr-defined]
-                status=p.status,  # type: ignore[attr-defined]
+    from apme_gateway.proposals.grouping import GroupedProposal  # noqa: PLC0415
+
+    result = await db.execute(sa_select(Violation).where(Violation.scan_id == scan_id))
+    violations = list(result.scalars().all())
+    grouped = group_violations(violations, include_diff=True)
+    merged = merge_outcomes(grouped, outcomes)
+
+    if not merged and outcomes:
+        fallback: list[GroupedProposal] = []
+        for raw in outcomes:
+            status = str(getattr(raw, "status", "") or "pending")
+            if status == "rejected":
+                status = "declined"
+            tier = int(getattr(raw, "tier", 0) or 0)
+            source = "ai" if tier >= 2 else "outcome"
+            gate = "ai" if tier >= 2 else ""
+            rule_id = str(getattr(raw, "rule_id", "") or "")
+            fallback.append(
+                GroupedProposal(
+                    proposal_id=str(getattr(raw, "proposal_id", "") or ""),
+                    rule_id=rule_id,
+                    rule_ids=(rule_id,) if rule_id else (),
+                    violation_ids=(),
+                    file=str(getattr(raw, "file", "") or ""),
+                    path="",
+                    line_start=0,
+                    tier=tier,
+                    source=source,
+                    gate=gate,
+                    status=status,
+                    confidence=float(getattr(raw, "confidence", 0.0) or 0.0),
+                    coupled=False,
+                )
             )
+        merged = fallback
+
+    await replace_scan_proposals(db, scan_id=scan_id, proposals=list(merged))
+
+    # Stamp review_status from persisted rows so gate-commit decisions bridged
+    # across replace_scan_proposals (and non-interactive Tier 1 promotions
+    # written by replace) are applied once violation_ids exist.
+    from apme_gateway.db.models import Proposal  # noqa: PLC0415
+    from apme_gateway.proposals.grouping import (  # noqa: PLC0415
+        parse_json_list,
+        stamp_rule_allowlist,
+    )
+
+    by_id = {v.id: v for v in violations}
+    persisted = list((await db.execute(sa_select(Proposal).where(Proposal.scan_id == scan_id))).scalars().all())
+    for prop in persisted:
+        review = review_status_for_proposal(prop.source, prop.status)
+        if not review:
+            continue
+        v_ids = parse_json_list(prop.violation_ids_json)
+        int_ids = [int(v) for v in v_ids if str(v).isdigit() or isinstance(v, int)]
+        if not int_ids:
+            continue
+        stamp_rules = stamp_rule_allowlist(
+            stamp_rule_ids_json=prop.stamp_rule_ids_json,
+            rule_ids_json=prop.rule_ids_json,
         )
+        for vid in int_ids:
+            violation = by_id.get(vid)
+            if violation is None or violation.review_status is not None:
+                continue
+            if stamp_rules:
+                v_rule = str(getattr(violation, "rule_id", "") or "")
+                if v_rule not in stamp_rules:
+                    continue
+            if not violation_accepts_review_status(prop.source, violation, decision=prop.status):
+                continue
+            violation.review_status = review
 
 
 def _add_logs(db: AsyncSession, scan_id: str, logs: Sequence[object]) -> None:
@@ -379,8 +505,6 @@ def _add_manifest(db: AsyncSession, scan_id: str, manifest: object) -> None:
     for c in manifest.collections:  # type: ignore[attr-defined]
         if c.fqcn in seen_fqcns:
             logger.debug("Skipping duplicate collection FQCN '%s' for scan '%s'", c.fqcn, scan_id)
-            logger.debug("Skipping duplicate collection FQCN '%s' for scan '%s'", c.fqcn, scan_id)
-            logger.debug("Skipping duplicate collection FQCN '%s' for scan '%s'", c.fqcn, scan_id)
             continue
         seen_fqcns.add(c.fqcn)
         db.add(
@@ -393,7 +517,12 @@ def _add_manifest(db: AsyncSession, scan_id: str, manifest: object) -> None:
                 supplier=c.supplier,
             )
         )
+    seen_pkg_names: set[str] = set()
     for p in manifest.python_packages:  # type: ignore[attr-defined]
+        if p.name in seen_pkg_names:
+            logger.debug("Skipping duplicate python package '%s' for scan '%s'", p.name, scan_id)
+            continue
+        seen_pkg_names.add(p.name)
         db.add(
             ScanPythonPackage(
                 scan_id=scan_id,

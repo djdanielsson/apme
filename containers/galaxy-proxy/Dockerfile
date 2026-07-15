@@ -5,10 +5,14 @@
 ARG BASE_IMAGE=localhost/apme-base:latest
 FROM $BASE_IMAGE
 
+USER root
+
 # ansible-galaxy collection download is used for tarball fetching (ADR-045).
 # Install ansible-core into the image venv so the binary is on PATH.
-RUN --mount=type=cache,target=/root/.cache/uv \
+RUN --mount=type=cache,target=/tmp/uv-cache \
     uv pip install --python /app/.venv/bin/python "ansible-core>=2.16,<2.19"
+
+USER 1001
 
 EXPOSE 8765
 

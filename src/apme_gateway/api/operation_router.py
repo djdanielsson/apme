@@ -49,10 +49,13 @@ class OperateRequest(BaseModel):  # type: ignore[misc]
     Attributes:
         action: ``check`` or ``remediate``.
         options: Additional operation options.
+        abandon_working_set: When True, allow a new remediate to flush an
+            interactive draft working set (ADR-062 Phase 2).
     """
 
     action: str = Field(..., pattern="^(check|remediate)$")
     options: dict[str, Any] = Field(default_factory=dict)
+    abandon_working_set: bool = False
 
 
 class OperateResponse(BaseModel):  # type: ignore[misc]
@@ -75,6 +78,29 @@ class ApproveRequest(BaseModel):  # type: ignore[misc]
     approved_ids: list[str] = Field(default_factory=list)
 
 
+class DraftProposalUpdate(BaseModel):  # type: ignore[misc]
+    """One optimistic checkbox update (ADR-062 Phase 2).
+
+    Attributes:
+        proposal_id: Gateway ``proposal_id`` or live ``engine_proposal_id``.
+        status: pending, approved, or declined (``proposed``/``rejected``
+            accepted as synonyms and normalized in ``apply_draft_updates``).
+    """
+
+    proposal_id: str
+    status: str = Field(..., pattern="^(pending|approved|declined|proposed|rejected)$")
+
+
+class DraftProposalsRequest(BaseModel):  # type: ignore[misc]
+    """Body for ``PATCH /proposals``.
+
+    Attributes:
+        updates: Status updates for working-set proposals.
+    """
+
+    updates: list[DraftProposalUpdate] = Field(default_factory=list)
+
+
 # ── REST endpoints ────────────────────────────────────────────────────
 
 
@@ -82,7 +108,9 @@ class ApproveRequest(BaseModel):  # type: ignore[misc]
 async def initiate_operation(project_id: str, body: OperateRequest) -> OperateResponse:
     """Initiate a new check or remediate operation for a project.
 
-    Rejects with 409 if the project already has an active operation.
+    Rejects with 409 if the project already has an active operation, or if
+    a remediate would wipe an interactive draft working set without
+    ``abandon_working_set=true`` (ADR-062 Phase 2).
 
     Args:
         project_id: Target project UUID.
@@ -92,7 +120,8 @@ async def initiate_operation(project_id: str, body: OperateRequest) -> OperateRe
         The new operation identifier.
 
     Raises:
-        HTTPException: 404 if project not found, 409 if operation active.
+        HTTPException: 404 if project not found; 409 if operation active or
+            ``working_set_in_progress`` without abandon opt-in.
     """
     from apme_gateway._galaxy_inject import load_galaxy_server_defs
     from apme_gateway.config import load_config
@@ -107,15 +136,47 @@ async def initiate_operation(project_id: str, body: OperateRequest) -> OperateRe
     scan_id = uuid.uuid4().hex
     scan_type = body.action
 
-    try:
-        state = registry.create(
-            operation_id=operation_id,
-            project_id=proj.id,
-            scan_id=scan_id,
-            scan_type=scan_type,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    # Hold the per-project lock across active-check → abandon → create so a
+    # concurrent remediate cannot interleave and wipe another op's drafts.
+    async with registry.project_lock(proj.id):
+        prior_op = registry.get_by_project(proj.id)
+        if prior_op is not None and prior_op.status not in TERMINAL_STATUSES:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Project already has an active operation {prior_op.operation_id}",
+            )
+        extra_scan_ids = [prior_op.scan_id] if prior_op is not None else []
+
+        if body.action == "remediate":
+            from apme_gateway.proposals.draft import (  # noqa: PLC0415
+                abandon_project_drafts,
+                project_has_draft_proposals,
+            )
+
+            async with get_session() as db:
+                has_draft = await project_has_draft_proposals(db, proj.id, extra_scan_ids=extra_scan_ids)
+                if has_draft and not body.abandon_working_set:
+                    raise HTTPException(
+                        status_code=409,
+                        detail={
+                            "code": "working_set_in_progress",
+                            "message": "Project has an interactive draft working set; "
+                            "retry with abandon_working_set=true to discard it.",
+                        },
+                    )
+                if has_draft and body.abandon_working_set:
+                    await abandon_project_drafts(db, proj.id, extra_scan_ids=extra_scan_ids)
+                    await db.commit()
+
+        try:
+            state = registry.create(
+                operation_id=operation_id,
+                project_id=proj.id,
+                scan_id=scan_id,
+                scan_type=scan_type,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     cfg = load_config()
     galaxy_servers = await load_galaxy_server_defs()
@@ -162,14 +223,18 @@ async def get_operation_state(project_id: str) -> dict[str, Any]:
 
 @operation_router.post("/approve")  # type: ignore[untyped-decorator]
 async def approve_proposals(project_id: str, body: ApproveRequest) -> dict[str, str]:
-    """Submit approval decisions for AI proposals.
+    """Submit approval decisions for live proposals (engine ids).
 
-    Resolves the operation's ``approval_future`` so the background gRPC
-    task can send the approval to Primary.
+    Gate-commits Gateway working-set rows (omit = decline) and rolls
+    analytics when claimable, then resolves the operation's
+    ``approval_future`` so the background gRPC task can send the approval
+    to Primary. ``review_status`` is stamped when violation ids are already
+    linked; otherwise FixCompleted stamps after the id bridge. Request /
+    response shape is unchanged (ADR-060).
 
     Args:
         project_id: Target project UUID.
-        body: Approved proposal IDs.
+        body: Approved **engine** proposal IDs.
 
     Returns:
         Confirmation message.
@@ -189,8 +254,89 @@ async def approve_proposals(project_id: str, body: ApproveRequest) -> dict[str, 
     if state.approval_future is None or state.approval_future.done():
         raise HTTPException(status_code=409, detail="Approval already submitted")
 
-    state.approval_future.set_result(body.approved_ids)
+    # Gate commit: mirror omit=reject + analytics before waking Primary.
+    # review_status often waits until FixCompleted (stubs lack violation_ids).
+    # Scope to this round's offered ids so a later gate does not rewrite prior
+    # decisions on the same scan.
+    from apme_gateway.proposals.draft import commit_gate_decisions  # noqa: PLC0415
+
+    offered = [p.id for p in (state.proposals or [])]
+    offered_set = set(offered)
+    approved_set = {str(i) for i in body.approved_ids}
+    unknown = sorted(approved_set - offered_set)
+    # ADR-060: do not harden /approve into a 400 for unknown ids — prior
+    # behavior ignored extras. Log and proceed with the offered intersection.
+    if unknown:
+        logger.warning(
+            "Ignoring %s unknown approve id(s) for project %s (not in offered set)",
+            len(unknown),
+            project_id[:12],
+        )
+    # Preserve offered order; only ids that were actually presented this round.
+    approved = [pid for pid in offered if pid in approved_set]
+    async with get_session() as db:
+        await commit_gate_decisions(
+            db,
+            scan_id=state.scan_id,
+            project_id=project_id,
+            approved_engine_ids=approved,
+            offered_engine_ids=offered,
+        )
+        await db.commit()
+
+    state.approval_future.set_result(approved)
     return {"status": "approved"}
+
+
+@operation_router.patch("/proposals")  # type: ignore[untyped-decorator]
+async def patch_draft_proposals(project_id: str, body: DraftProposalsRequest) -> dict[str, Any]:
+    """Optimistic draft checkbox updates (ADR-062 Phase 2).
+
+    Updates Gateway ``proposals.status`` and sets ``draft=1``. Does not
+    stamp ``review_status``, write analytics, or resolve ``approval_future``.
+
+    Args:
+        project_id: Target project UUID.
+        body: Draft status updates (gateway or engine proposal ids).
+
+    Returns:
+        Updated proposal summaries.
+
+    Raises:
+        HTTPException: 404/409 on missing operation or bad state; 400 on bad ids.
+    """
+    registry = get_operation_registry()
+    state = registry.get_by_project(project_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="No operation for this project")
+    if state.status != OperationStatus.AWAITING_APPROVAL:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Operation is in '{state.status.value}', not 'awaiting_approval'",
+        )
+
+    from apme_gateway.proposals.draft import apply_draft_updates  # noqa: PLC0415
+    from apme_gateway.proposals.flush import proposal_to_detail_dict  # noqa: PLC0415
+
+    updates = [{"proposal_id": u.proposal_id, "status": u.status} for u in body.updates]
+    try:
+        async with get_session() as db:
+            rows = await apply_draft_updates(db, scan_id=state.scan_id, updates=updates)
+            await db.commit()
+            payloads = [proposal_to_detail_dict(r) for r in rows]
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # Mirror onto in-memory registry proposals when engine ids match.
+    if state.proposals:
+        by_engine = {p.id: p for p in state.proposals}
+        for item in payloads:
+            eng = str(item.get("engine_proposal_id") or "")
+            if eng and eng in by_engine:
+                by_engine[eng].status = str(item.get("status") or by_engine[eng].status)
+
+    registry.broadcast_proposal_updated(state.operation_id, payloads)
+    return {"updated": payloads}
 
 
 @operation_router.post("/cancel")  # type: ignore[untyped-decorator]
@@ -355,15 +501,36 @@ async def submit_operation(
     commit_title = body.title or f"fix: APME remediation — {scan.fixed_count} findings resolved"
 
     try:
-        await provider.create_branch(project.repo_url, project.branch, branch_name, token)
-        files = {pf.path: pf.content for pf in patched}
-        commit_sha = await provider.push_files(
-            project.repo_url,
-            branch_name,
-            files,
-            commit_title,
-            token,
-        )
+        existing_head: str | None = None
+        branch_head_sha = getattr(provider, "branch_head_sha", None)
+        if callable(branch_head_sha):
+            head = await branch_head_sha(project.repo_url, branch_name, token)
+            if isinstance(head, str) and head:
+                existing_head = head
+
+        if existing_head is None:
+            parent_sha = await provider.create_branch(project.repo_url, project.branch, branch_name, token)
+            files = {pf.path: pf.content for pf in patched}
+            commit_sha = await provider.push_files(
+                project.repo_url,
+                branch_name,
+                files,
+                commit_title,
+                token,
+                parent_commit_sha=parent_sha,
+            )
+        elif body.create_pr:
+            # Two-step UI flow: branch was pushed earlier; only open the PR now.
+            commit_sha = existing_head
+        else:
+            files = {pf.path: pf.content for pf in patched}
+            commit_sha = await provider.push_files(
+                project.repo_url,
+                branch_name,
+                files,
+                commit_title,
+                token,
+            )
 
         pr_url: str | None = None
         if body.create_pr:
@@ -575,7 +742,9 @@ async def finalize_operation_scan(
 
     The engine commits the scan via ``ReportFixCompleted`` asynchronously. If
     the gateway tries to insert ``scan_patches`` before that row exists, SQLite
-    raises a foreign-key error. Poll until the scan row appears or timeout.
+    raises a foreign-key error. Live proposal stubs may create an early Scan
+    row (ADR-062 Phase 2); poll until ``ReportFixCompleted`` has replaced the
+    placeholder session id (not ``op-*``) or timeout.
 
     Args:
         project_id: Owning project UUID.
@@ -595,7 +764,9 @@ async def finalize_operation_scan(
     while time.monotonic() < deadline:
         async with get_session() as db:
             scan = await q.get_scan(db, scan_id)
-            if scan is not None:
+            # Stub rows from ProposalsReady use session_id ``op-<scan>``;
+            # ReportFixCompleted rewrites session_id to the real hash.
+            if scan is not None and not str(scan.session_id or "").startswith("op-"):
                 if clone_commit:
                     await q.update_project_commit(db, project_id, clone_commit)
                 await q.link_scan_to_project(
@@ -714,6 +885,40 @@ async def _drive_operation(
                 ai_proposed_count = sum(1 for i in items if i.status != "declined")
                 ai_declined_count = sum(1 for i in items if i.status == "declined")
                 registry.set_proposals(operation_id, items)
+                # ADR-062 Phase 2: upsert Gateway stubs with engine_proposal_id.
+                from apme_gateway.proposals.draft import upsert_live_proposal_stubs  # noqa: PLC0415
+
+                # primary.Proposal has no path; bridge uses file+rule+line_start.
+                stub_payloads = [
+                    {
+                        "id": p.id,
+                        "rule_id": p.rule_id,
+                        "file": p.file,
+                        "tier": p.tier,
+                        "confidence": p.confidence,
+                        "explanation": p.explanation,
+                        "diff_hunk": p.diff_hunk,
+                        "status": p.status,
+                        "suggestion": p.suggestion,
+                        "line_start": p.line_start,
+                        "source": getattr(p, "source", "") or ("ai" if p.tier >= 2 else "deterministic"),
+                    }
+                    for p in props.proposals
+                ]
+                try:
+                    async with get_session() as db:
+                        await upsert_live_proposal_stubs(
+                            db,
+                            scan_id=scan_id,
+                            project_id=project_id,
+                            proposals=stub_payloads,
+                        )
+                        await db.commit()
+                except Exception:
+                    logger.exception(
+                        "Failed to upsert live proposal stubs for scan %s",
+                        scan_id[:12],
+                    )
 
             elif kind == "approval_ack":
                 ack = event.approval_ack  # type: ignore[attr-defined]

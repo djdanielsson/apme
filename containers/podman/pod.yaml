@@ -6,7 +6,7 @@
 # (read-only) via the sessions volume.
 # CLI is run on-the-fly with: ./run-cli.sh [args]
 # Start from repo root: podman play kube pod.yaml
-# Requires: images built first (./build.sh) and cache paths (defaults below).
+# Requires: images built first (./build.sh). PVCs are created from pvc.yaml on start.
 apiVersion: v1
 kind: Pod
 metadata:
@@ -174,17 +174,14 @@ spec:
           mountPath: /cache
   volumes:
     - name: gateway-data
-      hostPath:
-        path: __APME_CACHE_PATH__/gateway
-        type: DirectoryOrCreate
+      persistentVolumeClaim:
+        claimName: apme-gateway-data
     - name: sessions
-      hostPath:
-        path: __APME_CACHE_PATH__/sessions
-        type: DirectoryOrCreate
+      persistentVolumeClaim:
+        claimName: apme-sessions
     - name: proxy-cache
-      hostPath:
-        path: __APME_CACHE_PATH__/proxy
-        type: DirectoryOrCreate
+      persistentVolumeClaim:
+        claimName: apme-proxy-cache
     - name: abbenay-config
       hostPath:
         path: ${APME_ROOT}/containers/abbenay/config.yaml

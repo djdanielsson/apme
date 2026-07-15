@@ -17,6 +17,8 @@ export interface ViolationDetail {
   ai_reason?: string;
   ai_suggestion?: string;
   suppressed?: boolean;
+  /** Human/gate decision (ADR-062); null/undefined if never reviewed. */
+  review_status?: string | null;
 }
 
 export interface LogEntry {
@@ -35,6 +37,19 @@ export interface ProposalDetail {
   tier: number;
   confidence: number;
   status: string;
+  path?: string;
+  source?: string;
+  gate?: string;
+  rule_ids?: string[];
+  violation_ids?: number[];
+  line_start?: number;
+  diff_hunk?: string;
+  explanation?: string;
+  suggestion?: string;
+  /** Live FixSession / OperationRegistry id when bridged (ADR-062 Phase 2). */
+  engine_proposal_id?: string | null;
+  /** True while optimistic UI edits are not yet gate-committed. */
+  draft?: boolean;
 }
 
 export interface ActivitySummary {

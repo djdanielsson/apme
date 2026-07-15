@@ -5,27 +5,100 @@ as defined in [ADR-054](../../../.sdlc/adrs/ADR-054-production-deployment.md):
 the engine stack runs as sidecar containers in a single pod (preserving
 localhost networking per ADR-005 and pod-level scaling per ADR-012).
 
+## Chart repository (OpenShift / `helm repo add`)
+
+Packaged chart releases are published to a classic HTTP Helm repository on
+GitHub Pages:
+
+| | |
+|--|--|
+| **Repo URL** | `https://ansible.github.io/apme` |
+| **Index** | `https://ansible.github.io/apme/index.yaml` |
+
+> **Ops:** Enable GitHub Pages on the `ansible/apme` repository with source
+> **Deploy from a branch → `gh-pages` / root**. Chart releases are created by
+> `.github/workflows/helm-charts.yml` (chart-releaser) when
+> `deploy/helm/apme/**` changes on `main`.
+
+### CLI
+
+```bash
+helm repo add apme https://ansible.github.io/apme
+helm repo update
+helm install apme apme/apme \
+  --namespace apme --create-namespace \
+  --set route.enabled=true   # OpenShift
+```
+
+Defaults pull from `quay.io/ansible` with image tag `2026.7.3` (`Chart.appVersion`).
+For unreleased SHA builds, set `--set image.tag=sha-<commit>`.
+
+### OpenShift Developer Catalog
+
+1. **UI:** Developer perspective → **Helm** → **Create** → add chart repository
+   with URL `https://ansible.github.io/apme`, then install **apme** from the
+   catalog (enable Route / set values as needed).
+2. **Cluster-scoped CR** (admin):
+
+```yaml
+apiVersion: helm.openshift.io/v1beta1
+kind: HelmChartRepository
+metadata:
+  name: apme
+spec:
+  name: APME
+  connectionConfig:
+    url: https://ansible.github.io/apme
+```
+
+3. **Namespace-scoped CR** (project member with RBAC):
+
+```yaml
+apiVersion: helm.openshift.io/v1beta1
+kind: ProjectHelmChartRepository
+metadata:
+  name: apme
+  namespace: my-project
+spec:
+  name: APME
+  connectionConfig:
+    url: https://ansible.github.io/apme
+```
+
 ## Prerequisites
 
 - Kubernetes 1.26+ or OpenShift 4.14+
 - Helm 3.x
-- Access to `ghcr.io/ansible` container registry (or mirror images locally)
-- A published image tag (CI tags images by git SHA, e.g. `sha-7cb2464`)
+- Access to `quay.io/ansible` (default pull registry) or a mirror. CI always
+  publishes to `ghcr.io/ansible` and publishes to Quay when credentials are set
+- Default image tag is pinned to `2026.7.3` (GitHub release `v2026.7.3`; must
+  match Chart.appVersion). Override with `--set image.tag=…` for another
+  release or a SHA build (e.g. `sha-b7d1683`)
 
 ## Quick start
 
+### From the chart repository (recommended)
+
 ```bash
-# From the repository root
-helm install apme ./deploy/helm/apme/ \
-  --set image.tag=sha-7cb2464
+helm repo add apme https://ansible.github.io/apme
+helm repo update
+helm install apme apme/apme --namespace apme --create-namespace
+```
+
+### From a local clone (contributors)
+
+```bash
+# From the repository root (uses quay.io/ansible + tag 2026.7.3 by default)
+helm install apme ./deploy/helm/apme/
 
 # With AI enabled (OpenRouter provider)
 helm install apme ./deploy/helm/apme/ \
-  --set image.tag=sha-7cb2464 \
   --set abbenay.enabled=true \
   --set abbenay.token=$APME_ABBENAY_TOKEN \
   --set-json 'abbenay.providers={"openrouter":{"engine":"openrouter","apiKey":"'$OPENROUTER_API_KEY'","models":{"anthropic/claude-sonnet-4-6":{}}}}'
 ```
+
+Lint and package locally with `tox -e helm` (writes `dist/charts/*.tgz`).
 
 ## Architecture
 
@@ -54,8 +127,8 @@ helm install apme ./deploy/helm/apme/ \
 
 | Value | Default | Description |
 |-------|---------|-------------|
-| `image.registry` | `ghcr.io/ansible` | Container registry |
-| `image.tag` | `""` | Image tag (required — set explicitly) |
+| `image.registry` | `quay.io/ansible` | Container registry |
+| `image.tag` | `2026.7.3` | Image tag (GitHub release `v2026.7.3`; Quay omits the `v`) |
 | `engine.replicas` | `1` | Engine pod replicas |
 | `gitleaks.enabled` | `true` | Enable Gitleaks validator |
 | `collectionHealth.enabled` | `true` | Enable Collection Health validator |
@@ -125,9 +198,7 @@ layer, deploy APME without the standalone UI and expose only the Gateway:
 ui:
   enabled: false
 
-image:
-  registry: quay.io/your-org
-  tag: sha-7cb2464
+# image.tag defaults to 2026.7.3 on quay.io/ansible
 
 route:
   enabled: true
@@ -163,21 +234,27 @@ engine:
 
 ## OpenShift compatibility
 
-The chart works under OpenShift's `restricted-v2` SCC without modification:
+The chart works under OpenShift's `restricted-v2` SCC without modification.
+APME application container images are built on **UBI10** Application Stream
+bases (ADR-061).
 
 - `podSecurityContext` and `securityContext` default to empty (OCP injects UID/GID)
 - The UI container mounts emptyDir volumes for nginx writable paths
 - No privilege escalation is required
 
-For vanilla Kubernetes, set explicit security contexts:
+For vanilla Kubernetes, set explicit security contexts (UBI images run as UID 1001):
 
 ```yaml
 podSecurityContext:
-  fsGroup: 1000
+  fsGroup: 1001
 securityContext:
   runAsNonRoot: true
-  runAsUser: 1000
+  runAsUser: 1001
 ```
+
+`fsGroup` ensures PVC mounts for `/sessions`, `/data`, and `/cache` are writable by
+the application UID. Local Podman uses the same PVC definitions in
+`containers/podman/pvc.yaml` (with `volume.podman.io/uid` annotations).
 
 ## Uninstall
 
