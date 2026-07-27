@@ -1,12 +1,12 @@
 ---
 rule_id: M029
 validator: native
-description: Inventory scripts must include _meta.hostvars in JSON output (enforced in 2.23)
+description: Inventory scripts must include `_meta.hostvars` in JSON output (enforced in 2.23)
 scope: task
 status: stub
 status_reason: >
   Detection requires executing the inventory script at runtime to inspect its
-  JSON output. Static analysis cannot determine _meta presence. Disabled by
+  JSON output. Static analysis cannot determine `_meta` presence. Disabled by
   design until a runtime-analysis approach is approved.
 ansible_core_version: ">=2.23"
 ---
