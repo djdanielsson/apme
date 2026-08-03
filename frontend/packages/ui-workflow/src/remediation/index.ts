@@ -24,6 +24,15 @@ export {
   splitRuleIds,
 } from './proposalTier';
 export {
+  filterByRuleKeepingNodeContext,
+  matchesRuleFilters,
+  normalizeInitialRuleFilters,
+  presentRuleIds,
+  reviewNodeKey,
+  type NodeKeyed,
+  type RuleIdCarrier,
+} from './ruleFilter';
+export {
   emptyWorkflowLatch,
   needsCommitStep,
   resolveCurrentWorkflowStep,

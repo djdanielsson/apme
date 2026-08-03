@@ -4,13 +4,14 @@
  * Domain mapping only; shared chrome lives in ReviewStepShell / NodeReviewList.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Label } from '@patternfly/react-core';
 import { RuleId } from '../shared/RuleId';
 import { CurrentYamlView } from './DiffView';
 import { type NodeReviewItem } from './NodeReviewList';
 import { ReviewStepShell } from './ReviewStepShell';
 import { ReviewInventoryRow } from './ReviewInventoryRow';
+import { RuleFilterInput } from './RuleFilterInput';
 import {
   toggleInFilterSet,
   type ReviewFilterGroup,
@@ -28,12 +29,15 @@ import {
 } from '../hooks/useProjectOperationState';
 import {
   effectiveFixType,
+  filterByRuleKeepingNodeContext,
   fixMethodLabel,
   fixTypeLabelColor,
   nodeTypeLabel,
   nodeTypeLabelColor,
   normalizeFindingNodeType,
+  normalizeInitialRuleFilters,
   orderPresentNodeTypes,
+  presentRuleIds,
   type FindingNodeType,
   type FixType,
 } from '../remediation';
@@ -56,6 +60,11 @@ export interface AssessFindingsPanelProps {
   enableAi?: boolean;
   /** Begin-remediate / session error to show above the findings list. */
   error?: string | null;
+  /**
+   * Bare rule IDs to pre-select in the Rule filter (e.g. fleet drill-down).
+   * Prefixed IDs like ``native:L022`` are normalized to bare form.
+   */
+  initialRuleFilters?: string[];
 }
 
 function formatReviewStatus(status: string): string {
@@ -134,11 +143,13 @@ function FindingRow({
   snippetYaml,
   enableAi,
   onHighlightLine,
+  onRuleClick,
 }: {
   f: AssessFinding;
   snippetYaml: string;
   enableAi: boolean;
   onHighlightLine?: (line: number | null) => void;
+  onRuleClick?: (bareId: string) => void;
 }) {
   const fix = findingFixType(f, enableAi);
   const sev = f.severity || 'info';
@@ -148,6 +159,7 @@ function FindingRow({
     <div className="apme-assess-finding-row">
       <RuleId
         ruleId={f.rule_id}
+        onRuleClick={onRuleClick}
         onHoverChange={
           canHighlight
             ? (hovering) =>
@@ -196,9 +208,11 @@ function findingCardTitle(f: AssessFinding): string {
 export function AssessNodeDetail({
   findings,
   enableAi,
+  onRuleClick,
 }: {
   findings: AssessFinding[];
   enableAi: boolean;
+  onRuleClick?: (bareId: string) => void;
 }) {
   const [highlightLine, setHighlightLine] = useState<number | null>(null);
   // Assess/history findings are read-only: current YAML only. Proposed diffs
@@ -214,6 +228,7 @@ export function AssessNodeDetail({
             f={f}
             snippetYaml={beforeYaml}
             enableAi={enableAi}
+            onRuleClick={onRuleClick}
             onHighlightLine={
               beforeYaml.trim() ? setHighlightLine : undefined
             }
@@ -233,7 +248,11 @@ function findingsToNodeItem(
   id: string,
   title: string,
   findings: AssessFinding[],
-  opts: { isSingleton?: boolean; enableAi: boolean },
+  opts: {
+    isSingleton?: boolean;
+    enableAi: boolean;
+    onRuleClick?: (bareId: string) => void;
+  },
 ): NodeReviewItem {
   const nodeType = normalizeFindingNodeType(
     findings.find((f) => (f.node_type || '').trim())?.node_type,
@@ -253,7 +272,13 @@ function findingsToNodeItem(
         </Label>
       </>
     ),
-    detail: <AssessNodeDetail findings={findings} enableAi={opts.enableAi} />,
+    detail: (
+      <AssessNodeDetail
+        findings={findings}
+        enableAi={opts.enableAi}
+        onRuleClick={opts.onRuleClick}
+      />
+    ),
   };
 }
 
@@ -286,6 +311,7 @@ export function AssessFindingsPanel({
   description: descriptionOverride,
   enableAi = true,
   error = null,
+  initialRuleFilters,
 }: AssessFindingsPanelProps) {
   const [view, setView] = useState<ViewMode>('grouped');
   const [sevFilters, setSevFilters] = useState<Set<string>>(
@@ -297,6 +323,9 @@ export function AssessFindingsPanel({
   const [nodeTypeFilters, setNodeTypeFilters] = useState<Set<FindingNodeType>>(
     () => new Set(presentNodeTypeOptions(findings)),
   );
+  /** Selected bare rule IDs (OR). Empty = no rule filter. */
+  const [ruleFilters, setRuleFilters] = useState<string[]>([]);
+  const [appliedInitialRulesKey, setAppliedInitialRulesKey] = useState('');
 
   const presentSeverities = useMemo(
     () => presentSeverityOptions(findings),
@@ -310,6 +339,42 @@ export function AssessFindingsPanel({
     () => presentNodeTypeOptions(findings),
     [findings],
   );
+  const presentRules = useMemo(() => presentRuleIds(findings), [findings]);
+  const presentRulesKey = presentRules.join(',');
+  const initialRulesKey = (initialRuleFilters ?? []).join(',');
+
+  // Apply host-provided rule filters once findings are available (fleet drill-down).
+  useEffect(() => {
+    if (!initialRulesKey || initialRulesKey === appliedInitialRulesKey) return;
+    const next = normalizeInitialRuleFilters(initialRuleFilters, presentRules);
+    if (next.length === 0) return;
+    setRuleFilters(next);
+    setAppliedInitialRulesKey(initialRulesKey);
+  }, [
+    initialRulesKey,
+    initialRuleFilters,
+    presentRules,
+    appliedInitialRulesKey,
+  ]);
+
+  // Drop selected rules that disappeared from the scan payload.
+  useEffect(() => {
+    const present = new Set(presentRules);
+    setRuleFilters((prev) => {
+      const next = prev.filter((r) => present.has(r));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [presentRulesKey, presentRules]);
+
+  const toggleRuleFilter = useCallback((bareId: string) => {
+    setRuleFilters((prev) =>
+      prev.includes(bareId)
+        ? prev.filter((r) => r !== bareId)
+        : [...prev, bareId],
+    );
+  }, []);
+
+  const ruleFilterSet = useMemo(() => new Set(ruleFilters), [ruleFilters]);
 
   const severityCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -355,7 +420,7 @@ export function AssessFindingsPanel({
   ]);
 
   const filteredFindings = useMemo(() => {
-    return findings.filter((f) => {
+    return filterByRuleKeepingNodeContext(findings, ruleFilterSet, (f) => {
       const sev = severityClass(f.severity || 'info', f.rule_id);
       if (!sevFilters.has(sev)) return false;
       const fix = findingFixType(f, enableAi);
@@ -364,7 +429,14 @@ export function AssessFindingsPanel({
       if (!nodeTypeFilters.has(nt)) return false;
       return true;
     });
-  }, [findings, sevFilters, fixFilters, nodeTypeFilters, enableAi]);
+  }, [
+    findings,
+    sevFilters,
+    fixFilters,
+    nodeTypeFilters,
+    ruleFilterSet,
+    enableAi,
+  ]);
 
   const groups = useMemo(() => groupFindings(filteredFindings), [filteredFindings]);
 
@@ -385,6 +457,7 @@ export function AssessFindingsPanel({
   }, [findings, enableAi]);
 
   const hasNarrowedFilters =
+    ruleFilters.length > 0 ||
     presentSeverities.some((s) => !sevFilters.has(s)) ||
     presentFixTypes.some((t) => !fixFilters.has(t)) ||
     presentNodeTypes.some((t) => !nodeTypeFilters.has(t));
@@ -396,7 +469,11 @@ export function AssessFindingsPanel({
           `flat-${f.rule_id}-${f.file}-${f.line ?? 0}-${i}`,
           findingCardTitle(f),
           [f],
-          { isSingleton: !(f.path || '').trim(), enableAi },
+          {
+            isSingleton: !(f.path || '').trim(),
+            enableAi,
+            onRuleClick: toggleRuleFilter,
+          },
         ),
       );
     }
@@ -404,9 +481,10 @@ export function AssessFindingsPanel({
       findingsToNodeItem(g.key, g.title, g.findings, {
         isSingleton: g.isSingleton,
         enableAi,
+        onRuleClick: toggleRuleFilter,
       }),
     );
-  }, [view, filteredFindings, groups, enableAi]);
+  }, [view, filteredFindings, groups, enableAi, toggleRuleFilter]);
 
   const filterGroups: ReviewFilterGroup[] = useMemo(
     () => [
@@ -559,6 +637,14 @@ export function AssessFindingsPanel({
             : undefined
         }
         filterGroups={filterGroups}
+        filterAccessory={
+          <RuleFilterInput
+            id="assess-rule-filter"
+            options={presentRules}
+            selected={ruleFilters}
+            onChange={setRuleFilters}
+          />
+        }
         emptyMessage="No findings match the current filters."
         list={
           filteredFindings.length === 0
@@ -569,7 +655,7 @@ export function AssessFindingsPanel({
                   view === 'flat' ? 'Findings (flat)' : 'Findings by location',
                 defaultExpanded: true,
                 showExpandControls: true,
-                resetKey: `assess-${view}-${filteredFindings.length}-${groups.length}-${sevFilters.size}-${fixFilters.size}-${nodeTypeFilters.size}`,
+                resetKey: `assess-${view}-${filteredFindings.length}-${groups.length}-${sevFilters.size}-${fixFilters.size}-${nodeTypeFilters.size}-${ruleFilters.join(',')}`,
               }
         }
       />
