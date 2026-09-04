@@ -45,7 +45,7 @@ From the repo root:
 tox -e build
 ```
 
-This builds a shared base image, eleven service images, and pulls one official image:
+This builds a shared base image, eleven service images, and pulls two official images:
 
 | Image | Source | Purpose |
 |-------|--------|---------|
@@ -57,9 +57,10 @@ This builds a shared base image, eleven service images, and pulls one official i
 | `apme-collection-health:latest` | `containers/collection-health/Dockerfile` | Installed collection health scanner |
 | `apme-dep-audit:latest` | `containers/dep-audit/Dockerfile` | Python CVE scanner (pip-audit) |
 | `apme-galaxy-proxy:latest` | `containers/galaxy-proxy/Dockerfile` | PEP 503 proxy: Galaxy tarballs → Python wheels |
-| `apme-gateway:latest` | `containers/gateway/Dockerfile` | REST API + gRPC Reporting service (SQLite or PostgreSQL) |
+| `apme-gateway:latest` | `containers/gateway/Dockerfile` | REST API + gRPC Reporting service (PostgreSQL) |
 | `apme-ui:latest` | `containers/ui/Dockerfile` | React SPA served by nginx (proxies API to Gateway) |
 | `apme-cli:latest` | `containers/cli/Dockerfile` | CLI client |
+| `postgres:16` | [Official image](https://hub.docker.com/_/postgres) (pulled) | PostgreSQL sidecar for Gateway persistence (`tox -e up`; preload for offline use) |
 | `ghcr.io/redhat-developer/abbenay:v2026.8.7` | [Official image](https://github.com/redhat-developer/abbenay/pkgs/container/abbenay) (pulled) | Abbenay AI daemon (LLM gateway for Tier 2 remediation) |
 
 ### Configure Abbenay AI (optional)
@@ -204,8 +205,7 @@ proxy gRPC requests to it.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `APME_DATABASE_URL` | *(unset)* | Optional SQLAlchemy URL for PostgreSQL (e.g. `postgresql+asyncpg://user:pass@host:5432/apme`). When set, takes precedence over SQLite. |
-| `APME_DB_PATH` | `/data/apme.db` | Path to the SQLite database when `APME_DATABASE_URL` is unset (stores activity, sessions, rule catalog, and rule overrides) |
+| `APME_DATABASE_URL` | *(required)* | SQLAlchemy URL for PostgreSQL. Loopback example: `postgresql+asyncpg://user:pass@127.0.0.1:5432/apme`. Remote production hosts require TLS with certificate verification (`?sslmode=verify-full` and a configured CA). `sslmode=require` encrypts traffic but does not validate the server certificate. |
 | `APME_GATEWAY_GRPC_LISTEN` | `0.0.0.0:50060` | gRPC Reporting service listen address |
 | `APME_GATEWAY_HTTP_HOST` | `0.0.0.0` | REST API bind host |
 | `APME_GATEWAY_HTTP_PORT` | `8080` | REST API bind port |
@@ -264,10 +264,22 @@ The Settings page (`/settings`) provides a model picker that queries available A
 |------|-----------|-----------------|----------|--------|
 | `sessions` | `apme-sessions/` | `/sessions` | Engine (rw), Ansible, Collection Health, Dep Audit (ro) | rw / ro |
 | `proxy-cache` | `<cache>/proxy/` | `/cache` | Galaxy Proxy | rw |
-| `gateway-data` | `<cache>/gateway/` | `/data` | Gateway | rw |
+| `postgres-data` | Podman volume `apme-postgres-data` | `/var/lib/postgresql/data` | PostgreSQL | rw |
 | `abbenay-config` | `<cache>/abbenay/config/` | `/home/abbenay/.config/abbenay` | Abbenay | rw |
 | `abbenay-run` | emptyDir | `/tmp/abbenay-run` | Engine + Gateway + Abbenay | rw |
 | `workspace` | CWD (CLI only) | `/workspace` | CLI | rw |
+
+#### Upgrading from SQLite (pre-PostgreSQL-only Gateway)
+
+Podman upgrades rename the database PVC from `apme-gateway-data` to
+`apme-postgres-data` and provision a `postgres:16` sidecar. **SQLite scan
+history retention is unsupported** — the Gateway provides no export/import path
+and this repository ships no SQLite-to-PostgreSQL migration tool. Before
+upgrading, archive the legacy `apme-gateway-data` volume if you need a
+pre-cutover rollback hold point (`tox -e down` before copying `apme.db` so
+filesystem copies include WAL/journal data). After `tox -e up`, the Gateway
+starts with an empty PostgreSQL database. See [bootc README](../../deploy/bootc/README.md#upgrading-from-sqlite-pre-postgresql-only-gateway)
+for the same guidance on VM deployments.
 
 #### Observability (Podman pod only)
 
@@ -329,10 +341,11 @@ it as the `--index-strategy` argument to `uv pip install`.
 
 For development and testing without the Podman pod, the CLI can start a
 local daemon that runs Engine, Native, OPA, and Ansible as localhost gRPC
-servers and Galaxy Proxy as an HTTP service. Optional validators (Gitleaks,
-Collection Health, Dep Audit) start only when `include_optional=True`.
-Gateway HTTP and Reporting gRPC are not started by `launcher.py` (ADR-049 is
-planned); run Gateway separately for REST-backed commands such as `apme sbom`.
+servers and Galaxy Proxy as an HTTP service. Gateway HTTP plus Reporting gRPC
+co-location is planned (ADR-049) but not implemented in `launcher.py` yet —
+use the Podman pod or an external Gateway at `APME_GATEWAY_URL` for REST-backed
+commands such as `apme sbom`. Optional validators (Gitleaks, Collection Health,
+Dep Audit) start only when `include_optional=True`.
 
 ```bash
 # Install tox + project (one-time)
@@ -351,7 +364,7 @@ apme remediate .
 apme daemon stop
 ```
 
-**Daemon mode** starts a local Engine with Native, OPA, and Ansible validators as in-process gRPC servers and Galaxy Proxy as an HTTP service (uvicorn). Optional validators (Gitleaks, Collection Health, Dep Audit) start only when `include_optional=True`. Gateway HTTP and Reporting gRPC are not started by `launcher.py` (ADR-049 is planned). The OPA validator gRPC server is always started; policy evaluation uses Podman by default or a local `opa` binary when `OPA_USE_PODMAN=0`. OPA infrastructure failures surface as validator R902 errors so `check` and `remediate` cannot return silently incomplete results.
+**Daemon mode** starts a local Engine with Native, OPA, and Ansible validators as in-process gRPC servers and Galaxy Proxy as an HTTP service (uvicorn). Gateway HTTP plus Reporting gRPC co-location is planned (ADR-049) but not started by `launcher.py` yet — REST-backed commands need a Podman pod Gateway or `APME_GATEWAY_URL`. Optional validators (Gitleaks, Collection Health, Dep Audit) start only when `include_optional=True`. The OPA validator gRPC server is always started; policy evaluation uses Podman by default or a local `opa` binary when `OPA_USE_PODMAN=0`. OPA infrastructure failures surface as validator R902 errors so `check` and `remediate` cannot return silently incomplete results.
 
 ## Troubleshooting
 
@@ -446,7 +459,8 @@ using the same localhost co-located pod model as the Podman reference deployment
 - Operator-managed lifecycle (install, upgrade, reconcile)
 - All-in-one pod topology: engine stack + Gateway + UI + optional Abbenay on localhost
 - Ingress/Route support for external REST and UI access
-- PVCs for sessions, Gateway database, and Galaxy Proxy cache
+- PVCs for sessions, PostgreSQL data, and Galaxy Proxy cache
+- External or sidecar PostgreSQL required via `APME_DATABASE_URL`
 - Published container images are multi-arch (`linux/amd64` + `linux/arm64`) per ADR-063
 
 ### Quick start
