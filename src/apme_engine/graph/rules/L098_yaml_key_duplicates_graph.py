@@ -12,6 +12,7 @@ from apme_engine.graph.types import Severity, YAMLDict
 _TASK_TYPES = frozenset({NodeType.TASK, NodeType.HANDLER})
 
 _KEY_LINE = re.compile(r"^(\s*)([^\s#:][^:]*?)\s*:")
+_SEQUENCE_ITEM = re.compile(r"^(\s*)-(?:\s+|$)")
 
 
 @dataclass
@@ -72,15 +73,24 @@ class YamlKeyDuplicatesGraphRule(GraphRule):
                 file=(node.file_path, node.line_start),
             )
 
-        seen: dict[tuple[int, str], int] = {}
+        seen: dict[tuple[int, str, tuple[tuple[int, int], ...]], int] = {}
+        sequence_items: dict[int, int] = {}
         duplicates: list[str] = []
         for line in raw.splitlines():
+            sequence_match = _SEQUENCE_ITEM.match(line)
+            if sequence_match:
+                sequence_indent = len(sequence_match.group(1))
+                sequence_items[sequence_indent] = sequence_items.get(sequence_indent, 0) + 1
+                sequence_items = {indent: item for indent, item in sequence_items.items() if indent <= sequence_indent}
             m = _KEY_LINE.match(line)
             if not m:
                 continue
             indent_len = len(m.group(1))
             key = m.group(2).strip()
-            loc = (indent_len, key)
+            if sequence_match and key.startswith("-"):
+                key = key[1:].strip()
+            scope = tuple(sorted((indent, item) for indent, item in sequence_items.items() if indent <= indent_len))
+            loc = (indent_len, key, scope)
             if loc in seen:
                 duplicates.append(f"duplicate key '{key}' at indent {indent_len}")
             seen[loc] = seen.get(loc, 0) + 1
