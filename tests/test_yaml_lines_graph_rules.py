@@ -399,6 +399,22 @@ class TestL098YamlKeyDuplicatesGraphRule:
         assert result.detail is not None
         assert "value" in str(result.detail.get("duplicates", []))
 
+    def test_violation_repeated_key_in_inline_sequence_mapping(self, rule: YamlKeyDuplicatesGraphRule) -> None:
+        """Repeated keys in inline and nested sequence mappings remain violations.
+
+        Args:
+            rule: Rule instance under test.
+
+        Returns:
+            None.
+        """
+        g, tid = _make_task(yaml_lines="- key: first\n  key: second\n")
+        result = rule.process(g, tid)
+        assert result is not None
+        assert result.verdict is True
+        assert result.detail is not None
+        assert "key" in str(result.detail.get("duplicates", []))
+
     def test_pass_repeated_keys_in_expanded_sequence_items(self, rule: YamlKeyDuplicatesGraphRule) -> None:
         """Repeated keys in expanded list mappings are not duplicates.
 

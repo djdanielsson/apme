@@ -90,9 +90,11 @@ class YamlKeyDuplicatesGraphRule(GraphRule):
             indent_len = len(m.group(1))
             if not sequence_match:
                 sequence_items = {indent: item for indent, item in sequence_items.items() if indent_len > indent}
-            key = m.group(2).strip()
-            if sequence_match and key.startswith("-"):
-                key = key[1:].strip()
+            raw_key = m.group(2).strip()
+            inline_sequence_key = sequence_match and raw_key.startswith("-")
+            key = raw_key[1:].strip() if inline_sequence_key else raw_key
+            if inline_sequence_key:
+                indent_len = sequence_indent + 2
             scope = tuple(sorted((indent, item) for indent, item in sequence_items.items() if indent <= indent_len))
             loc = (indent_len, key, scope)
             if loc in seen:
