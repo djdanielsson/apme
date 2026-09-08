@@ -281,6 +281,63 @@ class TestGenerateNotifications:
         assert len(rows) == 1
         assert rows[0].project_id == "proj-n3"
 
+    async def test_does_not_replace_secrets_detected_after_project_link(self) -> None:
+        """Linking a project must not recreate secrets_detected (preserves read / no rebroadcast)."""
+        async with get_session() as db:
+            db.add(
+                Project(
+                    id="proj-n4",
+                    name="Linked Secrets",
+                    repo_url="https://github.com/test/secrets.git",
+                    branch="main",
+                    created_at="2026-09-04T00:00:00Z",
+                    health_score=70,
+                )
+            )
+            await db.commit()
+        await _seed_session_and_scan(scan_type="check", total_violations=1)
+        sec_violations = [
+            Violation(scan_id="scan-1", rule_id="SEC:aws-access-key", level="error", message="", file="creds.yml"),
+        ]
+        async with get_session() as db:
+            from sqlalchemy import select
+
+            scan = (await db.execute(select(Scan).where(Scan.scan_id == "scan-1"))).scalar_one()
+            first = await generate_notifications(db, scan, sec_violations)
+            await db.commit()
+            sec_row = (
+                await db.execute(
+                    select(Notification).where(
+                        Notification.scan_id == "scan-1",
+                        Notification.type == "secrets_detected",
+                    )
+                )
+            ).scalar_one()
+            sec_id = sec_row.id
+            sec_row.read = True
+            scan.project_id = "proj-n4"
+            second = await generate_notifications(db, scan, sec_violations)
+            await db.commit()
+            rows = list(
+                (await db.execute(select(Notification).where(Notification.scan_id == "scan-1"))).scalars().all()
+            )
+            sec_after = (
+                await db.execute(
+                    select(Notification).where(
+                        Notification.scan_id == "scan-1",
+                        Notification.type == "secrets_detected",
+                    )
+                )
+            ).scalar_one()
+
+        assert {p["type"] for p in first} == {"scan_complete", "secrets_detected"}
+        assert [p["type"] for p in second] == ["scan_complete"]
+        assert sec_after.id == sec_id
+        assert sec_after.read is True
+        assert sec_after.project_id is None
+        assert {r.type for r in rows} == {"scan_complete", "secrets_detected"}
+        assert next(r for r in rows if r.type == "scan_complete").project_id == "proj-n4"
+
 
 # ---------------------------------------------------------------------------
 # SSE hub tests

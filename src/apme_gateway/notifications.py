@@ -156,23 +156,25 @@ async def _scan_display_name(db: AsyncSession, scan: Scan) -> str:
     return name if isinstance(name, str) and name else fallback
 
 
-async def _should_write_notification(
+async def _should_write_scan_complete(
     db: AsyncSession,
     existing: Notification | None,
     scan: Scan,
 ) -> bool:
-    """Return True when a notification of this type should be inserted.
+    """Return True when a ``scan_complete`` notification should be inserted.
 
     An unattributed row (no ``project_id``) is deleted and replaced when
-    the scan has since been linked to a project.
+    the scan has since been linked to a project so title/display name can
+    be corrected. Other notification types must not use this path — they
+    only insert when no row of that type exists yet.
 
     Args:
         db: Active async session.
-        existing: Prior notification of the same type, if any.
+        existing: Prior ``scan_complete`` notification, if any.
         scan: Scan being notified.
 
     Returns:
-        True if the caller should insert a new row.
+        True if the caller should insert a new ``scan_complete`` row.
     """
     if existing is None:
         return True
@@ -200,7 +202,9 @@ async def generate_notifications(
     already stored for this ``scan_id`` are skipped, except an
     unattributed ``scan_complete`` (no ``project_id``) is replaced once
     the scan is linked to a project so the operate path can correct
-    title and display name.
+    title and display name. ``secrets_detected`` is never replaced after
+    insert (existence-only) so linking a project does not reset ``read``
+    or rebroadcast.
 
     Args:
         db: Active async database session (caller commits).
@@ -224,7 +228,7 @@ async def generate_notifications(
 
     # -- Scan complete notification -----------------------------------------
 
-    if await _should_write_notification(db, existing_by_type.get("scan_complete"), scan):
+    if await _should_write_scan_complete(db, existing_by_type.get("scan_complete"), scan):
         if scan.scan_type == "remediate":
             remaining = max(scan.total_violations - scan.fixed_count, 0)
             title = "Remediation Complete"
@@ -250,7 +254,7 @@ async def generate_notifications(
     # -- Secrets detected (Gitleaks SEC:* violations) -----------------------
 
     sec_violations = [v for v in violations if v.rule_id.startswith("SEC:")]
-    if sec_violations and await _should_write_notification(db, existing_by_type.get("secrets_detected"), scan):
+    if sec_violations and existing_by_type.get("secrets_detected") is None:
         sec_files = sorted({v.file for v in sec_violations if v.file})
         if sec_files:
             file_list = ", ".join(sec_files[:5])

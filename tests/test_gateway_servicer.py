@@ -383,3 +383,71 @@ async def test_report_fix_notification_failure_does_not_abort() -> None:
     async with get_session() as db:
         scan = await q.get_scan(db, "scan-notif-fail")
     assert scan is not None
+
+
+async def test_notification_uses_persisted_violations_after_replay() -> None:
+    """Deferred notifications follow the latest committed violations, not a stale request.
+
+    An earlier ReportFixCompleted with SEC:* can leave a scheduled task pending while
+    a replay commits a non-SEC set. Generation must query the DB so it does not emit
+    a false secrets_detected notification.
+    """
+    from apme_gateway.db.models import Violation as ViolationModel
+    from apme_gateway.grpc_reporting.servicer import _generate_scan_notifications
+
+    servicer = ReportingServicer()
+    sec = common_pb2.Violation(
+        rule_id="SEC:aws-access-key",
+        severity=common_pb2.SEVERITY_CRITICAL,
+        message="secret",
+        file="creds.yml",
+        line=1,
+    )
+    lint = common_pb2.Violation(
+        rule_id="L001",
+        severity=common_pb2.SEVERITY_ERROR,
+        message="bad task",
+        file="a.yml",
+        line=10,
+    )
+    ctx = _mock_context()
+    with patch("apme_gateway.grpc_reporting.servicer._schedule_scan_notifications"):
+        await servicer.ReportFixCompleted(
+            reporting_pb2.FixCompletedEvent(
+                scan_id="scan-replay-sec",
+                session_id="sess-replay-sec",
+                project_path="/proj",
+                source="cli",
+                remaining_violations=[sec],
+                summary=common_pb2.ScanSummary(total=1, auto_fixable=0, ai_candidate=0, manual_review=1),
+            ),
+            ctx,
+        )
+        await servicer.ReportFixCompleted(
+            reporting_pb2.FixCompletedEvent(
+                scan_id="scan-replay-sec",
+                session_id="sess-replay-sec",
+                project_path="/proj",
+                source="cli",
+                remaining_violations=[lint],
+                summary=common_pb2.ScanSummary(total=1, auto_fixable=1, ai_candidate=0, manual_review=0),
+            ),
+            ctx,
+        )
+
+    async with get_session() as db:
+        await _generate_scan_notifications(db, "scan-replay-sec")
+
+    async with get_session() as db:
+        rows = list(
+            (await db.execute(select(Notification).where(Notification.scan_id == "scan-replay-sec"))).scalars().all()
+        )
+        violations = list(
+            (await db.execute(select(ViolationModel).where(ViolationModel.scan_id == "scan-replay-sec")))
+            .scalars()
+            .all()
+        )
+
+    assert [v.rule_id for v in violations] == ["L001"]
+    assert {r.type for r in rows} == {"scan_complete"}
+    ctx.abort.assert_not_awaited()

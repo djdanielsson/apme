@@ -162,7 +162,7 @@ class ReportingServicer(reporting_pb2_grpc.ReportingServicer):
             return reporting_pb2.ReportAck()
 
         # Acknowledge immediately; notifications run out-of-band.
-        _schedule_scan_notifications(request)
+        _schedule_scan_notifications(request.scan_id)
         return reporting_pb2.ReportAck()
 
     async def RegisterRules(  # noqa: N802
@@ -583,28 +583,30 @@ def _add_graph(db: AsyncSession, scan_id: str, content_graph_json: str) -> None:
     )
 
 
-def _schedule_scan_notifications(request: reporting_pb2.FixCompletedEvent) -> None:
+def _schedule_scan_notifications(scan_id: str) -> None:
     """Schedule best-effort notification generation off the RPC critical path.
 
     Opens its own session, logs failures, and never propagates to the caller.
-    Strong references keep the task alive until completion.
+    Strong references keep the task alive until completion. Violations are
+    read from the database (not the gRPC request) so a deferred task always
+    sees the latest committed set after an idempotent replay.
 
     Args:
-        request: Original gRPC event (scan id and violation protos).
+        scan_id: Persisted scan UUID to notify for.
     """
 
     async def _run() -> None:
         try:
             async with get_session() as db:
-                await _generate_scan_notifications(db, request)
+                await _generate_scan_notifications(db, scan_id)
         except Exception:
             logger.warning(
                 "Notification generation failed for scan %s",
-                request.scan_id,
+                scan_id,
                 exc_info=True,
             )
 
-    task = asyncio.create_task(_run(), name=f"scan-notifications-{request.scan_id}")
+    task = asyncio.create_task(_run(), name=f"scan-notifications-{scan_id}")
     _pending_notification_tasks.add(task)
     task.add_done_callback(_pending_notification_tasks.discard)
 
@@ -622,22 +624,22 @@ async def drain_notification_tasks() -> None:
 
 async def _generate_scan_notifications(
     db: AsyncSession,
-    request: reporting_pb2.FixCompletedEvent,
+    scan_id: str,
 ) -> None:
     """Create notifications from a persisted scan event (best-effort).
 
-    Reloads the scan by primary key. Display names are resolved by
-    ``generate_notifications`` via ``Project`` lookup by id, never
-    ``Scan.project`` lazy-load. Failures are logged and never propagated
-    to the RPC caller. An unattributed ``scan_complete`` is replaced once
-    the scan is linked to a project so the operate path can correct title
-    and display name.
+    Reloads the scan and its ``Violation`` rows by primary key so deferred
+    tasks reflect the latest committed set (not a stale gRPC request after
+    replay). Display names are resolved by ``generate_notifications`` via
+    ``Project`` lookup by id, never ``Scan.project`` lazy-load. Failures are
+    logged and never propagated to the RPC caller. An unattributed
+    ``scan_complete`` is replaced once the scan is linked to a project so
+    the operate path can correct title and display name.
 
     Args:
         db: Active async database session (post-persistence).
-        request: Original gRPC event (scan id and violation protos).
+        scan_id: Persisted scan UUID.
     """
-    scan_id = request.scan_id
     try:
         from apme_gateway.notifications import (  # noqa: PLC0415
             broadcast_notifications,
@@ -649,18 +651,8 @@ async def _generate_scan_notifications(
             logger.warning("Notification generation skipped: scan %s not found", scan_id)
             return
 
-        all_protos = list(request.remaining_violations) + list(request.fixed_violations)
-        stub_violations = [
-            Violation(
-                scan_id=scan_id,
-                rule_id=v.rule_id,
-                level="",
-                message="",
-                file=v.file,
-            )
-            for v in all_protos
-        ]
-        payloads = await generate_notifications(db, scan, stub_violations)
+        violations = list((await db.execute(sa_select(Violation).where(Violation.scan_id == scan_id))).scalars().all())
+        payloads = await generate_notifications(db, scan, violations)
         await db.commit()
         broadcast_notifications(payloads)
     except Exception:
