@@ -86,6 +86,8 @@ class YamlKeyDuplicatesGraphRule(GraphRule):
             if not m:
                 continue
             indent_len = len(m.group(1))
+            if not sequence_match:
+                sequence_items = {indent: item for indent, item in sequence_items.items() if indent_len > indent}
             key = m.group(2).strip()
             if sequence_match and key.startswith("-"):
                 key = key[1:].strip()

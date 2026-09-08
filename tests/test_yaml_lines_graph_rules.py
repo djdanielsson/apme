@@ -427,6 +427,22 @@ class TestL098YamlKeyDuplicatesGraphRule:
         assert result is not None
         assert result.verdict is False
 
+    def test_violation_duplicate_key_after_indentless_sequence(self, rule: YamlKeyDuplicatesGraphRule) -> None:
+        """Duplicate keys after an indentless sequence item are still violations.
+
+        Args:
+            rule: Rule instance under test.
+
+        Returns:
+            None.
+        """
+        g, tid = _make_task(yaml_lines="key: first\nitems:\n- value\nkey: second\n")
+        result = rule.process(g, tid)
+        assert result is not None
+        assert result.verdict is True
+        assert result.detail is not None
+        assert "key" in str(result.detail.get("duplicates", []))
+
 
 # ---------------------------------------------------------------------------
 # L099 — YamlQuotedStrings
