@@ -75,12 +75,14 @@ class YamlKeyDuplicatesGraphRule(GraphRule):
 
         seen: dict[tuple[int, str, tuple[tuple[int, int], ...]], int] = {}
         sequence_items: dict[int, int] = {}
+        next_sequence_id = 0
         duplicates: list[str] = []
         for line in raw.splitlines():
             sequence_match = _SEQUENCE_ITEM.match(line)
             if sequence_match:
                 sequence_indent = len(sequence_match.group(1))
-                sequence_items[sequence_indent] = sequence_items.get(sequence_indent, 0) + 1
+                next_sequence_id += 1
+                sequence_items[sequence_indent] = next_sequence_id
                 sequence_items = {indent: item for indent, item in sequence_items.items() if indent <= sequence_indent}
             m = _KEY_LINE.match(line)
             if not m:

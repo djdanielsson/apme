@@ -443,6 +443,20 @@ class TestL098YamlKeyDuplicatesGraphRule:
         assert result.detail is not None
         assert "key" in str(result.detail.get("duplicates", []))
 
+    def test_pass_repeated_keys_in_sibling_sequences(self, rule: YamlKeyDuplicatesGraphRule) -> None:
+        """Repeated keys in sibling sequences at the same indent are not duplicates.
+
+        Args:
+            rule: Rule instance under test.
+
+        Returns:
+            None.
+        """
+        g, tid = _make_task(yaml_lines="a:\n- key: first\nb:\n- key: second\n")
+        result = rule.process(g, tid)
+        assert result is not None
+        assert result.verdict is False
+
 
 # ---------------------------------------------------------------------------
 # L099 — YamlQuotedStrings
