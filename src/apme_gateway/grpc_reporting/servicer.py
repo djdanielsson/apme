@@ -2,12 +2,14 @@
 
 Engine pods push ``FixCompletedEvent`` messages to this servicer via gRPC
 (ADR-020 push model).  Each event is decomposed into ORM rows and committed
-in a persistence transaction. Notification rows are written afterwards in a
-separate best-effort session so a notification failure cannot fail the RPC.
+in a persistence transaction. Notification rows are scheduled afterwards as
+fire-and-forget background tasks (separate sessions) so notification latency
+and failures cannot delay or fail the RPC acknowledgement (ADR-029).
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from collections.abc import Sequence
@@ -44,6 +46,9 @@ from apme_gateway.proposals.grouping import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Strong refs so fire-and-forget notification tasks are not GC'd mid-flight.
+_pending_notification_tasks: set[asyncio.Task[None]] = set()
 
 
 def _now_iso() -> str:
@@ -85,8 +90,9 @@ class ReportingServicer(reporting_pb2_grpc.ReportingServicer):
     ) -> reporting_pb2.ReportAck:
         """Persist a completed remediate (fix) event.
 
-        Scan rows are committed first. Notification generation is best-effort
-        and must not fail this RPC after a successful persist.
+        Scan rows are committed first. Notification generation is scheduled as
+        a fire-and-forget background task so this RPC returns immediately after
+        a successful persist (ADR-029).
 
         Args:
             request: The remediate completion event from an engine pod.
@@ -155,18 +161,8 @@ class ReportingServicer(reporting_pb2_grpc.ReportingServicer):
             await context.abort(grpc.StatusCode.INTERNAL, "Persistence failure")
             return reporting_pb2.ReportAck()
 
-        # Notifications are best-effort and must not fail the RPC after a
-        # successful persist. Reload the Scan in a new session; display
-        # names use Project-by-id, never Scan.project lazy-load.
-        try:
-            async with get_session() as db:
-                await _generate_scan_notifications(db, request)
-        except Exception:
-            logger.warning(
-                "Notification generation failed for scan %s",
-                request.scan_id,
-                exc_info=True,
-            )
+        # Acknowledge immediately; notifications run out-of-band.
+        _schedule_scan_notifications(request)
         return reporting_pb2.ReportAck()
 
     async def RegisterRules(  # noqa: N802
@@ -585,6 +581,43 @@ def _add_graph(db: AsyncSession, scan_id: str, content_graph_json: str) -> None:
             edge_count=edge_count,
         )
     )
+
+
+def _schedule_scan_notifications(request: reporting_pb2.FixCompletedEvent) -> None:
+    """Schedule best-effort notification generation off the RPC critical path.
+
+    Opens its own session, logs failures, and never propagates to the caller.
+    Strong references keep the task alive until completion.
+
+    Args:
+        request: Original gRPC event (scan id and violation protos).
+    """
+
+    async def _run() -> None:
+        try:
+            async with get_session() as db:
+                await _generate_scan_notifications(db, request)
+        except Exception:
+            logger.warning(
+                "Notification generation failed for scan %s",
+                request.scan_id,
+                exc_info=True,
+            )
+
+    task = asyncio.create_task(_run(), name=f"scan-notifications-{request.scan_id}")
+    _pending_notification_tasks.add(task)
+    task.add_done_callback(_pending_notification_tasks.discard)
+
+
+async def drain_notification_tasks() -> None:
+    """Await outstanding notification tasks (test helper).
+
+    Returns:
+        None. Exceptions from tasks are swallowed (they are already logged).
+    """
+    pending = list(_pending_notification_tasks)
+    if pending:
+        await asyncio.gather(*pending, return_exceptions=True)
 
 
 async def _generate_scan_notifications(

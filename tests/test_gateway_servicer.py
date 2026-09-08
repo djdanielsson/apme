@@ -11,7 +11,7 @@ from apme.v1 import common_pb2, engine_pb2, reporting_pb2
 from apme_gateway.db import get_session
 from apme_gateway.db import queries as q
 from apme_gateway.db.models import Notification, Project, Scan, Session
-from apme_gateway.grpc_reporting.servicer import ReportingServicer
+from apme_gateway.grpc_reporting.servicer import ReportingServicer, drain_notification_tasks
 
 pytestmark = pytest.mark.usefixtures("gateway_db")
 
@@ -257,6 +257,7 @@ async def test_report_fix_creates_scan_complete_notification() -> None:
     )
     ctx = _mock_context()
     await servicer.ReportFixCompleted(event, ctx)
+    await drain_notification_tasks()
 
     async with get_session() as db:
         rows = list(
@@ -315,6 +316,7 @@ async def test_report_fix_notification_uses_project_name() -> None:
     )
     ctx = _mock_context()
     await servicer.ReportFixCompleted(event, ctx)
+    await drain_notification_tasks()
 
     async with get_session() as db:
         rows = list((await db.execute(select(Notification).where(Notification.scan_id == "scan-ui"))).scalars().all())
@@ -350,6 +352,7 @@ async def test_report_fix_notification_session_failure_does_not_abort() -> None:
 
     with patch("apme_gateway.grpc_reporting.servicer.get_session", side_effect=_flaky_session):
         result = await servicer.ReportFixCompleted(event, ctx)
+        await drain_notification_tasks()
 
     assert isinstance(result, reporting_pb2.ReportAck)
     ctx.abort.assert_not_awaited()
@@ -373,6 +376,7 @@ async def test_report_fix_notification_failure_does_not_abort() -> None:
         side_effect=RuntimeError("simulated notification failure"),
     ):
         result = await servicer.ReportFixCompleted(event, ctx)
+        await drain_notification_tasks()
 
     assert isinstance(result, reporting_pb2.ReportAck)
     ctx.abort.assert_not_awaited()
