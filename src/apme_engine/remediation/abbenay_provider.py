@@ -8,11 +8,13 @@ Alternate (version pin only): ``pip install apme-engine[ai]``.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import functools
 import json
 import logging
 import os
+import random
 from importlib.resources import files as pkg_files
 from pathlib import Path
 
@@ -29,6 +31,13 @@ from apme_engine.remediation.ai_provider import (
 from apme_engine.rule_catalog import _parse_ai_prompt_map
 
 logger = logging.getLogger(__name__)
+
+#: Base delay before the single chat reconnect retry (doubled per attempt).
+_CHAT_RETRY_BASE_S = 2.0
+#: Added jitter upper bound so concurrent AI nodes do not retry in lockstep.
+_CHAT_RETRY_JITTER_S = 1.0
+#: Client-side bound for one streaming chat attempt.
+_CHAT_ATTEMPT_TIMEOUT_S = 300.0
 
 _BEST_PRACTICES: dict[str, list[str]] | None = None
 
@@ -754,6 +763,11 @@ class AbbenayProvider:
     ) -> str:
         """Call chat, reconnecting once on connection failure.
 
+        The single retry waits with exponential backoff plus jitter so an
+        Abbenay flap is not amplified by every AI node reconnecting at
+        once, and each attempt is bounded by a client-side timeout so a
+        hung chat stream cannot block the caller indefinitely.
+
         Args:
             model: Model identifier.
             prompt: User prompt text.
@@ -766,17 +780,14 @@ class AbbenayProvider:
             Exception: If the chat call fails after one reconnect retry.
         """
         for attempt in range(2):
+            if attempt > 0:
+                backoff = _CHAT_RETRY_BASE_S * (2 ** (attempt - 1))
+                await asyncio.sleep(backoff + random.uniform(0, _CHAT_RETRY_JITTER_S))
             try:
-                response_text = ""
-                async for chunk in self._client.chat(  # type: ignore[attr-defined]
-                    model=model,
-                    message=prompt,
-                    policy=policy,
-                    token=self._token,
-                ):
-                    if hasattr(chunk, "text") and chunk.text:
-                        response_text += chunk.text
-                return response_text
+                return await asyncio.wait_for(
+                    self._consume_chat(model, prompt, policy),
+                    timeout=_CHAT_ATTEMPT_TIMEOUT_S,
+                )
             except Exception:
                 if attempt == 0:
                     logger.debug("Chat failed, reconnecting to Abbenay and retrying")
@@ -784,6 +795,33 @@ class AbbenayProvider:
                 else:
                     raise
         return ""  # unreachable but satisfies mypy
+
+    async def _consume_chat(
+        self,
+        model: str,
+        prompt: str,
+        policy: dict[str, object],
+    ) -> str:
+        """Stream one chat response into concatenated text.
+
+        Args:
+            model: Model identifier.
+            prompt: User prompt text.
+            policy: Sampling/output policy dict.
+
+        Returns:
+            Concatenated response text from the model.
+        """
+        response_text = ""
+        async for chunk in self._client.chat(  # type: ignore[attr-defined]
+            model=model,
+            message=prompt,
+            policy=policy,
+            token=self._token,
+        ):
+            if hasattr(chunk, "text") and chunk.text:
+                response_text += chunk.text
+        return response_text
 
     async def propose_node_fix(
         self,

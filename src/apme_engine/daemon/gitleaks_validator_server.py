@@ -6,6 +6,7 @@ files are written.
 """
 
 import asyncio
+import contextlib
 import contextvars
 import json
 import logging
@@ -204,7 +205,13 @@ class GitleaksValidatorServicer(validate_pb2_grpc.ValidatorServicer):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
+            try:
+                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
+            except TimeoutError:
+                with contextlib.suppress(ProcessLookupError):
+                    proc.kill()
+                await proc.wait()
+                return HealthResponse(status="gitleaks health timeout")
             if proc.returncode == 0:
                 version = stdout.decode().strip()
                 return HealthResponse(status=f"ok (gitleaks {version})")

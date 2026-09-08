@@ -149,6 +149,11 @@ def _spec_to_pip(spec: str) -> str:
 
 _FAILED_BUILD_RE = re.compile(r"Failed to build `([^`]+)`")
 
+#: Wall-clock bound for a single pip/uv install invocation.  Without it a
+#: stalled index fetch hangs ``subprocess.run`` forever, pinning the
+#: ``run_in_executor`` worker until the session lifetime cap fires.
+_PIP_INSTALL_TIMEOUT_S = 600
+
 
 def _run_pip_install(
     pip_python: Path,
@@ -175,7 +180,9 @@ def _run_pip_install(
             available (non-uv installs).
 
     Returns:
-        CompletedProcess with stdout/stderr captured.
+        CompletedProcess with stdout/stderr captured.  On timeout a failed
+        CompletedProcess (returncode 1) is returned so callers follow the
+        normal exclude/no-build retry path instead of hanging.
     """
     if use_uv:
         cmd = [
@@ -206,7 +213,20 @@ def _run_pip_install(
         if no_build:
             cmd.extend(["--only-binary", ":all:"])
         cmd.extend(pip_specs)
-    return subprocess.run(cmd, capture_output=True, text=True)
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=_PIP_INSTALL_TIMEOUT_S)
+    except subprocess.TimeoutExpired as exc:
+        logger.warning(
+            "pip/uv install timed out after %ds, treating as failure: %s",
+            _PIP_INSTALL_TIMEOUT_S,
+            exc,
+        )
+        return subprocess.CompletedProcess(
+            cmd,
+            1,
+            "",
+            f"pip/uv install timed out after {_PIP_INSTALL_TIMEOUT_S}s",
+        )
 
 
 def _is_build_failure(output: str) -> bool:

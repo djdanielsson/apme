@@ -10,6 +10,7 @@ them on the first chunk).
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
 import hashlib
 import logging
@@ -114,6 +115,86 @@ def _git_subprocess_env() -> dict[str, str]:
     return env
 
 
+def _scm_basic_credentials(
+    repo_url: str,
+    token: str,
+    *,
+    scm_provider: str | None = None,
+) -> tuple[str, str]:
+    """Select the HTTP Basic (username, password) pair for an SCM token.
+
+    Supports multiple SCM providers with their respective auth schemes:
+    - GitHub: ``x-access-token:TOKEN``
+    - GitLab: ``oauth2:TOKEN``
+    - Bitbucket access token: ``x-token-auth:TOKEN``
+    - Bitbucket app password (``user:pass``): ``user:pass`` as credentials
+    - Others: ``git:TOKEN`` (generic fallback)
+
+    When *scm_provider* is set, it takes precedence over hostname heuristics
+    so self-hosted Bitbucket/GitLab hosts authenticate correctly.
+
+    Args:
+        repo_url: Original HTTPS clone URL (used for provider heuristics).
+        token: SCM token (e.g., PAT, OAuth token, or ``user:pass``).
+        scm_provider: Optional explicit provider (``github`` / ``gitlab`` /
+            ``bitbucket``).
+
+    Returns:
+        Raw (username, password) tuple — callers encode as needed.
+    """
+    from apme_gateway.scm.urls import split_user_pass_token
+
+    parsed = urlparse(repo_url)
+    hostname = parsed.hostname or ""
+    provider = (scm_provider or "").lower().strip()
+    host_l = hostname.lower()
+
+    user_pass = split_user_pass_token(token)
+    if user_pass is not None:
+        use_user_pass = provider in {"bitbucket", "gitlab"} or (
+            not provider and ("bitbucket" in host_l or "gitlab" in host_l)
+        )
+        if use_user_pass:
+            return user_pass
+
+    if provider == "github" or (not provider and "github" in host_l):
+        return ("x-access-token", token)
+    if provider == "gitlab" or (not provider and "gitlab" in host_l):
+        return ("oauth2", token)
+    if provider == "bitbucket" or (not provider and "bitbucket" in host_l):
+        return ("x-token-auth", token)
+    return ("git", token)
+
+
+def _git_auth_env(
+    repo_url: str,
+    token: str,
+    *,
+    scm_provider: str | None = None,
+) -> dict[str, str]:
+    """Build git-config env carrying the SCM token as an HTTP header.
+
+    The token travels in ``GIT_CONFIG_*`` environment (``http.extraHeader``
+    with an ``AUTHORIZATION: Basic`` value) instead of the clone URL, so it
+    never appears in subprocess argv, process listings, or error output.
+
+    Args:
+        repo_url: HTTPS clone URL (used for provider heuristics).
+        token: SCM token.
+        scm_provider: Optional explicit provider.
+
+    Returns:
+        Env mapping to merge into the git subprocess environment.
+    """
+    username, password = _scm_basic_credentials(repo_url, token, scm_provider=scm_provider)
+    encoded = base64.b64encode(f"{username}:{password}".encode()).decode("ascii")
+    return {
+        "GIT_CONFIG_COUNT": "1",
+        "GIT_CONFIG_KEY_0": "http.extraHeader",
+        "GIT_CONFIG_VALUE_0": f"AUTHORIZATION: Basic {encoded}",
+    }
+
+
 def _inject_token_in_url(
     repo_url: str,
     token: str,
@@ -132,6 +213,10 @@ def _inject_token_in_url(
     When *scm_provider* is set, it takes precedence over hostname heuristics
     so self-hosted Bitbucket/GitLab hosts authenticate correctly.
 
+    .. note::
+        Prefer :func:`_git_auth_env` for subprocess calls so tokens stay out
+        of argv.  This helper remains for contexts where a URL is required.
+
     Args:
         repo_url: Original HTTPS clone URL.
         token: SCM token (e.g., PAT, OAuth token, or ``user:pass``).
@@ -141,39 +226,11 @@ def _inject_token_in_url(
     Returns:
         URL with embedded credentials.
     """
-    from apme_gateway.scm.urls import split_user_pass_token
-
     parsed = urlparse(repo_url)
     hostname = parsed.hostname or ""
-    provider = (scm_provider or "").lower().strip()
-    host_l = hostname.lower()
-
-    user_pass = split_user_pass_token(token)
-    if user_pass is not None:
-        use_user_pass = provider in {"bitbucket", "gitlab"} or (
-            not provider and ("bitbucket" in host_l or "gitlab" in host_l)
-        )
-        if use_user_pass:
-            username, password = user_pass
-            encoded_user = quote(username, safe="")
-            encoded_token = quote(password, safe="")
-            netloc_with_auth = f"{encoded_user}:{encoded_token}@{hostname}"
-            if parsed.port:
-                netloc_with_auth += f":{parsed.port}"
-            return urlunparse(parsed._replace(netloc=netloc_with_auth))
-
-    if provider == "github" or (not provider and "github" in host_l):
-        username = "x-access-token"
-    elif provider == "gitlab" or (not provider and "gitlab" in host_l):
-        username = "oauth2"
-    elif provider == "bitbucket" or (not provider and "bitbucket" in host_l):
-        username = "x-token-auth"
-    else:
-        username = "git"
-
-    # Percent-encode token to handle special characters (@, :, /, etc.)
-    encoded_token = quote(token, safe="")
-    netloc_with_auth = f"{username}:{encoded_token}@{hostname}"
+    username, password = _scm_basic_credentials(repo_url, token, scm_provider=scm_provider)
+    # Percent-encode credentials to handle special characters (@, :, /, etc.)
+    netloc_with_auth = f"{quote(username, safe='')}:{quote(password, safe='')}@{hostname}"
     if parsed.port:
         netloc_with_auth += f":{parsed.port}"
     return urlunparse(parsed._replace(netloc=netloc_with_auth))
@@ -212,9 +269,11 @@ async def fetch_remote_head(
     if cached and (now - cached[0]) < _REMOTE_HEAD_TTL:
         return cached[1]
 
-    # Inject token for private repo access
-    effective_url = _inject_token_in_url(repo_url, scm_token, scm_provider=scm_provider) if scm_token else repo_url
-    cmd = ["git", "ls-remote", "--exit-code", effective_url, f"refs/heads/{branch}"]
+    # Pass the token via http.extraHeader env so it never appears in argv
+    env = _git_subprocess_env()
+    if scm_token:
+        env = {**env, **_git_auth_env(repo_url, scm_token, scm_provider=scm_provider)}
+    cmd = ["git", "ls-remote", "--exit-code", repo_url, f"refs/heads/{branch}"]
     loop = asyncio.get_running_loop()
     sha: str | None = None
     try:
@@ -225,7 +284,7 @@ async def fetch_remote_head(
                 capture_output=True,
                 text=True,
                 timeout=30,
-                env=_git_subprocess_env(),
+                env=env,
             ),
         )
         if result.returncode == 0 and result.stdout.strip():
@@ -240,7 +299,10 @@ async def fetch_remote_head(
         if len(_REMOTE_HEAD_CACHE) >= _REMOTE_HEAD_CACHE_MAX:
             _REMOTE_HEAD_CACHE.clear()
 
-    _REMOTE_HEAD_CACHE[cache_key] = (now, sha)
+    # Cache hits only: a transient failure caches None and poisons refreshes
+    # with a stale SHA until TTL expiry, so negative lookups are not stored.
+    if sha is not None:
+        _REMOTE_HEAD_CACHE[cache_key] = (now, sha)
     return sha
 
 
@@ -300,8 +362,10 @@ async def clone_repo(
         msg = f"Invalid branch name: {branch[:60]}"
         raise ValueError(msg)
 
-    # Inject token for private repo access
-    effective_url = _inject_token_in_url(repo_url, scm_token, scm_provider=scm_provider) if scm_token else repo_url
+    # Pass the token via http.extraHeader env so it never appears in argv
+    env = _git_subprocess_env()
+    if scm_token:
+        env = {**env, **_git_auth_env(repo_url, scm_token, scm_provider=scm_provider)}
     cmd = [
         "git",
         "clone",
@@ -310,7 +374,7 @@ async def clone_repo(
         "--single-branch",
         "--depth",
         "1",
-        effective_url,
+        repo_url,
         dest,
     ]
     loop = asyncio.get_running_loop()
@@ -321,7 +385,7 @@ async def clone_repo(
             capture_output=True,
             text=True,
             timeout=120,
-            env=_git_subprocess_env(),
+            env=env,
         ),
     )
     if result.returncode != 0:

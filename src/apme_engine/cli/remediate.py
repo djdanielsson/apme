@@ -12,7 +12,7 @@ import os
 import queue
 import sys
 import threading
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 
 import grpc
@@ -24,11 +24,13 @@ from apme.v1.engine_pb2 import (
     ApprovalRequest,
     CloseRequest,
     ExtendRequest,
+    FilePatch,
     FixOptions,
     FixReport,
     Proposal,
     ScanChunk,
     SessionCommand,
+    SessionResult,
 )
 from apme_engine.cli._exit_codes import EXIT_ERROR, EXIT_VIOLATIONS
 from apme_engine.cli._galaxy_config import discover_galaxy_servers
@@ -42,11 +44,13 @@ from apme_engine.daemon.violation_convert import violation_proto_to_dict
 from apme_engine.engine.models import ViolationDict
 
 
-def run_remediate(args: argparse.Namespace) -> None:
+def run_remediate(args: argparse.Namespace, _retried: bool = False) -> None:
     """Execute the remediate subcommand.
 
     Args:
         args: Parsed CLI arguments.
+        _retried: Internal guard allowing one reconnect retry after a
+            transient transport failure (not a user-facing flag).
     """
     from apme_engine.cli.check import _apply_dep_scan_flags
 
@@ -63,21 +67,27 @@ def run_remediate(args: argparse.Namespace) -> None:
     galaxy_servers = discover_galaxy_servers(project_root) or None
     rule_cfgs = load_rule_configs_from_project(project_root)
 
-    try:
-        base_chunks = yield_scan_chunks(
-            str(target),
-            project_root_name="project",
-            ansible_core_version=getattr(args, "ansible_version", None),
-            collection_specs=getattr(args, "collections", None),
-            session_id=session_id,
-            galaxy_servers=galaxy_servers,
-            rule_configs=rule_cfgs or None,
-            skip_collection_health=skip_collection,
-            skip_dep_audit=skip_python,
-        )
-    except FileNotFoundError as e:
-        sys.stderr.write(f"{e}\n")
-        sys.exit(EXIT_ERROR)
+    def _make_chunks() -> Iterator[ScanChunk]:
+        """Build a fresh upload-chunk stream (re-runnable for reconnect retry).
+
+        Yields:
+            ScanChunk: Scan upload chunks for the FixSession stream.
+        """
+        try:
+            yield from yield_scan_chunks(
+                str(target),
+                project_root_name="project",
+                ansible_core_version=getattr(args, "ansible_version", None),
+                collection_specs=getattr(args, "collections", None),
+                session_id=session_id,
+                galaxy_servers=galaxy_servers,
+                rule_configs=rule_cfgs or None,
+                skip_collection_health=skip_collection,
+                skip_dep_audit=skip_python,
+            )
+        except FileNotFoundError as e:
+            sys.stderr.write(f"{e}\n")
+            sys.exit(EXIT_ERROR)
 
     fix_opts = FixOptions(
         max_passes=getattr(args, "max_passes", 5),
@@ -90,12 +100,21 @@ def run_remediate(args: argparse.Namespace) -> None:
         interactive=getattr(args, "interactive", False),
     )
 
+    channel, _ = resolve_engine(args)
+    stub = engine_pb2_grpc.EngineStub(channel)  # type: ignore[no-untyped-call]
+
+    use_json = getattr(args, "json", False)
+    tier1_report: FixReport | None = None
+    result_violations: list[ViolationDict] = []
+    result_patches: list[FilePatch] = []
+    got_result = False
+
     cmd_queue: queue.Queue[SessionCommand | None] = queue.Queue()
 
     def _upload_producer() -> None:
         """Stream upload chunks into the command queue in a background thread."""
         first = True
-        for chunk in base_chunks:
+        for chunk in _make_chunks():
             if first:
                 cmd_chunk = ScanChunk(
                     scan_id=chunk.scan_id,
@@ -125,16 +144,10 @@ def run_remediate(args: argparse.Namespace) -> None:
                 return
             yield cmd
 
-    channel, _ = resolve_engine(args)
-    stub = engine_pb2_grpc.EngineStub(channel)  # type: ignore[no-untyped-call]
-
-    use_json = getattr(args, "json", False)
-    tier1_report: FixReport | None = None
-    result_violations: list[ViolationDict] = []
-    result_patches: list[object] = []
-    got_result = False
-
     try:
+        # ADR-068: remediate omits the client-side gRPC deadline and relies
+        # on server-side budget + stall enforcement, so a None --timeout
+        # (server adaptive budget) is intentional, not a hang.
         stream_timeout = getattr(args, "timeout", None)
         responses = stub.FixSession(command_iter(), timeout=stream_timeout)
 
@@ -224,6 +237,19 @@ def run_remediate(args: argparse.Namespace) -> None:
                 break
 
     except grpc.RpcError as e:
+        transient = e.code() in (
+            grpc.StatusCode.UNAVAILABLE,
+            grpc.StatusCode.DEADLINE_EXCEEDED,
+        )
+        # Uploads re-stream deterministically from disk and patches are only
+        # written once a result arrives, so retrying before any result is
+        # safe (interactive approvals are requested again on retry).
+        if transient and not got_result and not _retried:
+            sys.stderr.write(f"  Connection {e.code().name} before result; retrying session once...\n")
+            # The finally below stops the producer and closes the channel
+            # before the recursive retry rebuilds them.
+            run_remediate(args, _retried=True)
+            return
         sys.stderr.write(f"Engine error: {e.details()}\n")
         sys.exit(EXIT_ERROR)
     finally:
@@ -262,14 +288,14 @@ def run_remediate(args: argparse.Namespace) -> None:
 
 def _emit_json(
     violations: list[ViolationDict],
-    patches: list[object],
+    patches: list[FilePatch],
     report: FixReport | None,
 ) -> None:
     """Write structured JSON to stdout.
 
     Args:
         violations: Remaining violations as dicts.
-        patches: Applied patches (proto objects).
+        patches: Applied patches (FilePatch protos).
         report: Tier 1 remediation report.
     """
     from apme_engine.cli.output import deduplicate_violations, sort_violations
@@ -278,11 +304,7 @@ def _emit_json(
     violations = deduplicate_violations(sort_violations(violations))
     rem_counts = count_by_remediation_class(violations)
     res_counts = count_by_resolution(violations)
-    diffs = [
-        {"path": p.path, "diff": p.diff}  # type: ignore[attr-defined]
-        for p in patches
-        if getattr(p, "diff", "")
-    ]
+    diffs = [{"path": p.path, "diff": p.diff} for p in patches if p.diff]
     fixable = int(report.fixed) if report else 0
     out: dict[str, object] = {
         "violations": violations,
@@ -396,23 +418,25 @@ def _prompt_ynasq() -> str:
         sys.stderr.write("  Please enter y, n, a, s, or q\n")
 
 
-def _write_patches(target: Path, patches: list[object]) -> None:
+def _write_patches(target: Path, patches: Iterable[FilePatch]) -> None:
     count = 0
     for p in patches:
-        out_path = target / p.path if target.is_dir() else target  # type: ignore[attr-defined]
-        _safe_write(out_path, p.original, p.patched)  # type: ignore[attr-defined]
-        rules = ", ".join(p.applied_rules) if p.applied_rules else "changes"  # type: ignore[attr-defined]
-        sys.stderr.write(f"  Fixed: {p.path} [{rules}]\n")  # type: ignore[attr-defined]
+        out_path = target / p.path if target.is_dir() else target
+        _safe_write(out_path, p.original, p.patched)
+        rules = ", ".join(p.applied_rules) if p.applied_rules else "changes"
+        sys.stderr.write(f"  Fixed: {p.path} [{rules}]\n")
         count += 1
     sys.stderr.write(f"\n{count} file(s) updated.\n")
 
 
-def _render_remaining(result: object) -> None:
-    remaining = list(result.remaining_violations)  # type: ignore[attr-defined]
+def _render_remaining(result: SessionResult) -> None:
+    remaining = list(result.remaining_violations)
     if not remaining:
         return
     ai_count = sum(
-        getattr(v, "remediation_class", 0) == common_pb2.REMEDIATION_CLASS_AI_CANDIDATE  # type: ignore[attr-defined]
+        # Ignore tracks the stale checked-in stub (missing enum constant);
+        # same pattern as violation_convert.py. Proper fix is upstream #506.
+        v.remediation_class == common_pb2.REMEDIATION_CLASS_AI_CANDIDATE  # type: ignore[attr-defined]
         for v in remaining
     )
     manual_count = len(remaining) - ai_count

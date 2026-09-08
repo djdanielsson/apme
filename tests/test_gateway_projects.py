@@ -9,6 +9,7 @@ from httpx import ASGITransport, AsyncClient
 
 from apme_gateway.app import create_app
 from apme_gateway.db import get_session
+from apme_gateway.db import queries as q
 from apme_gateway.db.models import Project, Scan, Session, Violation
 
 pytestmark = pytest.mark.usefixtures("gateway_db")
@@ -224,6 +225,84 @@ async def test_lookup_project_by_repo_url_and_branch(client: AsyncClient) -> Non
     assert backup_resp.status_code == 200
     assert backup_resp.json()["id"] == "proj-backup"
     assert backup_resp.json()["branch"] == "backup"
+
+
+async def test_create_project_populates_normalized_url(client: AsyncClient) -> None:
+    """POST /projects stores the canonical URL for indexed lookup.
+
+    Args:
+        client: Async HTTPX test client.
+    """
+    resp = await client.post(
+        "/api/v1/projects",
+        json={
+            "name": "Normalized Project",
+            "repo_url": "https://GitHub.com/org/Repo.git",
+            "branch": "main",
+        },
+    )
+    assert resp.status_code == 201
+    async with get_session() as db:
+        proj = await q.resolve_project(db, resp.json()["id"])
+    assert proj is not None
+    assert proj.normalized_repo_url == "https://github.com/org/Repo"
+
+
+async def test_lookup_finds_indexed_row_by_variant_url(client: AsyncClient) -> None:
+    """Lookup resolves variant spellings against the indexed column.
+
+    Args:
+        client: Async HTTPX test client.
+    """
+    created = await client.post(
+        "/api/v1/projects",
+        json={
+            "name": "Indexed Project",
+            "repo_url": "https://github.com/org/repo.git",
+            "branch": "main",
+        },
+    )
+    assert created.status_code == 201
+    resp = await client.get(
+        "/api/v1/projects/lookup",
+        params={"repo_url": "https://GITHUB.com/org/repo"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["id"] == created.json()["id"]
+
+
+async def test_update_project_refreshes_normalized_url(client: AsyncClient) -> None:
+    """PATCH repo_url keeps the indexed canonical URL in sync.
+
+    Args:
+        client: Async HTTPX test client.
+    """
+    created = await client.post(
+        "/api/v1/projects",
+        json={
+            "name": "Moving Project",
+            "repo_url": "https://github.com/org/old.git",
+            "branch": "main",
+        },
+    )
+    assert created.status_code == 201
+    project_id = created.json()["id"]
+    patched = await client.patch(
+        f"/api/v1/projects/{project_id}",
+        json={"repo_url": "https://github.com/org/new.git"},
+    )
+    assert patched.status_code == 200
+    found = await client.get(
+        "/api/v1/projects/lookup",
+        params={"repo_url": "https://github.com/org/new"},
+    )
+    assert found.status_code == 200
+    assert found.json()["id"] == project_id
+    gone = await client.get(
+        "/api/v1/projects/lookup",
+        params={"repo_url": "https://github.com/org/old"},
+    )
+    assert gone.status_code == 404
 
 
 async def test_get_project_not_found(client: AsyncClient) -> None:

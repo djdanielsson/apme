@@ -244,6 +244,51 @@ async def ensure_scan_row(
     return scan
 
 
+def _prepare_stub_payload(raw: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Normalize one live proposal mapping for upsert matching.
+
+    Args:
+        raw: Proposal mapping with id/file/rule_id/tier/status/source/….
+
+    Returns:
+        Normalized payload including the match keys, or ``None`` when the
+        mapping carries no engine proposal id.
+    """
+    engine_id = str(raw.get("id") or raw.get("engine_proposal_id") or "").strip()
+    if not engine_id:
+        return None
+    file_ = str(raw.get("file") or "")
+    rule_id = str(raw.get("rule_id") or "")
+    path = str(raw.get("path") or "")
+    tier = int(raw.get("tier") or 0)
+    source = str(raw.get("source") or (SOURCE_AI if tier >= 2 else SOURCE_DETERMINISTIC))
+    gate = str(raw.get("gate") or "") or _gate_for_source(source, tier)
+    rule_parts = tuple(p.strip() for p in rule_id.split(",") if p.strip()) or ((rule_id,) if rule_id else ())
+    # Proposal.rule_id is the primary/display rule — never the coupled CSV.
+    primary_rule = rule_parts[0] if rule_parts else ""
+    return {
+        "raw": raw,
+        "engine_id": engine_id,
+        "file": file_,
+        "rule_id": rule_id,
+        "primary_rule": primary_rule,
+        "rule_parts": rule_parts,
+        "stamp_rules": rule_parts,
+        "path": path,
+        "tier": tier,
+        "source": source,
+        "gate": gate,
+        "status": _normalize_status(str(raw.get("status") or "pending")),
+        "archival_id": _archival_proposal_id(
+            file=file_,
+            path=path,
+            gate=gate,
+            rule_id=primary_rule or rule_id,
+            engine_id=engine_id,
+        ),
+    }
+
+
 async def upsert_live_proposal_stubs(
     db: AsyncSession,
     *,
@@ -266,34 +311,51 @@ async def upsert_live_proposal_stubs(
         Upserted ORM Proposal rows.
     """
     await ensure_scan_row(db, scan_id=scan_id, project_id=project_id, scan_type="remediate")
-    out: list[Proposal] = []
-    for raw in proposals:
-        engine_id = str(raw.get("id") or raw.get("engine_proposal_id") or "").strip()
-        if not engine_id:
-            continue
-        file_ = str(raw.get("file") or "")
-        rule_id = str(raw.get("rule_id") or "")
-        path = str(raw.get("path") or "")
-        tier = int(raw.get("tier") or 0)
-        source = str(raw.get("source") or (SOURCE_AI if tier >= 2 else SOURCE_DETERMINISTIC))
-        gate = str(raw.get("gate") or "") or _gate_for_source(source, tier)
-        status = _normalize_status(str(raw.get("status") or "pending"))
-        rule_parts = tuple(p.strip() for p in rule_id.split(",") if p.strip()) or ((rule_id,) if rule_id else ())
-        # Proposal.rule_id is the primary/display rule — never the coupled CSV.
-        primary_rule = rule_parts[0] if rule_parts else ""
-        stamp_rules = rule_parts
-        archival_id = _archival_proposal_id(
-            file=file_, path=path, gate=gate, rule_id=primary_rule or rule_id, engine_id=engine_id
-        )
+    prepared = [item for item in (_prepare_stub_payload(raw) for raw in proposals) if item is not None]
 
-        existing = (
-            await db.execute(
-                select(Proposal).where(
-                    Proposal.scan_id == scan_id,
-                    or_(Proposal.engine_proposal_id == engine_id, Proposal.proposal_id == archival_id),
+    # One preloaded query instead of a SELECT per proposal: match the same
+    # (engine_proposal_id, proposal_id) pairs the loop used to fetch singly.
+    by_engine: dict[str, Proposal] = {}
+    by_archival: dict[str, Proposal] = {}
+    engine_ids = [item["engine_id"] for item in prepared]
+    archival_ids = [item["archival_id"] for item in prepared]
+    if engine_ids or archival_ids:
+        rows = (
+            (
+                await db.execute(
+                    select(Proposal).where(
+                        Proposal.scan_id == scan_id,
+                        or_(
+                            Proposal.engine_proposal_id.in_(engine_ids),
+                            Proposal.proposal_id.in_(archival_ids),
+                        ),
+                    )
                 )
             )
-        ).scalar_one_or_none()
+            .scalars()
+            .all()
+        )
+        for row in rows:
+            if row.engine_proposal_id:
+                by_engine.setdefault(str(row.engine_proposal_id), row)
+            by_archival.setdefault(str(row.proposal_id), row)
+
+    out: list[Proposal] = []
+    for item in prepared:
+        raw = item["raw"]
+        engine_id = item["engine_id"]
+        file_ = item["file"]
+        primary_rule = item["primary_rule"]
+        rule_parts = item["rule_parts"]
+        stamp_rules = item["stamp_rules"]
+        path = item["path"]
+        tier = item["tier"]
+        source = item["source"]
+        gate = item["gate"]
+        status = item["status"]
+        archival_id = item["archival_id"]
+
+        existing = by_engine.get(engine_id) or by_archival.get(archival_id)
         if existing is None:
             existing = Proposal(
                 scan_id=scan_id,

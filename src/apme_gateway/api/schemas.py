@@ -133,6 +133,7 @@ class ProposalDetail(BaseModel):  # type: ignore[misc]
         rule_ids: All rule ids on this approval unit (optional additive).
         violation_ids: Linked violation PKs (optional additive).
         line_start: First line of the node/finding (optional additive).
+        line_end: Last line of the node/finding (optional additive).
         diff_hunk: Unified diff when available (optional additive).
         explanation: AI explanation when available (optional additive).
         suggestion: Manual suggestion when available (optional additive).
@@ -154,6 +155,7 @@ class ProposalDetail(BaseModel):  # type: ignore[misc]
     rule_ids: list[str] = Field(default_factory=list)
     violation_ids: list[int] = Field(default_factory=list)
     line_start: int = 0
+    line_end: int = 0
     diff_hunk: str = ""
     explanation: str = ""
     suggestion: str = ""
@@ -679,6 +681,34 @@ class SubmitRequest(BaseModel):  # type: ignore[misc]
     title: str | None = None
     body: str | None = None
     scm_token: str | None = None
+
+    @field_validator("branch_name")  # type: ignore[untyped-decorator]
+    @classmethod
+    def _validate_branch_name(cls, v: str | None) -> str | None:
+        """Ensure an explicit branch name is safe for SCM ref creation.
+
+        Args:
+            v: The branch name value to validate (``None`` selects the
+                auto-generated default).
+
+        Returns:
+            The validated branch name unchanged.
+
+        Raises:
+            ValueError: If the name uses characters outside the allowlist,
+                is empty/blank, is too long, or contains ``..``.
+        """
+        import re  # noqa: PLC0415
+
+        if v is None:
+            return None
+        if not v.strip() or len(v) > 100 or ".." in v:
+            msg = "branch_name must be 1-100 chars without '..'"
+            raise ValueError(msg)
+        if not re.fullmatch(r"[A-Za-z0-9._/\-]+", v):
+            msg = "branch_name may only contain letters, digits, '.', '_', '/', and '-'"
+            raise ValueError(msg)
+        return v
 
 
 class SubmitResponse(BaseModel):  # type: ignore[misc]

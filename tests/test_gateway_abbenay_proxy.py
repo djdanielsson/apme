@@ -232,23 +232,21 @@ async def test_chat_path_not_proxied(app_client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio  # type: ignore[untyped-decorator]
-async def test_get_secrets_proxied(app_client: AsyncClient) -> None:
-    """GET /api/v1/ai/secrets proxies to Abbenay /api/secrets.
+async def test_get_secrets_not_proxied(app_client: AsyncClient) -> None:
+    """GET /api/v1/ai/secrets is denied (no secret listing via the proxy).
+
+    The Gateway has no caller authentication yet, so unauthenticated
+    secret-store reads are rejected at the allowlist (finding #11).
 
     Args:
         app_client: Async HTTP test client.
     """
-    secrets_body = b'{"secrets":["OPENROUTER_API_KEY"]}'
-    client = _mock_upstream(content=secrets_body)
+    client = _mock_upstream(content=b'{"secrets":["OPENROUTER_API_KEY"]}')
     with patch("apme_gateway.api.abbenay_proxy.httpx.AsyncClient", return_value=client):
         resp = await app_client.get("/api/v1/ai/secrets")
 
-    assert resp.status_code == 200
-    assert resp.content == secrets_body
-    assert client.request.await_args is not None
-    assert client.request.await_args.args[1] == "http://127.0.0.1:8787/api/secrets"
-    assert client.request.await_args.kwargs["headers"]["Authorization"] == "Bearer admin-http-token"
-    assert "Cookie" not in client.request.await_args.kwargs["headers"]
+    assert resp.status_code == 404
+    client.request.assert_not_awaited()
 
 
 @pytest.mark.parametrize("secret_store", ["memory", "file"])  # type: ignore[untyped-decorator]

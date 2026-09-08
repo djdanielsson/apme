@@ -122,11 +122,14 @@ async def create_project(
     Returns:
         The newly created Project.
     """
+    from apme_gateway.scm.repo_url import normalize_repo_url
+
     now = datetime.now(tz=UTC).isoformat()
     project = Project(
         id=project_id,
         name=name,
         repo_url=repo_url,
+        normalized_repo_url=normalize_repo_url(repo_url),
         branch=branch,
         created_at=now,
         scm_token=scm_token or None,
@@ -185,12 +188,21 @@ async def find_project_by_repo_url(
     from apme_gateway.scm.repo_url import normalize_repo_url
 
     target = normalize_repo_url(repo_url)
-    stmt = select(Project)
+    conditions = [Project.normalized_repo_url == target]
+    if branch is not None:
+        conditions.append(Project.branch == branch)
+    stmt = select(Project).where(*conditions)
     result = await db.execute(stmt)
     for project in result.scalars().all():
+        return cast(Project, project)
+    # Legacy fallback: rows predating the normalized column carry the empty
+    # marker (e.g. inserted without the startup backfill running).
+    fallback = [Project.normalized_repo_url == ""]
+    if branch is not None:
+        fallback.append(Project.branch == branch)
+    result = await db.execute(select(Project).where(*fallback))
+    for project in result.scalars().all():
         if normalize_repo_url(project.repo_url) != target:
-            continue
-        if branch is not None and project.branch != branch:
             continue
         return cast(Project, project)
     return None
@@ -248,6 +260,10 @@ async def update_project(db: AsyncSession, project_id: str, **fields: str | None
     for key, value in fields.items():
         if hasattr(project, key):
             setattr(project, key, value)
+    if "repo_url" in fields and isinstance(fields["repo_url"], str):
+        from apme_gateway.scm.repo_url import normalize_repo_url
+
+        project.normalized_repo_url = normalize_repo_url(fields["repo_url"])
     await db.commit()
     await db.refresh(project)
     return project

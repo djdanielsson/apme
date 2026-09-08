@@ -94,6 +94,61 @@ export interface SessionOptions {
 
 // ── Helpers ────────────────────────────────────────────────────────
 
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null;
+}
+
+function isPatchArray(v: unknown): v is Patch[] {
+  return (
+    Array.isArray(v) &&
+    v.every(
+      (p) =>
+        isRecord(p) &&
+        typeof p.file === "string" &&
+        typeof p.diff === "string" &&
+        Array.isArray(p.applied_rules) &&
+        (p.applied_rules as unknown[]).every((r) => typeof r === "string"),
+    )
+  );
+}
+
+/** Validate a tier1_complete payload before it reaches state. */
+function isTier1Result(v: unknown): v is Tier1Result {
+  if (!isRecord(v)) return false;
+  return (
+    typeof v.idempotency_ok === "boolean" &&
+    isPatchArray(v.patches) &&
+    Array.isArray(v.format_diffs) &&
+    (v.report === null || isRecord(v.report))
+  );
+}
+
+/** Validate a proposals payload before it reaches state. */
+function isProposalArray(v: unknown): v is Proposal[] {
+  return (
+    Array.isArray(v) &&
+    v.every(
+      (p) =>
+        isRecord(p) &&
+        typeof p.id === "string" &&
+        typeof p.file === "string" &&
+        typeof p.rule_id === "string" &&
+        typeof p.line_start === "number",
+    )
+  );
+}
+
+/** Validate a result payload before it reaches state. */
+function isSessionResult(v: unknown): v is SessionResult {
+  if (!isRecord(v)) return false;
+  return (
+    typeof v.scan_id === "string" &&
+    isPatchArray(v.patches) &&
+    (v.report === null || isRecord(v.report)) &&
+    Array.isArray(v.remaining_violations)
+  );
+}
+
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -264,13 +319,21 @@ export function useSessionStream() {
             break;
 
           case "tier1_complete":
-            setTier1(msg as unknown as Tier1Result);
-            updateStatus("tier1_done");
+            if (isTier1Result(msg)) {
+              setTier1(msg);
+              updateStatus("tier1_done");
+            } else {
+              setError("Received malformed tier1 result from server");
+            }
             break;
 
           case "proposals":
-            setProposals(msg.proposals as Proposal[]);
-            updateStatus("awaiting_approval");
+            if (isProposalArray(msg.proposals)) {
+              setProposals(msg.proposals);
+              updateStatus("awaiting_approval");
+            } else {
+              setError("Received malformed proposals from server");
+            }
             break;
 
           case "approval_ack":
@@ -282,7 +345,11 @@ export function useSessionStream() {
             break;
 
           case "result":
-            setResult(msg as unknown as SessionResult);
+            if (!isSessionResult(msg)) {
+              setError("Received malformed result from server");
+              break;
+            }
+            setResult(msg);
             setCanReconnect(false);
             clearPersistedSession();
             updateStatus("complete");

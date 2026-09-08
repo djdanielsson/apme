@@ -61,6 +61,7 @@ class GroupedProposal:
         stamp_rule_ids: When non-empty, only these rule ids may receive
             ``review_status`` stamps (set from matched outcome rule list).
         node_type: ContentGraph NodeType value (task, block, play, …).
+        line_end: Last line of the finding/node (0 when unknown).
     """
 
     proposal_id: str
@@ -83,6 +84,7 @@ class GroupedProposal:
     coupled: bool = False
     stamp_rule_ids: tuple[str, ...] = ()
     node_type: str = ""
+    line_end: int = 0
 
 
 @dataclass

@@ -432,3 +432,37 @@ async def test_ai_acceptance_prefers_analytics_after_flush() -> None:
     assert approved == 1
     assert rejected == 0
     assert pending == 0
+
+
+class TestLineEndMapping:
+    """line_end flows from engine proposals to ProposalDetail (finding #50)."""
+
+    def test_grouped_line_end_reaches_detail(self) -> None:
+        """Grouped views carry line_end into ProposalDetail construction."""
+        from apme_gateway.api.schemas import ProposalDetail
+        from apme_gateway.proposals.flush import proposal_to_detail_dict
+
+        grouped = GroupedProposal(
+            proposal_id="t1-abc",
+            rule_id="L007",
+            rule_ids=("L007",),
+            violation_ids=(),
+            file="a.yml",
+            path="",
+            line_start=10,
+            line_end=14,
+            tier=1,
+            source="deterministic",
+            gate="tier1",
+        )
+        detail = ProposalDetail.model_validate(proposal_to_detail_dict(grouped))
+        assert detail.line_start == 10
+        assert detail.line_end == 14
+
+    def test_operation_proposal_defaults_line_end_zero(self) -> None:
+        """Registry proposals default line_end to 0 when unknown."""
+        from apme_gateway.operation_types import Proposal as OperationProposal
+
+        proposal = OperationProposal(id="p-1", rule_id="L007", file="a.yml")
+        assert proposal.line_start == 0
+        assert proposal.line_end == 0

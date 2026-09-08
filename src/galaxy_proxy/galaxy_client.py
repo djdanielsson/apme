@@ -23,6 +23,11 @@ DEFAULT_GALAXY_URL = "https://galaxy.ansible.com"
 
 COLLECTIONS_PATH = "/api/v3/plugin/ansible/content/published/collections/index"
 
+#: Bound on version-list pagination (100 entries/page). A server that keeps
+#: returning ``links.next`` terminates here with partial results + warning
+#: instead of looping forever.
+_MAX_VERSION_PAGES = 50
+
 logger = logging.getLogger(__name__)
 
 
@@ -285,7 +290,7 @@ class GalaxyClient:
         versions: list[str] = []
         url = f"{COLLECTIONS_PATH}/{namespace}/{name}/versions/"
         params: dict[str, str | int] = {"limit": 100, "offset": 0}
-        while True:
+        for _page in range(_MAX_VERSION_PAGES):
             resp = await client.get(url, params=params)
             resp.raise_for_status()
             payload = resp.json()
@@ -294,6 +299,14 @@ class GalaxyClient:
             if not payload.get("links", {}).get("next"):
                 break
             params["offset"] = int(params["offset"]) + int(params["limit"])
+        else:
+            logger.warning(
+                "Galaxy version pagination exceeded %d pages for %s.%s; returning %d partial versions",
+                _MAX_VERSION_PAGES,
+                namespace,
+                name,
+                len(versions),
+            )
         return versions
 
     @staticmethod

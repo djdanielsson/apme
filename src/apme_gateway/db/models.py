@@ -24,6 +24,8 @@ class Project(Base):
         id: UUID hex primary key.
         name: User-facing display label.
         repo_url: HTTPS clone URL for the repository.
+        normalized_repo_url: Canonical URL for indexed lookup (finding #55).
+            Maintained on create/update; backfilled at startup for legacy rows.
         branch: Branch to clone (default ``main``).
         created_at: ISO 8601 creation timestamp.
         health_score: Computed 0-100 health score from latest scan.
@@ -38,6 +40,7 @@ class Project(Base):
     id: Mapped[str] = mapped_column(Text, primary_key=True)
     name: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
     repo_url: Mapped[str] = mapped_column(Text, nullable=False)
+    normalized_repo_url: Mapped[str] = mapped_column(Text, nullable=False, default="", index=True)
     branch: Mapped[str] = mapped_column(Text, nullable=False, default="main")
     created_at: Mapped[str] = mapped_column(Text, nullable=False)
     health_score: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

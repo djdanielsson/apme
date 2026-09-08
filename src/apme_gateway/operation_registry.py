@@ -398,6 +398,7 @@ class OperationRegistry:
                         "node_type": p.node_type,
                         "suggestion": p.suggestion,
                         "line_start": p.line_start,
+                        "line_end": p.line_end,
                         "before_text": p.before_text,
                         "after_text": p.after_text,
                     }

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import os
 import tempfile
 from collections.abc import AsyncIterator
@@ -12,6 +13,7 @@ import pytest
 from apme.v1 import engine_pb2
 from apme_gateway.scan.driver import (
     _REMOTE_HEAD_CACHE,
+    _git_auth_env,
     _git_subprocess_env,
     _inject_token_in_url,
     clone_repo,
@@ -22,6 +24,21 @@ from apme_gateway.scan.driver import (
     run_project_scan,
 )
 from apme_gateway.scm.redaction import redact_credentials
+
+
+def _decode_auth_env(env: dict[str, str]) -> str:
+    """Decode the ``http.extraHeader`` basic credentials from a git env mapping.
+
+    Args:
+        env: Git subprocess environment containing ``GIT_CONFIG_VALUE_0``.
+
+    Returns:
+        Decoded ``username:password`` credential string.
+    """
+    value = env["GIT_CONFIG_VALUE_0"]
+    scheme, _, encoded = value.partition("Basic ")
+    assert scheme.strip().rstrip(":").upper() == "AUTHORIZATION"
+    return base64.b64decode(encoded.strip()).decode("utf-8")
 
 
 @pytest.mark.parametrize(  # type: ignore[untyped-decorator]
@@ -382,7 +399,7 @@ class TestRedactCredentials:
 
 @pytest.mark.asyncio  # type: ignore[untyped-decorator]
 async def test_clone_repo_with_scm_token() -> None:
-    """Verify clone_repo injects token into URL when provided."""
+    """Verify clone_repo passes the token via env, never in argv."""
     with patch("apme_gateway.scan.driver.asyncio.get_running_loop") as mock_loop:
         result = MagicMock()
         result.returncode = 0
@@ -400,7 +417,10 @@ async def test_clone_repo_with_scm_token() -> None:
             await clone_repo("https://github.com/owner/repo.git", "main", dest, scm_token="ghp_test")
 
         call_args = mock_run.call_args[0][0]
-        assert "x-access-token:ghp_test@github.com" in call_args[-2]
+        assert call_args[-2] == "https://github.com/owner/repo.git"
+        assert "ghp_test" not in " ".join(call_args)
+        env = mock_run.call_args.kwargs["env"]
+        assert _decode_auth_env(env) == "x-access-token:ghp_test"
 
 
 @pytest.mark.asyncio  # type: ignore[untyped-decorator]
@@ -428,7 +448,7 @@ async def test_clone_repo_redacts_error_messages() -> None:
 
 @pytest.mark.asyncio  # type: ignore[untyped-decorator]
 async def test_fetch_remote_head_with_scm_token() -> None:
-    """Verify fetch_remote_head injects token when provided."""
+    """Verify fetch_remote_head passes the token via env, never in argv."""
     fake_sha = "c" * 40
     _REMOTE_HEAD_CACHE.clear()
     with (
@@ -449,7 +469,55 @@ async def test_fetch_remote_head_with_scm_token() -> None:
 
     assert sha == fake_sha
     call_args = mock_run.call_args[0][0]
-    assert "oauth2:glpat-test@gitlab.com" in call_args[3]
+    assert call_args[3] == "https://gitlab.com/owner/repo.git"
+    assert "glpat-test" not in " ".join(call_args)
+    env = mock_run.call_args.kwargs["env"]
+    assert _decode_auth_env(env) == "oauth2:glpat-test"
+
+
+@pytest.mark.asyncio  # type: ignore[untyped-decorator]
+async def test_fetch_remote_head_does_not_cache_failures() -> None:
+    """Verify failed ls-remote lookups are not cached as negative entries."""
+    _REMOTE_HEAD_CACHE.clear()
+    with (
+        patch("apme_gateway.scan.driver.asyncio.get_running_loop") as mock_loop,
+        patch("apme_gateway.scan.driver.subprocess.run") as mock_run,
+    ):
+        result = MagicMock()
+        result.returncode = 128
+        result.stdout = ""
+        mock_run.return_value = result
+        mock_loop.return_value.run_in_executor = AsyncMock(side_effect=lambda _exec, func: func())
+
+        assert await fetch_remote_head("https://github.com/owner/repo.git", "main") is None
+        assert await fetch_remote_head("https://github.com/owner/repo.git", "main") is None
+
+    assert _REMOTE_HEAD_CACHE == {}
+    assert mock_run.call_count == 2
+
+
+class TestGitAuthEnv:
+    """Tests for _git_auth_env token transport via git config env."""
+
+    def test_github_credentials(self) -> None:
+        """GitHub tokens map to x-access-token basic credentials."""
+        env = _git_auth_env("https://github.com/owner/repo.git", "ghp_test123")
+        assert env["GIT_CONFIG_COUNT"] == "1"
+        assert env["GIT_CONFIG_KEY_0"] == "http.extraHeader"
+        assert _decode_auth_env(env) == "x-access-token:ghp_test123"
+
+    def test_gitlab_user_pass_credentials(self) -> None:
+        """GitLab deploy tokens keep username:password credentials."""
+        env = _git_auth_env(
+            "https://gitlab.com/group/repo.git",
+            "gitlab+deploy-token-1:secret",
+        )
+        assert _decode_auth_env(env) == "gitlab+deploy-token-1:secret"
+
+    def test_unknown_provider_git_fallback(self) -> None:
+        """Unknown providers fall back to the git username."""
+        env = _git_auth_env("https://custom-git.example.com/repo.git", "token123")
+        assert _decode_auth_env(env) == "git:token123"
 
 
 @pytest.mark.asyncio  # type: ignore[untyped-decorator]

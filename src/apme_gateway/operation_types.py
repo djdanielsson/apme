@@ -107,6 +107,7 @@ class Proposal:
         node_type: ContentGraph NodeType value (task, block, play, …).
         suggestion: Suggested replacement text.
         line_start: Starting line number in the file.
+        line_end: Ending line number in the file (0 when unknown).
         before_text: Node YAML before the proposed change.
         after_text: Node YAML after the proposed change.
     """
@@ -124,6 +125,7 @@ class Proposal:
     node_type: str = ""
     suggestion: str = ""
     line_start: int = 0
+    line_end: int = 0
     before_text: str = ""
     after_text: str = ""
 
@@ -252,6 +254,7 @@ class OperationState:
                     "node_type": p.node_type,
                     "suggestion": p.suggestion,
                     "line_start": p.line_start,
+                    "line_end": p.line_end,
                     "before_text": p.before_text,
                     "after_text": p.after_text,
                 }

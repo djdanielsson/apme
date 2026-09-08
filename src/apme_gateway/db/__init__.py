@@ -63,6 +63,7 @@ async def init_db(database_url_or_path: str) -> None:
         await conn.run_sync(_migrate_violations_table)
         await conn.run_sync(_migrate_proposals_table)
         await conn.run_sync(_migrate_scans_table)
+        await conn.run_sync(_migrate_projects_table)
 
 
 async def init_db_from_config(*, database_url: str | None = None, db_path: str | None = None) -> str:
@@ -96,6 +97,7 @@ async def reset_db() -> None:
         await conn.run_sync(_migrate_violations_table)
         await conn.run_sync(_migrate_proposals_table)
         await conn.run_sync(_migrate_scans_table)
+        await conn.run_sync(_migrate_projects_table)
 
 
 def get_engine() -> AsyncEngine:
@@ -266,6 +268,39 @@ def _migrate_scans_table(conn: object) -> None:
 
     for stmt in migrations:
         conn.execute(text(stmt))
+
+
+def _migrate_projects_table(conn: object) -> None:
+    """Add the indexed ``normalized_repo_url`` column to ``projects``.
+
+    ``create_all`` only creates missing *tables* — it does not add columns
+    to existing tables.  This function adds the column, ensures the lookup
+    index exists, and backfills legacy rows whose marker is still empty.
+
+    Args:
+        conn: Synchronous SQLAlchemy connection (from ``run_sync``).
+    """
+    from sqlalchemy.engine import Connection  # noqa: PLC0415
+
+    if not isinstance(conn, Connection):
+        return
+    insp = inspect(conn)
+    if not insp.has_table("projects"):
+        return
+    existing = {c["name"] for c in insp.get_columns("projects")}
+
+    if "normalized_repo_url" not in existing:
+        conn.execute(text("ALTER TABLE projects ADD COLUMN normalized_repo_url TEXT NOT NULL DEFAULT ''"))
+    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_projects_normalized_repo_url ON projects (normalized_repo_url)"))
+
+    from apme_gateway.scm.repo_url import normalize_repo_url  # noqa: PLC0415
+
+    rows = conn.execute(text("SELECT id, repo_url FROM projects WHERE normalized_repo_url = ''")).all()
+    for row in rows:
+        conn.execute(
+            text("UPDATE projects SET normalized_repo_url = :normalized WHERE id = :pid"),
+            {"normalized": normalize_repo_url(row[1] or ""), "pid": row[0]},
+        )
 
 
 async def close_db() -> None:

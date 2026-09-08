@@ -1173,6 +1173,7 @@ async def _drive_operation(
                         node_type=getattr(p, "node_type", "") or "",
                         suggestion=p.suggestion,
                         line_start=p.line_start,
+                        line_end=p.line_end,
                         before_text=p.before_text or "",
                         after_text=p.after_text or "",
                     )
@@ -1198,6 +1199,7 @@ async def _drive_operation(
                         "status": p.status,
                         "suggestion": p.suggestion,
                         "line_start": p.line_start,
+                        "line_end": p.line_end,
                         "path": p.path,
                         "node_type": getattr(p, "node_type", "") or "",
                         "source": getattr(p, "source", "") or ("ai" if p.tier >= 2 else "deterministic"),

@@ -448,6 +448,7 @@ def proposal_to_detail_dict(prop: Proposal | object) -> dict[str, object]:
         "rule_ids": [str(r) for r in rule_ids],
         "violation_ids": [int(v) for v in violation_ids],
         "line_start": int(getattr(prop, "line_start", 0) or 0),
+        "line_end": int(getattr(prop, "line_end", 0) or 0),
         "diff_hunk": getattr(prop, "diff_hunk", "") or "",
         "explanation": getattr(prop, "explanation", "") or "",
         "suggestion": getattr(prop, "suggestion", "") or "",
