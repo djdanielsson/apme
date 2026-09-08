@@ -28,6 +28,7 @@ from fastapi.responses import HTMLResponse, Response
 from packaging.version import InvalidVersion, Version
 from pydantic import BaseModel
 
+from galaxy_proxy import MAX_VERSION_PAGES
 from galaxy_proxy.collection_downloader import (
     GalaxyServerConfig,
     download_collections,
@@ -47,11 +48,6 @@ logger = logging.getLogger(__name__)
 
 _GALAXY_API_URL = "https://galaxy.ansible.com"
 _GALAXY_VERSIONS_PATH = "/api/v3/plugin/ansible/content/published/collections/index"
-
-#: Bound on version-list pagination (100 entries/page). A server that keeps
-#: returning ``links.next`` terminates here with partial results + warning
-#: instead of looping forever.
-_MAX_VERSION_PAGES = 50
 
 
 class _GalaxyServerPayload(BaseModel):  # type: ignore[misc]
@@ -671,8 +667,10 @@ async def _fetch_versions_from(
         token: Optional auth token for the server.
 
     Returns:
-        List of version strings on success, or ``None`` on failure so
-        the caller can fall through to the next server.
+        List of version strings on success, or ``None`` on failure — or
+        when the listing is truncated at ``MAX_VERSION_PAGES`` — so the
+        caller can fall through to the next server. A truncated listing is
+        not a complete answer and must never resolve as one.
     """
     versions: list[str] = []
     normalized = _normalize_galaxy_url(base_url)
@@ -690,7 +688,7 @@ async def _fetch_versions_from(
             follow_redirects=True,
             headers=headers,
         ) as client:
-            while True:
+            for _page in range(MAX_VERSION_PAGES):
                 resp = await client.get(url, params=params)
                 resp.raise_for_status()
                 payload = resp.json()
@@ -698,16 +696,15 @@ async def _fetch_versions_from(
                     versions.append(entry["version"])
                 if not payload.get("links", {}).get("next"):
                     break
-                if int(params["offset"]) // int(params["limit"]) + 1 >= _MAX_VERSION_PAGES:
-                    logger.warning(
-                        "Galaxy version pagination exceeded %d pages for %s.%s; returning %d partial versions",
-                        _MAX_VERSION_PAGES,
-                        namespace,
-                        name,
-                        len(versions),
-                    )
-                    break
                 params["offset"] = int(params["offset"]) + int(params["limit"])
+            else:
+                logger.warning(
+                    "Galaxy version pagination exceeded %d pages for %s.%s; treating as failure",
+                    MAX_VERSION_PAGES,
+                    namespace,
+                    name,
+                )
+                return None
         status = "ok"
         return versions
     except (httpx.HTTPError, KeyError, ValueError) as exc:

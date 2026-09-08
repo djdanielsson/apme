@@ -6,7 +6,7 @@ through caller ``Authorization``. Inference (``GET /api/v1/ai/models`` and
 Abbenay chat) is **not** proxied — chat stays Engine → Abbenay gRPC.
 ``GET /api/v1/ai/engines`` proxies Abbenay's engine registry (read-only
 discovery path, ADR-070 amendment 2026-08-03).
-``GET/POST /api/v1/ai/secrets`` and ``DELETE /api/v1/ai/secrets/{key}`` proxy
+``POST /api/v1/ai/secrets`` and ``DELETE /api/v1/ai/secrets/{key}`` proxy
 Abbenay's secret store. Memory store: Abbenay ≥ v2026.8.5. File store:
 Abbenay ≥ v2026.8.6. Gateway does not persist keys and does not parse
 ``secretStore`` (JSON body and query string are forwarded unchanged).

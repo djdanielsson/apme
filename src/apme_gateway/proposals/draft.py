@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import logging
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from datetime import UTC
 from typing import Any
 
@@ -244,7 +245,44 @@ async def ensure_scan_row(
     return scan
 
 
-def _prepare_stub_payload(raw: Mapping[str, Any]) -> dict[str, Any] | None:
+@dataclass
+class StubPayload:
+    """Normalized live proposal payload for upsert matching.
+
+    Attributes:
+        raw: Original proposal mapping.
+        engine_id: Engine proposal id (match key).
+        file: Target file path.
+        rule_id: Raw rule id string as received.
+        primary_rule: Primary/display rule (never the coupled CSV).
+        rule_parts: Parsed rule id tuple.
+        path: Node identity path.
+        tier: Numeric remediation tier.
+        source: Proposal source string.
+        gate: Archival gate label.
+        status: Normalized status string.
+        archival_id: Archival-style proposal id (second match key).
+        line_start: First line of the node/finding (0 when unknown).
+        line_end: Last line of the node/finding (0 when unknown).
+    """
+
+    raw: Mapping[str, Any]
+    engine_id: str
+    file: str
+    rule_id: str
+    primary_rule: str
+    rule_parts: tuple[str, ...]
+    path: str
+    tier: int
+    source: str
+    gate: str
+    status: str
+    archival_id: str
+    line_start: int
+    line_end: int
+
+
+def _prepare_stub_payload(raw: Mapping[str, Any]) -> StubPayload | None:
     """Normalize one live proposal mapping for upsert matching.
 
     Args:
@@ -266,27 +304,28 @@ def _prepare_stub_payload(raw: Mapping[str, Any]) -> dict[str, Any] | None:
     rule_parts = tuple(p.strip() for p in rule_id.split(",") if p.strip()) or ((rule_id,) if rule_id else ())
     # Proposal.rule_id is the primary/display rule — never the coupled CSV.
     primary_rule = rule_parts[0] if rule_parts else ""
-    return {
-        "raw": raw,
-        "engine_id": engine_id,
-        "file": file_,
-        "rule_id": rule_id,
-        "primary_rule": primary_rule,
-        "rule_parts": rule_parts,
-        "stamp_rules": rule_parts,
-        "path": path,
-        "tier": tier,
-        "source": source,
-        "gate": gate,
-        "status": _normalize_status(str(raw.get("status") or "pending")),
-        "archival_id": _archival_proposal_id(
+    return StubPayload(
+        raw=raw,
+        engine_id=engine_id,
+        file=file_,
+        rule_id=rule_id,
+        primary_rule=primary_rule,
+        rule_parts=rule_parts,
+        path=path,
+        tier=tier,
+        source=source,
+        gate=gate,
+        status=_normalize_status(str(raw.get("status") or "pending")),
+        archival_id=_archival_proposal_id(
             file=file_,
             path=path,
             gate=gate,
             rule_id=primary_rule or rule_id,
             engine_id=engine_id,
         ),
-    }
+        line_start=int(raw.get("line_start") or 0),
+        line_end=int(raw.get("line_end") or 0),
+    )
 
 
 async def upsert_live_proposal_stubs(
@@ -317,8 +356,8 @@ async def upsert_live_proposal_stubs(
     # (engine_proposal_id, proposal_id) pairs the loop used to fetch singly.
     by_engine: dict[str, Proposal] = {}
     by_archival: dict[str, Proposal] = {}
-    engine_ids = [item["engine_id"] for item in prepared]
-    archival_ids = [item["archival_id"] for item in prepared]
+    engine_ids = [item.engine_id for item in prepared]
+    archival_ids = [item.archival_id for item in prepared]
     if engine_ids or archival_ids:
         rows = (
             (
@@ -342,20 +381,28 @@ async def upsert_live_proposal_stubs(
 
     out: list[Proposal] = []
     for item in prepared:
-        raw = item["raw"]
-        engine_id = item["engine_id"]
-        file_ = item["file"]
-        primary_rule = item["primary_rule"]
-        rule_parts = item["rule_parts"]
-        stamp_rules = item["stamp_rules"]
-        path = item["path"]
-        tier = item["tier"]
-        source = item["source"]
-        gate = item["gate"]
-        status = item["status"]
-        archival_id = item["archival_id"]
+        raw = item.raw
+        engine_id = item.engine_id
+        file_ = item.file
+        primary_rule = item.primary_rule
+        rule_parts = item.rule_parts
+        path = item.path
+        tier = item.tier
+        source = item.source
+        gate = item.gate
+        status = item.status
+        archival_id = item.archival_id
 
-        existing = by_engine.get(engine_id) or by_archival.get(archival_id)
+        # Engine-id hits win. An archival-id hit is only a match when it
+        # belongs to the same engine proposal (or has no engine id yet) —
+        # otherwise two live proposals would silently merge into one row.
+        existing = by_engine.get(engine_id)
+        if existing is None:
+            archival_hit = by_archival.get(archival_id)
+            if archival_hit is not None:
+                hit_engine = (archival_hit.engine_proposal_id or "").strip()
+                if not hit_engine or hit_engine == engine_id:
+                    existing = archival_hit
         if existing is None:
             existing = Proposal(
                 scan_id=scan_id,
@@ -371,16 +418,21 @@ async def upsert_live_proposal_stubs(
                 gate=gate,
                 rule_ids_json=serialize_rule_ids(rule_parts),
                 violation_ids_json="[]",
-                line_start=int(raw.get("line_start") or 0),
+                line_start=item.line_start,
+                line_end=item.line_end,
                 diff_hunk=str(raw.get("diff_hunk") or ""),
                 explanation=str(raw.get("explanation") or ""),
                 suggestion=str(raw.get("suggestion") or ""),
                 analytics_flushed=0,
                 engine_proposal_id=engine_id,
                 draft=0,
-                stamp_rule_ids_json=serialize_rule_ids(stamp_rules),
+                stamp_rule_ids_json=serialize_rule_ids(rule_parts),
             )
             db.add(existing)
+            # Seed the maps so a duplicate engine id later in the same
+            # batch updates this row instead of inserting a second one.
+            by_engine.setdefault(engine_id, existing)
+            by_archival.setdefault(archival_id, existing)
         else:
             existing.engine_proposal_id = engine_id
             existing.file = file_ or existing.file
@@ -396,13 +448,14 @@ async def upsert_live_proposal_stubs(
             existing.diff_hunk = str(raw.get("diff_hunk") or existing.diff_hunk)
             existing.explanation = str(raw.get("explanation") or existing.explanation)
             existing.suggestion = str(raw.get("suggestion") or existing.suggestion)
-            existing.line_start = int(raw.get("line_start") or existing.line_start)
+            existing.line_start = item.line_start or existing.line_start
+            existing.line_end = item.line_end or existing.line_end
             existing.confidence = float(raw.get("confidence") or existing.confidence)
             if "tier" in raw and raw.get("tier") is not None:
                 existing.tier = int(raw["tier"])
             if rule_parts:
                 existing.rule_ids_json = serialize_rule_ids(rule_parts)
-                existing.stamp_rule_ids_json = serialize_rule_ids(stamp_rules)
+                existing.stamp_rule_ids_json = serialize_rule_ids(rule_parts)
             # Do not clobber an in-progress draft status from a re-emit.
             if not existing.draft:
                 existing.status = status

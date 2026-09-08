@@ -10,8 +10,10 @@ import argparse
 import json
 import os
 import queue
+import random
 import sys
 import threading
+import time
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 
@@ -31,6 +33,7 @@ from apme.v1.engine_pb2 import (
     ScanChunk,
     SessionCommand,
     SessionResult,
+    Tier1Summary,
 )
 from apme_engine.cli._exit_codes import EXIT_ERROR, EXIT_VIOLATIONS
 from apme_engine.cli._galaxy_config import discover_galaxy_servers
@@ -44,13 +47,15 @@ from apme_engine.daemon.violation_convert import violation_proto_to_dict
 from apme_engine.engine.models import ViolationDict
 
 
-def run_remediate(args: argparse.Namespace, _retried: bool = False) -> None:
+def run_remediate(args: argparse.Namespace) -> None:
     """Execute the remediate subcommand.
+
+    A transient transport failure before any result is retried once with
+    jittered backoff; every attempt builds and tears down its own channel,
+    producer thread, and command queue so no state leaks across retries.
 
     Args:
         args: Parsed CLI arguments.
-        _retried: Internal guard allowing one reconnect retry after a
-            transient transport failure (not a user-facing flag).
     """
     from apme_engine.cli.check import _apply_dep_scan_flags
 
@@ -70,24 +75,24 @@ def run_remediate(args: argparse.Namespace, _retried: bool = False) -> None:
     def _make_chunks() -> Iterator[ScanChunk]:
         """Build a fresh upload-chunk stream (re-runnable for reconnect retry).
 
+        Upload failures propagate to the caller — the background producer
+        records them and the main thread reports them, so this generator
+        never exits the process itself.
+
         Yields:
             ScanChunk: Scan upload chunks for the FixSession stream.
         """
-        try:
-            yield from yield_scan_chunks(
-                str(target),
-                project_root_name="project",
-                ansible_core_version=getattr(args, "ansible_version", None),
-                collection_specs=getattr(args, "collections", None),
-                session_id=session_id,
-                galaxy_servers=galaxy_servers,
-                rule_configs=rule_cfgs or None,
-                skip_collection_health=skip_collection,
-                skip_dep_audit=skip_python,
-            )
-        except FileNotFoundError as e:
-            sys.stderr.write(f"{e}\n")
-            sys.exit(EXIT_ERROR)
+        yield from yield_scan_chunks(
+            str(target),
+            project_root_name="project",
+            ansible_core_version=getattr(args, "ansible_version", None),
+            collection_specs=getattr(args, "collections", None),
+            session_id=session_id,
+            galaxy_servers=galaxy_servers,
+            rule_configs=rule_cfgs or None,
+            skip_collection_health=skip_collection,
+            skip_dep_audit=skip_python,
+        )
 
     fix_opts = FixOptions(
         max_passes=getattr(args, "max_passes", 5),
@@ -100,8 +105,10 @@ def run_remediate(args: argparse.Namespace, _retried: bool = False) -> None:
         interactive=getattr(args, "interactive", False),
     )
 
-    channel, _ = resolve_engine(args)
-    stub = engine_pb2_grpc.EngineStub(channel)  # type: ignore[no-untyped-call]
+    # ADR-068: remediate omits the client-side gRPC deadline and relies
+    # on server-side budget + stall enforcement, so a None --timeout
+    # (server adaptive budget) is intentional, not a hang.
+    stream_timeout = getattr(args, "timeout", None)
 
     use_json = getattr(args, "json", False)
     tier1_report: FixReport | None = None
@@ -109,31 +116,47 @@ def run_remediate(args: argparse.Namespace, _retried: bool = False) -> None:
     result_patches: list[FilePatch] = []
     got_result = False
 
-    cmd_queue: queue.Queue[SessionCommand | None] = queue.Queue()
+    def _run_uploads(
+        cmd_queue: queue.Queue[SessionCommand | None],
+        producer_errors: list[BaseException],
+    ) -> None:
+        """Stream upload chunks into the command queue in a background thread.
 
-    def _upload_producer() -> None:
-        """Stream upload chunks into the command queue in a background thread."""
-        first = True
-        for chunk in _make_chunks():
-            if first:
-                cmd_chunk = ScanChunk(
-                    scan_id=chunk.scan_id,
-                    project_root=chunk.project_root,
-                    options=chunk.options if chunk.HasField("options") else None,
-                    files=list(chunk.files),
-                    last=chunk.last,
-                    fix_options=fix_opts,
-                )
-                first = False
-            else:
-                cmd_chunk = chunk
-            cmd_queue.put(SessionCommand(upload=cmd_chunk))
+        Producer failures are recorded for the main thread — never
+        ``sys.exit`` here, which would only kill this daemon thread and
+        hang the consumer on an empty queue. The ``None`` sentinel is
+        always delivered so the consumer terminates.
 
-    upload_thread = threading.Thread(target=_upload_producer, daemon=True)
-    upload_thread.start()
+        Args:
+            cmd_queue: Per-attempt command queue feeding the stream.
+            producer_errors: Per-attempt holder for background failures.
+        """
+        try:
+            first = True
+            for chunk in _make_chunks():
+                if first:
+                    cmd_chunk = ScanChunk(
+                        scan_id=chunk.scan_id,
+                        project_root=chunk.project_root,
+                        options=chunk.options if chunk.HasField("options") else None,
+                        files=list(chunk.files),
+                        last=chunk.last,
+                        fix_options=fix_opts,
+                    )
+                    first = False
+                else:
+                    cmd_chunk = chunk
+                cmd_queue.put(SessionCommand(upload=cmd_chunk))
+        except BaseException as exc:  # noqa: BLE001 — recorded, reported by main thread
+            producer_errors.append(exc)
+        finally:
+            cmd_queue.put(None)
 
-    def command_iter() -> Iterator[SessionCommand]:
+    def _drain_commands(cmd_queue: queue.Queue[SessionCommand | None]) -> Iterator[SessionCommand]:
         """Yield commands from the queue (uploads + interactive commands).
+
+        Args:
+            cmd_queue: Per-attempt command queue feeding the stream.
 
         Yields:
             SessionCommand: Next command until a None sentinel stops iteration.
@@ -144,117 +167,138 @@ def run_remediate(args: argparse.Namespace, _retried: bool = False) -> None:
                 return
             yield cmd
 
-    try:
-        # ADR-068: remediate omits the client-side gRPC deadline and relies
-        # on server-side budget + stall enforcement, so a None --timeout
-        # (server adaptive budget) is intentional, not a hang.
-        stream_timeout = getattr(args, "timeout", None)
-        responses = stub.FixSession(command_iter(), timeout=stream_timeout)
+    for attempt in range(2):
+        retry = False
+        cmd_queue: queue.Queue[SessionCommand | None] = queue.Queue()
+        producer_errors: list[BaseException] = []
 
-        for event in responses:
-            oneof = event.WhichOneof("event")
+        upload_thread = threading.Thread(target=_run_uploads, args=(cmd_queue, producer_errors), daemon=True)
+        upload_thread.start()
 
-            if oneof == "created":
-                pass  # session established
+        channel, _ = resolve_engine(args)
+        stub = engine_pb2_grpc.EngineStub(channel)  # type: ignore[no-untyped-call]
+        try:
+            responses = stub.FixSession(_drain_commands(cmd_queue), timeout=stream_timeout)
 
-            elif oneof == "error":
-                err = event.error
-                sys.stderr.write(f"  Operation failed [{err.code}]: {err.message}\n")
-                sys.exit(EXIT_ERROR)
+            for event in responses:
+                oneof = event.WhichOneof("event")
 
-            elif oneof == "progress":
-                p = event.progress
-                verbosity = getattr(args, "verbose", 0) or 0
-                min_level = {0: 2, 1: 2}.get(verbosity, 1)
-                if p.level < min_level:
-                    continue
-                phase = f"[{p.phase}] " if p.phase else ""
-                _LEVEL_FMT = {1: dim, 3: yellow, 4: red}
-                fmt = _LEVEL_FMT.get(p.level, str)
-                sys.stderr.write(f"  {phase}{fmt(p.message)}\n")
+                if oneof == "created":
+                    pass  # session established
 
-            elif oneof == "tier1_complete":
-                summary = event.tier1_complete
-                tier1_report = summary.report if summary.HasField("report") else FixReport()
-                if not use_json:
-                    _render_tier1(summary)
+                elif oneof == "error":
+                    err = event.error
+                    sys.stderr.write(f"  Operation failed [{err.code}]: {err.message}\n")
+                    sys.exit(EXIT_ERROR)
 
-            elif oneof == "proposals":
-                proposals = list(event.proposals.proposals)
-                if not proposals:
-                    continue
+                elif oneof == "progress":
+                    p = event.progress
+                    verbosity = getattr(args, "verbose", 0) or 0
+                    min_level = {0: 2, 1: 2}.get(verbosity, 1)
+                    if p.level < min_level:
+                        continue
+                    phase = f"[{p.phase}] " if p.phase else ""
+                    _LEVEL_FMT = {1: dim, 3: yellow, 4: red}
+                    fmt = _LEVEL_FMT.get(p.level, str)
+                    sys.stderr.write(f"  {phase}{fmt(p.message)}\n")
 
-                if getattr(args, "auto_approve", False):
-                    approved = [p.id for p in proposals]
-                elif use_json:
-                    approved = []
-                else:
-                    approved = _interactive_review(proposals)
+                elif oneof == "tier1_complete":
+                    summary = event.tier1_complete
+                    tier1_report = summary.report if summary.HasField("report") else FixReport()
+                    if not use_json:
+                        _render_tier1(summary)
 
-                cmd_queue.put(
-                    SessionCommand(
-                        approve=ApprovalRequest(approved_ids=approved),
+                elif oneof == "proposals":
+                    proposals = list(event.proposals.proposals)
+                    if not proposals:
+                        continue
+
+                    if getattr(args, "auto_approve", False):
+                        approved = [p.id for p in proposals]
+                    elif use_json:
+                        approved = []
+                    else:
+                        approved = _interactive_review(proposals)
+
+                    cmd_queue.put(
+                        SessionCommand(
+                            approve=ApprovalRequest(approved_ids=approved),
+                        )
                     )
-                )
 
-            elif oneof == "ai_triage":
-                # CLI has no Include/Skip UI (SPA owns that). Escalate every
-                # candidate path so --ai --interactive matches pre-triage behavior.
-                paths = sorted({c.path for c in event.ai_triage.candidates if c.path})
-                if not use_json:
+                elif oneof == "ai_triage":
+                    # CLI has no Include/Skip UI (SPA owns that). Escalate every
+                    # candidate path so --ai --interactive matches pre-triage behavior.
+                    paths = sorted({c.path for c in event.ai_triage.candidates if c.path})
+                    if not use_json:
+                        sys.stderr.write(
+                            f"  AI escalation: including {len(paths)} location(s)\n",
+                        )
+                    targets = [AiEscalateTarget(path=p, rule_ids=[]) for p in paths]
+                    cmd_queue.put(
+                        SessionCommand(ai_escalate=AiEscalateRequest(targets=targets)),
+                    )
+
+                elif oneof == "approval_ack":
+                    ack = event.approval_ack
+                    sys.stderr.write(f"  Applied {ack.applied_count} proposal(s)\n")
+
+                elif oneof == "result":
+                    result = event.result
+                    result_violations = [violation_proto_to_dict(v) for v in result.remaining_violations]
+                    result_patches = list(result.patches)
+                    got_result = True
+                    _write_patches(target, result.patches)
+                    cmd_queue.put(SessionCommand(close=CloseRequest()))
+
+                elif oneof == "expiring":
                     sys.stderr.write(
-                        f"  AI escalation: including {len(paths)} location(s)\n",
+                        f"  Session expires in {event.expiring.ttl_seconds}s\n",
                     )
-                targets = [AiEscalateTarget(path=p, rule_ids=[]) for p in paths]
-                cmd_queue.put(
-                    SessionCommand(ai_escalate=AiEscalateRequest(targets=targets)),
-                )
+                    cmd_queue.put(SessionCommand(extend=ExtendRequest()))
 
-            elif oneof == "approval_ack":
-                ack = event.approval_ack
-                sys.stderr.write(f"  Applied {ack.applied_count} proposal(s)\n")
+                elif oneof == "data":
+                    payload = event.data
+                    if not use_json:
+                        sys.stderr.write(f"  [{payload.kind}]\n")
 
-            elif oneof == "result":
-                result = event.result
-                result_violations = [violation_proto_to_dict(v) for v in result.remaining_violations]
-                result_patches = list(result.patches)
-                got_result = True
-                _write_patches(target, result.patches)
-                cmd_queue.put(SessionCommand(close=CloseRequest()))
+                elif oneof == "closed":
+                    break
 
-            elif oneof == "expiring":
-                sys.stderr.write(
-                    f"  Session expires in {event.expiring.ttl_seconds}s\n",
-                )
-                cmd_queue.put(SessionCommand(extend=ExtendRequest()))
+        except grpc.RpcError as e:
+            transient = e.code() in (
+                grpc.StatusCode.UNAVAILABLE,
+                grpc.StatusCode.DEADLINE_EXCEEDED,
+            )
+            # A DEADLINE_EXCEEDED against a user-supplied --timeout is the
+            # user's own budget expiring, not a transport blip — retry only
+            # server-driven deadline expiry (stream_timeout is None).
+            user_deadline = e.code() == grpc.StatusCode.DEADLINE_EXCEEDED and stream_timeout is not None
+            # Uploads re-stream deterministically from disk and patches are
+            # only written once a result arrives, so retrying before any
+            # result is safe (interactive approvals are requested again on
+            # retry; the first session may still be running server-side).
+            if transient and not got_result and not user_deadline and attempt == 0:
+                sys.stderr.write(f"  Connection {e.code().name} before result; retrying session once...\n")
+                retry = True
+            else:
+                sys.stderr.write(f"Engine error: {e.details()}\n")
+                sys.exit(EXIT_ERROR)
+        finally:
+            # Tear down this attempt before any retry rebuilds it.
+            cmd_queue.put(None)
+            upload_thread.join(timeout=30)
+            channel.close()
 
-            elif oneof == "data":
-                payload = event.data
-                if not use_json:
-                    sys.stderr.write(f"  [{payload.kind}]\n")
-
-            elif oneof == "closed":
-                break
-
-    except grpc.RpcError as e:
-        transient = e.code() in (
-            grpc.StatusCode.UNAVAILABLE,
-            grpc.StatusCode.DEADLINE_EXCEEDED,
-        )
-        # Uploads re-stream deterministically from disk and patches are only
-        # written once a result arrives, so retrying before any result is
-        # safe (interactive approvals are requested again on retry).
-        if transient and not got_result and not _retried:
-            sys.stderr.write(f"  Connection {e.code().name} before result; retrying session once...\n")
-            # The finally below stops the producer and closes the channel
-            # before the recursive retry rebuilds them.
-            run_remediate(args, _retried=True)
-            return
-        sys.stderr.write(f"Engine error: {e.details()}\n")
-        sys.exit(EXIT_ERROR)
-    finally:
-        cmd_queue.put(None)
-        channel.close()
+        if got_result:
+            break
+        if producer_errors:
+            sys.stderr.write(f"{producer_errors[0]}\n")
+            sys.exit(EXIT_ERROR)
+        if retry:
+            time.sleep(1.0 + random.uniform(0, 1.0))
+            continue
+        break
 
     if not got_result:
         sys.stderr.write("Error: no session result received from engine\n")
@@ -321,14 +365,14 @@ def _emit_json(
     print(json.dumps(out, indent=2))
 
 
-def _render_tier1(summary: object) -> None:
-    format_diffs = list(summary.format_diffs)  # type: ignore[attr-defined]
-    applied = list(summary.applied_patches)  # type: ignore[attr-defined]
-    report = summary.report  # type: ignore[attr-defined]
+def _render_tier1(summary: Tier1Summary) -> None:
+    format_diffs = list(summary.format_diffs)
+    applied = list(summary.applied_patches)
+    report = summary.report
 
     if format_diffs:
         sys.stderr.write(f"Formatted {len(format_diffs)} file(s)\n")
-    if not summary.idempotency_ok:  # type: ignore[attr-defined]
+    if not summary.idempotency_ok:
         sys.stderr.write("WARNING: Formatter is not idempotent on this input.\n")
     if report:
         sys.stderr.write(
@@ -422,7 +466,11 @@ def _write_patches(target: Path, patches: Iterable[FilePatch]) -> None:
     count = 0
     for p in patches:
         out_path = target / p.path if target.is_dir() else target
-        _safe_write(out_path, p.original, p.patched)
+        try:
+            _safe_write(out_path, p.original, p.patched)
+        except OSError as exc:
+            sys.stderr.write(f"WARNING: skipping {p.path}: {exc}\n")
+            continue
         rules = ", ".join(p.applied_rules) if p.applied_rules else "changes"
         sys.stderr.write(f"  Fixed: {p.path} [{rules}]\n")
         count += 1

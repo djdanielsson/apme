@@ -499,17 +499,34 @@ class OperationRegistry:
     def _broadcast(self, op: OperationState, event_type: SSEEventType, data: dict[str, Any]) -> None:
         """Push an event to all SSE subscriber queues for an operation.
 
+        Terminal broadcasts (``result`` / ``pr_created`` / terminal
+        ``status_changed``) are must-deliver: when a slow subscriber's
+        queue is full, the oldest delta is dropped to make room instead of
+        evicting the subscriber and losing the terminal message.
+
         Args:
             op: The operation state.
             event_type: SSE event type identifier.
             data: Event payload.
         """
         msg = {"event": event_type.value, "data": data}
+        terminal = event_type in (SSEEventType.RESULT, SSEEventType.PR_CREATED) or (
+            data.get("status") in {s.value for s in TERMINAL_STATUSES}
+        )
         dead: list[asyncio.Queue[dict[str, Any]]] = []
         for q in op.sse_subscribers:
             try:
                 q.put_nowait(msg)
             except asyncio.QueueFull:
+                if terminal:
+                    with contextlib.suppress(asyncio.QueueEmpty):
+                        q.get_nowait()
+                    try:
+                        q.put_nowait(msg)
+                    except asyncio.QueueFull:
+                        dead.append(q)
+                        logger.warning("Dropping slow SSE subscriber for operation %s", op.operation_id[:12])
+                    continue
                 dead.append(q)
                 logger.warning("Dropping slow SSE subscriber for operation %s", op.operation_id[:12])
         for q in dead:

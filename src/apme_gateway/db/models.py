@@ -223,7 +223,8 @@ class Proposal(Base):
         gate: tier1, ai, or empty.
         rule_ids_json: JSON array of all rule ids on this node.
         violation_ids_json: JSON array of linked violation PKs.
-        line_start: First line of the node/finding.
+        line_start: First line of the node/finding (0 when unknown).
+        line_end: Last line of the node/finding (0 when unknown).
         diff_hunk: Unified diff while actionable (ephemeral).
         explanation: AI explanation while actionable (ephemeral).
         suggestion: Manual suggestion text.
@@ -253,6 +254,7 @@ class Proposal(Base):
     rule_ids_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     violation_ids_json: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     line_start: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    line_end: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     diff_hunk: Mapped[str] = mapped_column(Text, nullable=False, default="")
     explanation: Mapped[str] = mapped_column(Text, nullable=False, default="")
     suggestion: Mapped[str] = mapped_column(Text, nullable=False, default="")

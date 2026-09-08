@@ -89,6 +89,11 @@ _ALLOWED_SCHEMES = ("https://",)
 _REMOTE_HEAD_CACHE: dict[str, tuple[float, str | None]] = {}
 _REMOTE_HEAD_TTL = 60.0  # seconds
 _REMOTE_HEAD_CACHE_MAX = 256
+#: Short TTL for negative ``ls-remote`` results: a transient failure must not
+#: poison refreshes for a full minute, but hammering the SCM on every poll
+#: during an outage is a self-inflicted retry storm.
+_REMOTE_HEAD_NEG_TTL = 10.0  # seconds
+_REMOTE_HEAD_NEG_CACHE: dict[str, float] = {}
 
 
 def _git_subprocess_env() -> dict[str, str]:
@@ -166,6 +171,52 @@ def _scm_basic_credentials(
     return ("git", token)
 
 
+def _git_origin(repo_url: str) -> str:
+    """Return the ``scheme://host[:port]`` origin for *repo_url*.
+
+    Args:
+        repo_url: HTTPS clone URL.
+
+    Returns:
+        Origin string used to scope git ``http.<origin>.extraHeader`` keys.
+    """
+    parsed = urlparse(repo_url)
+    host = parsed.hostname or ""
+    origin = f"{parsed.scheme}://{host}"
+    if parsed.port:
+        origin += f":{parsed.port}"
+    return origin
+
+
+def _merge_git_config_env(base: dict[str, str], extra_pairs: list[tuple[str, str]]) -> dict[str, str]:
+    """Merge ``GIT_CONFIG_KEY_n/VALUE_n`` pairs into a copy of *base*.
+
+    Existing numbered entries are preserved; new pairs are appended at the
+    next indices and ``GIT_CONFIG_COUNT`` is updated. A missing or
+    unparseable count is treated as zero (numbered entries are still kept).
+
+    Args:
+        base: Base environment mapping (e.g. from :func:`_git_subprocess_env`).
+        extra_pairs: ``(key, value)`` config pairs to append.
+
+    Returns:
+        New environment mapping with the merged git-config entries.
+    """
+    merged = dict(base)
+    try:
+        count = int(merged.get("GIT_CONFIG_COUNT", "0"))
+    except ValueError:
+        count = 0
+    if count < 0:
+        count = 0
+    for key, value in extra_pairs:
+        merged[f"GIT_CONFIG_KEY_{count}"] = key
+        merged[f"GIT_CONFIG_VALUE_{count}"] = value
+        count += 1
+    merged["GIT_CONFIG_COUNT"] = str(count)
+    return merged
+
+
 def _git_auth_env(
     repo_url: str,
     token: str,
@@ -174,23 +225,29 @@ def _git_auth_env(
 ) -> dict[str, str]:
     """Build git-config env carrying the SCM token as an HTTP header.
 
-    The token travels in ``GIT_CONFIG_*`` environment (``http.extraHeader``
-    with an ``AUTHORIZATION: Basic`` value) instead of the clone URL, so it
-    never appears in subprocess argv, process listings, or error output.
+    The token travels in ``GIT_CONFIG_*`` environment (a per-origin
+    ``http.<origin>.extraHeader`` with an ``AUTHORIZATION: Basic`` value)
+    instead of the clone URL, so it never appears in subprocess argv,
+    process listings, or error output. Scoping to the repo origin keeps the
+    credential from being sent to any other host git contacts (e.g.
+    redirects, submodules). Merge with :func:`_merge_git_config_env` so
+    pre-existing ``GIT_CONFIG_*`` entries are preserved.
 
     Args:
-        repo_url: HTTPS clone URL (used for provider heuristics).
+        repo_url: HTTPS clone URL (used for provider heuristics and origin
+            scoping).
         token: SCM token.
         scm_provider: Optional explicit provider.
 
     Returns:
-        Env mapping to merge into the git subprocess environment.
+        Env mapping with ``GIT_CONFIG_COUNT/KEY_0/VALUE_0`` to merge into
+        the git subprocess environment.
     """
     username, password = _scm_basic_credentials(repo_url, token, scm_provider=scm_provider)
     encoded = base64.b64encode(f"{username}:{password}".encode()).decode("ascii")
     return {
         "GIT_CONFIG_COUNT": "1",
-        "GIT_CONFIG_KEY_0": "http.extraHeader",
+        "GIT_CONFIG_KEY_0": f"http.{_git_origin(repo_url)}.extraHeader",
         "GIT_CONFIG_VALUE_0": f"AUTHORIZATION: Basic {encoded}",
     }
 
@@ -236,6 +293,40 @@ def _inject_token_in_url(
     return urlunparse(parsed._replace(netloc=netloc_with_auth))
 
 
+def _evict_remote_head_entries(now: float) -> None:
+    """Make room in the ``ls-remote`` caches without dropping everything.
+
+    Expired positive entries go first; when still full, the single oldest
+    entry (positive or negative) is evicted. Clearing the whole map on one
+    miss turns a full cache into a subprocess-per-poll storm.
+
+    Args:
+        now: Current ``time.monotonic()`` reading.
+    """
+    expired = [k for k, (ts, _) in _REMOTE_HEAD_CACHE.items() if (now - ts) >= _REMOTE_HEAD_TTL]
+    for k in expired:
+        del _REMOTE_HEAD_CACHE[k]
+    expired_neg = [k for k, ts in _REMOTE_HEAD_NEG_CACHE.items() if (now - ts) >= _REMOTE_HEAD_NEG_TTL]
+    for k in expired_neg:
+        del _REMOTE_HEAD_NEG_CACHE[k]
+    while len(_REMOTE_HEAD_CACHE) + len(_REMOTE_HEAD_NEG_CACHE) >= _REMOTE_HEAD_CACHE_MAX:
+        oldest_key: str | None = None
+        oldest_ts = float("inf")
+        for k, (ts, _) in _REMOTE_HEAD_CACHE.items():
+            if ts < oldest_ts:
+                oldest_ts, oldest_key = ts, k
+        oldest_neg: str | None = None
+        for k, ts in _REMOTE_HEAD_NEG_CACHE.items():
+            if ts < oldest_ts:
+                oldest_ts, oldest_key, oldest_neg = ts, k, k
+        if oldest_key is None:
+            break
+        if oldest_neg is not None and oldest_key == oldest_neg:
+            del _REMOTE_HEAD_NEG_CACHE[oldest_key]
+        else:
+            del _REMOTE_HEAD_CACHE[oldest_key]
+
+
 async def fetch_remote_head(
     repo_url: str,
     branch: str,
@@ -246,8 +337,9 @@ async def fetch_remote_head(
     """Query the remote for the HEAD commit SHA of *branch* without cloning.
 
     Uses ``git ls-remote`` which only contacts the server for ref advertisement.
-    Results are cached for 60 seconds per (repo_url, branch) to avoid repeated
-    outbound calls on frequent UI refreshes.
+    Hits are cached for 60 seconds per (repo_url, branch, credential); misses
+    are cached for 10 seconds so a flapping SCM does not cause a subprocess
+    per poll while still recovering quickly.
 
     Args:
         repo_url: HTTPS clone URL.
@@ -260,19 +352,41 @@ async def fetch_remote_head(
     """
     if not any(repo_url.startswith(scheme) for scheme in _ALLOWED_SCHEMES):
         return None
+    from apme_gateway.scm.urls import validate_branch_name  # noqa: PLC0415
 
-    # Include token presence in cache key to avoid mixing authenticated/unauthenticated results
-    token_marker = ":auth" if scm_token else ""
+    try:
+        validate_branch_name(branch)
+    except ValueError:
+        return None
+
+    # Key authenticated lookups on a credential hash: two tokens with
+    # different access must not share one entry.
+    token_hash = hashlib.sha256(scm_token.encode()).hexdigest()[:16] if scm_token else ""
+    token_marker = f":auth:{token_hash}" if scm_token else ""
     cache_key = f"{repo_url}:{branch}{token_marker}:{scm_provider or ''}"
     now = time.monotonic()
     cached = _REMOTE_HEAD_CACHE.get(cache_key)
     if cached and (now - cached[0]) < _REMOTE_HEAD_TTL:
         return cached[1]
+    neg_ts = _REMOTE_HEAD_NEG_CACHE.get(cache_key)
+    if neg_ts is not None and (now - neg_ts) < _REMOTE_HEAD_NEG_TTL:
+        return None
 
-    # Pass the token via http.extraHeader env so it never appears in argv
+    # Pass the token via a per-origin http.extraHeader env entry so it never
+    # appears in argv; pre-existing GIT_CONFIG_* entries are preserved.
     env = _git_subprocess_env()
     if scm_token:
-        env = {**env, **_git_auth_env(repo_url, scm_token, scm_provider=scm_provider)}
+        auth = _git_auth_env(repo_url, scm_token, scm_provider=scm_provider)
+        try:
+            auth_count = int(auth.get("GIT_CONFIG_COUNT", "0"))
+        except ValueError:
+            auth_count = 0
+        pairs = [
+            (auth[f"GIT_CONFIG_KEY_{i}"], auth[f"GIT_CONFIG_VALUE_{i}"])
+            for i in range(auth_count)
+            if f"GIT_CONFIG_KEY_{i}" in auth and f"GIT_CONFIG_VALUE_{i}" in auth
+        ]
+        env = _merge_git_config_env(env, pairs)
     cmd = ["git", "ls-remote", "--exit-code", repo_url, f"refs/heads/{branch}"]
     loop = asyncio.get_running_loop()
     sha: str | None = None
@@ -292,17 +406,16 @@ async def fetch_remote_head(
     except Exception:  # noqa: BLE001
         logger.debug("ls-remote failed for %s branch %s", repo_url, branch, exc_info=True)
 
-    if len(_REMOTE_HEAD_CACHE) >= _REMOTE_HEAD_CACHE_MAX:
-        expired = [k for k, (ts, _) in _REMOTE_HEAD_CACHE.items() if (now - ts) >= _REMOTE_HEAD_TTL]
-        for k in expired:
-            del _REMOTE_HEAD_CACHE[k]
-        if len(_REMOTE_HEAD_CACHE) >= _REMOTE_HEAD_CACHE_MAX:
-            _REMOTE_HEAD_CACHE.clear()
+    if len(_REMOTE_HEAD_CACHE) + len(_REMOTE_HEAD_NEG_CACHE) >= _REMOTE_HEAD_CACHE_MAX:
+        _evict_remote_head_entries(now)
 
-    # Cache hits only: a transient failure caches None and poisons refreshes
-    # with a stale SHA until TTL expiry, so negative lookups are not stored.
     if sha is not None:
+        _REMOTE_HEAD_NEG_CACHE.pop(cache_key, None)
         _REMOTE_HEAD_CACHE[cache_key] = (now, sha)
+    else:
+        # Short-TTL negative entry: throttle failure storms without
+        # poisoning refreshes for a full minute.
+        _REMOTE_HEAD_NEG_CACHE[cache_key] = now
     return sha
 
 
@@ -351,21 +464,37 @@ async def clone_repo(
         scm_provider: Optional explicit SCM provider for auth username selection.
 
     Raises:
-        ValueError: If *repo_url* uses a disallowed scheme.
-        RuntimeError: If ``git clone`` fails.
+        ValueError: If *repo_url* uses a disallowed scheme or *branch* is
+            not a valid git ref name.
+        RuntimeError: If ``git clone`` fails or times out.
     """
     if not any(repo_url.startswith(scheme) for scheme in _ALLOWED_SCHEMES):
         msg = f"Only https:// clone URLs are allowed, got: {repo_url[:60]}"
         raise ValueError(msg)
 
-    if not branch.replace("-", "").replace("_", "").replace("/", "").replace(".", "").isalnum():
-        msg = f"Invalid branch name: {branch[:60]}"
-        raise ValueError(msg)
+    from apme_gateway.scm.urls import validate_branch_name  # noqa: PLC0415
 
-    # Pass the token via http.extraHeader env so it never appears in argv
+    try:
+        validate_branch_name(branch)
+    except ValueError:
+        msg = f"Invalid branch name: {branch[:60]}"
+        raise ValueError(msg) from None
+
+    # Pass the token via a per-origin http.extraHeader env entry so it never
+    # appears in argv; pre-existing GIT_CONFIG_* entries are preserved.
     env = _git_subprocess_env()
     if scm_token:
-        env = {**env, **_git_auth_env(repo_url, scm_token, scm_provider=scm_provider)}
+        auth = _git_auth_env(repo_url, scm_token, scm_provider=scm_provider)
+        try:
+            auth_count = int(auth.get("GIT_CONFIG_COUNT", "0"))
+        except ValueError:
+            auth_count = 0
+        pairs = [
+            (auth[f"GIT_CONFIG_KEY_{i}"], auth[f"GIT_CONFIG_VALUE_{i}"])
+            for i in range(auth_count)
+            if f"GIT_CONFIG_KEY_{i}" in auth and f"GIT_CONFIG_VALUE_{i}" in auth
+        ]
+        env = _merge_git_config_env(env, pairs)
     cmd = [
         "git",
         "clone",
@@ -378,16 +507,19 @@ async def clone_repo(
         dest,
     ]
     loop = asyncio.get_running_loop()
-    result = await loop.run_in_executor(
-        None,
-        lambda: subprocess.run(  # noqa: S603
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=120,
-            env=env,
-        ),
-    )
+    try:
+        result = await loop.run_in_executor(
+            None,
+            lambda: subprocess.run(  # noqa: S603
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=120,
+                env=env,
+            ),
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"git clone timed out after 120s for branch {branch[:60]}") from exc
     if result.returncode != 0:
         safe_stderr = _redact_credentials(result.stderr[:500])
         raise RuntimeError(f"git clone failed (exit {result.returncode}): {safe_stderr}")

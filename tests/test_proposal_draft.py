@@ -155,6 +155,86 @@ async def test_upsert_live_stubs_sets_engine_proposal_id() -> None:
 
 
 @pytest.mark.asyncio  # type: ignore[untyped-decorator]
+async def test_upsert_persists_line_end() -> None:
+    """Live line_end survives the stub upsert instead of resetting to 0."""
+    async with get_session() as db:
+        rows = await upsert_live_proposal_stubs(
+            db,
+            scan_id="scan-line-end-1",
+            project_id=None,
+            proposals=[
+                {
+                    "id": "eng-le-1",
+                    "rule_id": "L007",
+                    "file": "a.yml",
+                    "tier": 1,
+                    "status": "pending",
+                    "source": "deterministic",
+                    "line_start": 10,
+                    "line_end": 14,
+                }
+            ],
+        )
+        await db.commit()
+        assert rows[0].line_start == 10
+        assert rows[0].line_end == 14
+
+        # Re-emit without line_end must not clobber the stored span.
+        rows = await upsert_live_proposal_stubs(
+            db,
+            scan_id="scan-line-end-1",
+            project_id=None,
+            proposals=[
+                {
+                    "id": "eng-le-1",
+                    "rule_id": "L007",
+                    "file": "a.yml",
+                    "tier": 1,
+                    "status": "pending",
+                    "source": "deterministic",
+                    "line_start": 10,
+                }
+            ],
+        )
+        await db.commit()
+        assert rows[0].line_end == 14
+
+
+@pytest.mark.asyncio  # type: ignore[untyped-decorator]
+async def test_upsert_dedupes_duplicate_engine_ids_in_batch() -> None:
+    """Two payloads with one engine id in a single batch insert one row."""
+    async with get_session() as db:
+        rows = await upsert_live_proposal_stubs(
+            db,
+            scan_id="scan-dupe-1",
+            project_id=None,
+            proposals=[
+                {
+                    "id": "eng-dupe",
+                    "rule_id": "L007",
+                    "file": "a.yml",
+                    "tier": 1,
+                    "status": "pending",
+                    "source": "deterministic",
+                },
+                {
+                    "id": "eng-dupe",
+                    "rule_id": "L007",
+                    "file": "a.yml",
+                    "tier": 1,
+                    "status": "approved",
+                    "source": "deterministic",
+                },
+            ],
+        )
+        await db.commit()
+        assert len(rows) == 2
+        assert rows[0].id == rows[1].id
+        stored = list((await db.execute(select(Proposal).where(Proposal.scan_id == "scan-dupe-1"))).scalars().all())
+        assert len(stored) == 1
+
+
+@pytest.mark.asyncio  # type: ignore[untyped-decorator]
 async def test_draft_update_does_not_stamp_review_or_analytics() -> None:
     """PATCH draft changes status + draft flag only."""
     _project_id, scan_id = await _seed_project_scan()

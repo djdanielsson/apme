@@ -777,7 +777,14 @@ class AbbenayProvider:
             Concatenated response text from the model.
 
         Raises:
-            Exception: If the chat call fails after one reconnect retry.
+            TimeoutError: If a chat attempt exceeds the client-side bound
+                (a slow stream, not a disconnect — never retried).
+            ConnectionError: If the reconnect retry also fails to connect.
+            AssertionError: If the retry loop exhausts without returning
+                (unreachable defense-in-depth).
+            Exception: If the chat call fails for permanent
+                (non-connection) errors — auth, not-found, validation —
+                which fail fast without retry.
         """
         for attempt in range(2):
             if attempt > 0:
@@ -788,13 +795,25 @@ class AbbenayProvider:
                     self._consume_chat(model, prompt, policy),
                     timeout=_CHAT_ATTEMPT_TIMEOUT_S,
                 )
-            except Exception:
-                if attempt == 0:
-                    logger.debug("Chat failed, reconnecting to Abbenay and retrying")
-                    await self.reconnect()
-                else:
+            except TimeoutError:
+                # A slow-but-healthy stream tripping the attempt bound is not
+                # a disconnect — retrying would burn the single attempt on
+                # the same slow call.
+                raise
+            except ConnectionError:
+                if attempt > 0:
                     raise
-        return ""  # unreachable but satisfies mypy
+                logger.debug("Chat connection failed, reconnecting to Abbenay and retrying")
+                # A failed reconnect must not mask the original error or
+                # consume the remaining attempt: suppress it and retry the
+                # chat anyway.
+                with contextlib.suppress(Exception):
+                    await self.reconnect()
+            except Exception:
+                # Permanent failures (auth, not-found/invalid-model,
+                # validation) will not heal on reconnect — fail fast.
+                raise
+        raise AssertionError("unreachable: chat retry loop exhausted")
 
     async def _consume_chat(
         self,

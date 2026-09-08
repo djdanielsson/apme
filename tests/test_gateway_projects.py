@@ -271,6 +271,43 @@ async def test_lookup_finds_indexed_row_by_variant_url(client: AsyncClient) -> N
     assert resp.json()["id"] == created.json()["id"]
 
 
+async def test_normalized_url_preserves_scheme_and_port(client: AsyncClient) -> None:
+    """Canonical URLs keep scheme and explicit ports; paths keep case.
+
+    Args:
+        client: Async HTTPX test client.
+    """
+    resp = await client.post(
+        "/api/v1/projects",
+        json={
+            "name": "Port Project",
+            "repo_url": "https://git.example.com:8443/org/Repo.git",
+            "branch": "main",
+            "scm_provider": "github",
+        },
+    )
+    assert resp.status_code == 201
+    async with get_session() as db:
+        proj = await q.resolve_project(db, resp.json()["id"])
+    assert proj is not None
+    assert proj.normalized_repo_url == "https://git.example.com:8443/org/Repo"
+
+    other = await client.post(
+        "/api/v1/projects",
+        json={
+            "name": "Other Port Project",
+            "repo_url": "https://git.example.com/org/Repo.git",
+            "branch": "main",
+            "scm_provider": "github",
+        },
+    )
+    assert other.status_code == 201
+    async with get_session() as db:
+        other_proj = await q.resolve_project(db, other.json()["id"])
+    assert other_proj is not None
+    assert other_proj.normalized_repo_url != proj.normalized_repo_url
+
+
 async def test_update_project_refreshes_normalized_url(client: AsyncClient) -> None:
     """PATCH repo_url keeps the indexed canonical URL in sync.
 

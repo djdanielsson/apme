@@ -19,14 +19,11 @@ from dataclasses import dataclass, field
 
 import httpx
 
+from galaxy_proxy import MAX_VERSION_PAGES
+
 DEFAULT_GALAXY_URL = "https://galaxy.ansible.com"
 
 COLLECTIONS_PATH = "/api/v3/plugin/ansible/content/published/collections/index"
-
-#: Bound on version-list pagination (100 entries/page). A server that keeps
-#: returning ``links.next`` terminates here with partial results + warning
-#: instead of looping forever.
-_MAX_VERSION_PAGES = 50
 
 logger = logging.getLogger(__name__)
 
@@ -177,15 +174,7 @@ class GalaxyClient:
         for srv, client in zip(self._servers, self._clients, strict=True):
             try:
                 versions = await self._list_versions_from(client, namespace, name)
-                logger.debug(
-                    "list_versions %s.%s: %d version(s) from %s",
-                    namespace,
-                    name,
-                    len(versions),
-                    srv.label(),
-                )
-                return versions
-            except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+            except (httpx.HTTPStatusError, httpx.RequestError, ValueError, KeyError) as exc:
                 logger.debug(
                     "list_versions %s.%s: %s failed: %s",
                     namespace,
@@ -194,6 +183,24 @@ class GalaxyClient:
                     exc,
                 )
                 last_exc = exc
+                continue
+            if versions is None:
+                # Truncated listing: not a complete answer, fail over.
+                logger.debug(
+                    "list_versions %s.%s: %s truncated version listing, trying next server",
+                    namespace,
+                    name,
+                    srv.label(),
+                )
+                continue
+            logger.debug(
+                "list_versions %s.%s: %d version(s) from %s",
+                namespace,
+                name,
+                len(versions),
+                srv.label(),
+            )
+            return versions
         raise last_exc or RuntimeError("No Galaxy servers configured")
 
     async def get_version_detail(
@@ -231,7 +238,7 @@ class GalaxyClient:
                     srv.label(),
                 )
                 return detail
-            except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+            except (httpx.HTTPStatusError, httpx.RequestError, ValueError, KeyError) as exc:
                 logger.debug(
                     "get_version_detail %s.%s:%s: %s failed: %s",
                     namespace,
@@ -286,11 +293,26 @@ class GalaxyClient:
         client: httpx.AsyncClient,
         namespace: str,
         name: str,
-    ) -> list[str]:
+    ) -> list[str] | None:
+        """List versions, or ``None`` when the listing is truncated.
+
+        A server that keeps returning ``links.next`` past
+        ``MAX_VERSION_PAGES`` yields a partial list that must not be
+        mistaken for a complete answer, so truncation is a failure signal
+        the caller fails over on.
+
+        Args:
+            client: Authenticated httpx client for one Galaxy server.
+            namespace: Collection namespace.
+            name: Collection name.
+
+        Returns:
+            Version strings, or ``None`` when truncated at the page bound.
+        """
         versions: list[str] = []
         url = f"{COLLECTIONS_PATH}/{namespace}/{name}/versions/"
         params: dict[str, str | int] = {"limit": 100, "offset": 0}
-        for _page in range(_MAX_VERSION_PAGES):
+        for _page in range(MAX_VERSION_PAGES):
             resp = await client.get(url, params=params)
             resp.raise_for_status()
             payload = resp.json()
@@ -301,12 +323,12 @@ class GalaxyClient:
             params["offset"] = int(params["offset"]) + int(params["limit"])
         else:
             logger.warning(
-                "Galaxy version pagination exceeded %d pages for %s.%s; returning %d partial versions",
-                _MAX_VERSION_PAGES,
+                "Galaxy version pagination exceeded %d pages for %s.%s; treating as failure",
+                MAX_VERSION_PAGES,
                 namespace,
                 name,
-                len(versions),
             )
+            return None
         return versions
 
     @staticmethod

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import os
+import subprocess
 import tempfile
 from collections.abc import AsyncIterator
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -13,9 +14,11 @@ import pytest
 from apme.v1 import engine_pb2
 from apme_gateway.scan.driver import (
     _REMOTE_HEAD_CACHE,
+    _REMOTE_HEAD_NEG_CACHE,
     _git_auth_env,
     _git_subprocess_env,
     _inject_token_in_url,
+    _merge_git_config_env,
     clone_repo,
     coerce_option_bool,
     derive_session_id,
@@ -145,6 +148,7 @@ async def test_fetch_remote_head_uses_git_ca_env() -> None:
     """Remote head lookups pass the derived CA env through to git."""
     fake_sha = "b" * 40
     _REMOTE_HEAD_CACHE.clear()
+    _REMOTE_HEAD_NEG_CACHE.clear()
     with (
         patch.dict(os.environ, {"SSL_CERT_FILE": "/etc/ssl/certs/custom-ca.pem"}, clear=True),
         patch("apme_gateway.scan.driver.asyncio.get_running_loop") as mock_loop,
@@ -239,6 +243,7 @@ async def test_fetch_remote_head_success() -> None:
     """Verify fetch_remote_head returns SHA from ls-remote output."""
     fake_sha = "a" * 40
     _REMOTE_HEAD_CACHE.clear()
+    _REMOTE_HEAD_NEG_CACHE.clear()
     with patch("apme_gateway.scan.driver.asyncio.get_running_loop") as mock_loop:
         result = MagicMock()
         result.returncode = 0
@@ -451,6 +456,7 @@ async def test_fetch_remote_head_with_scm_token() -> None:
     """Verify fetch_remote_head passes the token via env, never in argv."""
     fake_sha = "c" * 40
     _REMOTE_HEAD_CACHE.clear()
+    _REMOTE_HEAD_NEG_CACHE.clear()
     with (
         patch("apme_gateway.scan.driver.asyncio.get_running_loop") as mock_loop,
         patch("apme_gateway.scan.driver.subprocess.run") as mock_run,
@@ -476,9 +482,10 @@ async def test_fetch_remote_head_with_scm_token() -> None:
 
 
 @pytest.mark.asyncio  # type: ignore[untyped-decorator]
-async def test_fetch_remote_head_does_not_cache_failures() -> None:
-    """Verify failed ls-remote lookups are not cached as negative entries."""
+async def test_fetch_remote_head_negative_cache_throttles_retries() -> None:
+    """Failed ls-remote lookups are cached with a short TTL, not forever."""
     _REMOTE_HEAD_CACHE.clear()
+    _REMOTE_HEAD_NEG_CACHE.clear()
     with (
         patch("apme_gateway.scan.driver.asyncio.get_running_loop") as mock_loop,
         patch("apme_gateway.scan.driver.subprocess.run") as mock_run,
@@ -493,7 +500,9 @@ async def test_fetch_remote_head_does_not_cache_failures() -> None:
         assert await fetch_remote_head("https://github.com/owner/repo.git", "main") is None
 
     assert _REMOTE_HEAD_CACHE == {}
-    assert mock_run.call_count == 2
+    assert len(_REMOTE_HEAD_NEG_CACHE) == 1
+    # Second lookup served from the short-TTL negative cache: no new subprocess.
+    assert mock_run.call_count == 1
 
 
 class TestGitAuthEnv:
@@ -503,8 +512,27 @@ class TestGitAuthEnv:
         """GitHub tokens map to x-access-token basic credentials."""
         env = _git_auth_env("https://github.com/owner/repo.git", "ghp_test123")
         assert env["GIT_CONFIG_COUNT"] == "1"
-        assert env["GIT_CONFIG_KEY_0"] == "http.extraHeader"
+        assert env["GIT_CONFIG_KEY_0"] == "http.https://github.com.extraHeader"
         assert _decode_auth_env(env) == "x-access-token:ghp_test123"
+
+    def test_auth_header_scoped_to_repo_origin(self) -> None:
+        """The extraHeader key is scoped per origin, including ports."""
+        env = _git_auth_env("https://git.example.com:8443/org/repo.git", "token123")
+        assert env["GIT_CONFIG_KEY_0"] == "http.https://git.example.com:8443.extraHeader"
+        assert _decode_auth_env(env) == "git:token123"
+
+    def test_merge_preserves_existing_git_config(self) -> None:
+        """Merging appends pairs instead of clobbering existing entries."""
+        base = {
+            "GIT_CONFIG_COUNT": "1",
+            "GIT_CONFIG_KEY_0": "http.sslVerify",
+            "GIT_CONFIG_VALUE_0": "false",
+        }
+        merged = _merge_git_config_env(base, [("http.https://a.example.extraHeader", "AUTHORIZATION: Basic eA==")])
+        assert merged["GIT_CONFIG_COUNT"] == "2"
+        assert merged["GIT_CONFIG_KEY_0"] == "http.sslVerify"
+        assert merged["GIT_CONFIG_KEY_1"] == "http.https://a.example.extraHeader"
+        assert merged["GIT_CONFIG_VALUE_1"] == "AUTHORIZATION: Basic eA=="
 
     def test_gitlab_user_pass_credentials(self) -> None:
         """GitLab deploy tokens keep username:password credentials."""
@@ -526,6 +554,7 @@ async def test_fetch_remote_head_cache_separates_auth_and_unauth() -> None:
     fake_sha_unauth = "a" * 40
     fake_sha_auth = "b" * 40
     _REMOTE_HEAD_CACHE.clear()
+    _REMOTE_HEAD_NEG_CACHE.clear()
 
     with (
         patch("apme_gateway.scan.driver.asyncio.get_running_loop") as mock_loop,
@@ -555,3 +584,57 @@ async def test_fetch_remote_head_cache_separates_auth_and_unauth() -> None:
         # Should make a new request, not return cached unauthenticated result
         assert sha2 == fake_sha_auth
         assert mock_run.call_count == 2
+
+
+@pytest.mark.asyncio  # type: ignore[untyped-decorator]
+async def test_fetch_remote_head_separates_distinct_tokens() -> None:
+    """Two different tokens on the same repo+branch do not share a cache entry."""
+    _REMOTE_HEAD_CACHE.clear()
+    _REMOTE_HEAD_NEG_CACHE.clear()
+    with (
+        patch("apme_gateway.scan.driver.asyncio.get_running_loop") as mock_loop,
+        patch("apme_gateway.scan.driver.subprocess.run") as mock_run,
+    ):
+        mock_loop.return_value.run_in_executor = AsyncMock(side_effect=lambda _exec, func: func())
+
+        first = MagicMock()
+        first.returncode = 0
+        first.stdout = f"{'a' * 40}\trefs/heads/main\n"
+        mock_run.return_value = first
+        assert await fetch_remote_head("https://github.com/o/r.git", "main", scm_token="tok-one") == "a" * 40
+
+        second = MagicMock()
+        second.returncode = 0
+        second.stdout = f"{'b' * 40}\trefs/heads/main\n"
+        mock_run.return_value = second
+        assert await fetch_remote_head("https://github.com/o/r.git", "main", scm_token="tok-two") == "b" * 40
+
+        assert mock_run.call_count == 2
+
+
+@pytest.mark.asyncio  # type: ignore[untyped-decorator]
+async def test_fetch_remote_head_rejects_invalid_branch() -> None:
+    """Invalid branch names resolve to None without spawning git."""
+    _REMOTE_HEAD_CACHE.clear()
+    _REMOTE_HEAD_NEG_CACHE.clear()
+    with patch("apme_gateway.scan.driver.subprocess.run") as mock_run:
+        assert await fetch_remote_head("https://github.com/o/r.git", "../escape") is None
+    mock_run.assert_not_called()
+
+
+@pytest.mark.asyncio  # type: ignore[untyped-decorator]
+async def test_clone_repo_rejects_traversal_branch() -> None:
+    """clone_repo validates branch names with the shared validator."""
+    with tempfile.TemporaryDirectory() as td, pytest.raises(ValueError, match="Invalid branch name"):
+        await clone_repo("https://github.com/o/r.git", "a/b/../../c", td + "/repo")
+
+
+@pytest.mark.asyncio  # type: ignore[untyped-decorator]
+async def test_clone_repo_timeout_maps_to_runtime_error() -> None:
+    """clone_repo TimeoutExpired surfaces as RuntimeError, never raw."""
+    with patch("apme_gateway.scan.driver.asyncio.get_running_loop") as mock_loop:
+        mock_loop.return_value.run_in_executor = AsyncMock(
+            side_effect=subprocess.TimeoutExpired(cmd=["git"], timeout=120)
+        )
+        with tempfile.TemporaryDirectory() as td, pytest.raises(RuntimeError, match="timed out"):
+            await clone_repo("https://github.com/o/r.git", "main", td + "/repo", scm_token="s3cret")

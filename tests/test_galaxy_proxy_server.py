@@ -623,6 +623,40 @@ class TestVersionDiscoveryWithServers:
         assert result == ["2.0.0"]
         assert "Authorization" not in captured_headers
 
+    def test_fetch_versions_truncation_returns_none(self) -> None:
+        """A perpetual ``links.next`` is a failure signal, not a partial answer."""
+        import asyncio
+
+        from galaxy_proxy import MAX_VERSION_PAGES
+        from galaxy_proxy.proxy.server import _fetch_versions_from
+
+        calls = 0
+
+        def _capture_client(**kwargs: object) -> unittest.mock.MagicMock:
+            mock_resp = unittest.mock.MagicMock()
+            mock_resp.status_code = 200
+            mock_resp.json.return_value = {"data": [{"version": "1.0.0"}], "links": {"next": "more"}}
+            mock_resp.raise_for_status.return_value = None
+
+            async def _get(url: str, **kw: object) -> unittest.mock.MagicMock:
+                nonlocal calls
+                calls += 1
+                return mock_resp
+
+            client = unittest.mock.MagicMock()
+            client.get = _get
+            client.__aenter__ = AsyncMock(return_value=client)
+            client.__aexit__ = AsyncMock(return_value=False)
+            return client
+
+        with patch("galaxy_proxy.proxy.server.httpx.AsyncClient", side_effect=_capture_client):
+            result = asyncio.run(
+                _fetch_versions_from("ansible", "posix", "https://galaxy.ansible.com"),
+            )
+
+        assert result is None
+        assert calls == MAX_VERSION_PAGES
+
     @pytest.mark.parametrize(  # type: ignore[untyped-decorator]
         ("raw_url", "expected"),
         [

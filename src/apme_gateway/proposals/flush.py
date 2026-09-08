@@ -386,6 +386,7 @@ async def replace_scan_proposals(
                 rule_ids_json=serialize_rule_ids(prop.rule_ids),
                 violation_ids_json=serialize_violation_ids(prop.violation_ids),
                 line_start=prop.line_start,
+                line_end=int(getattr(prop, "line_end", 0) or 0),
                 diff_hunk=prop.diff_hunk,
                 explanation=prop.explanation,
                 suggestion=prop.suggestion,

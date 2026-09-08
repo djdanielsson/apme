@@ -133,7 +133,8 @@ function isProposalArray(v: unknown): v is Proposal[] {
         typeof p.id === "string" &&
         typeof p.file === "string" &&
         typeof p.rule_id === "string" &&
-        typeof p.line_start === "number",
+        typeof p.line_start === "number" &&
+        typeof p.line_end === "number",
     )
   );
 }
@@ -283,6 +284,23 @@ export function useSessionStream() {
   /** Wire shared WS event handlers (used by both start and resume). */
   const wireHandlers = useCallback(
     (ws: WebSocket) => {
+      // A malformed payload means the server stream cannot be trusted:
+      // surface the error and close the socket instead of leaving the UI
+      // on a non-terminal spinner with no recovery path.
+      const failMalformed = (message: string) => {
+        setError(message);
+        setCanReconnect(false);
+        clearPersistedSession();
+        updateStatus("error");
+        try {
+          ws.close(1000);
+        } catch {
+          // ignore close errors
+        }
+        if (wsRef.current === ws) {
+          wsRef.current = null;
+        }
+      };
       ws.onmessage = (event) => {
         let msg: Record<string, unknown>;
         try {
@@ -323,7 +341,7 @@ export function useSessionStream() {
               setTier1(msg);
               updateStatus("tier1_done");
             } else {
-              setError("Received malformed tier1 result from server");
+              failMalformed("Received malformed tier1 result from server");
             }
             break;
 
@@ -332,7 +350,7 @@ export function useSessionStream() {
               setProposals(msg.proposals);
               updateStatus("awaiting_approval");
             } else {
-              setError("Received malformed proposals from server");
+              failMalformed("Received malformed proposals from server");
             }
             break;
 
@@ -346,7 +364,7 @@ export function useSessionStream() {
 
           case "result":
             if (!isSessionResult(msg)) {
-              setError("Received malformed result from server");
+              failMalformed("Received malformed result from server");
               break;
             }
             setResult(msg);

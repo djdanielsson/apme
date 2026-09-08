@@ -155,6 +155,15 @@ _FAILED_BUILD_RE = re.compile(r"Failed to build `([^`]+)`")
 _PIP_INSTALL_TIMEOUT_S = 600
 
 
+class PipInstallTimeout(TimeoutError):
+    """A pip/uv install exceeded its wall-clock bound.
+
+    Distinct from a build failure: retrying with excludes or ``--no-build``
+    cannot help a stalled index, so callers must fail fast instead of
+    walking the fallback chain.
+    """
+
+
 def _run_pip_install(
     pip_python: Path,
     pip_specs: list[str],
@@ -180,9 +189,12 @@ def _run_pip_install(
             available (non-uv installs).
 
     Returns:
-        CompletedProcess with stdout/stderr captured.  On timeout a failed
-        CompletedProcess (returncode 1) is returned so callers follow the
-        normal exclude/no-build retry path instead of hanging.
+        CompletedProcess with stdout/stderr captured.
+
+    Raises:
+        PipInstallTimeout: If the install exceeds its wall-clock bound.
+            Callers must fail fast — the exclude/no-build fallback chain
+            only helps build failures, not stalled indexes.
     """
     if use_uv:
         cmd = [
@@ -217,16 +229,10 @@ def _run_pip_install(
         return subprocess.run(cmd, capture_output=True, text=True, timeout=_PIP_INSTALL_TIMEOUT_S)
     except subprocess.TimeoutExpired as exc:
         logger.warning(
-            "pip/uv install timed out after %ds, treating as failure: %s",
+            "pip/uv install timed out after %ds, failing fast (no exclude/no-build retry)",
             _PIP_INSTALL_TIMEOUT_S,
-            exc,
         )
-        return subprocess.CompletedProcess(
-            cmd,
-            1,
-            "",
-            f"pip/uv install timed out after {_PIP_INSTALL_TIMEOUT_S}s",
-        )
+        raise PipInstallTimeout(f"pip/uv install timed out after {_PIP_INSTALL_TIMEOUT_S}s") from exc
 
 
 def _is_build_failure(output: str) -> bool:
@@ -836,6 +842,8 @@ class VenvSessionManager:
             A ``VenvSession`` with a ready-to-use venv.
 
         Raises:
+            PipInstallTimeout: If a pip/uv install stalls past its bound —
+                fails fast instead of walking the fallback chain.
             Exception: Re-raises unexpected acquire failures after recording
                 error metrics.
         """
@@ -961,6 +969,17 @@ class VenvSessionManager:
                     return session
                 finally:
                     fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        except PipInstallTimeout:
+            # Fail fast: a stalled index must not serialize into the
+            # exclude/no-build and per-spec fallback chain under the lock.
+            self._record_acquire_metrics(
+                t0,
+                outcome="timeout",
+                ansible_version=pip_version,
+                collections_requested=len(specs),
+                status="error",
+            )
+            raise
         except Exception:
             self._record_acquire_metrics(
                 t0,

@@ -817,6 +817,26 @@ async def operation_events(project_id: str, request: Request) -> StreamingRespon
             yield _sse_format("snapshot", snapshot)
 
             if state.status in TERMINAL_STATUSES:
+                # A terminal broadcast may already sit in this subscriber's
+                # queue (published between subscribe and the snapshot read).
+                # Drain it so the client observes exactly one terminal close
+                # instead of a snapshot with a dropped delta.
+                buffered: list[dict[str, Any]] = []
+                terminal_msg: dict[str, Any] | None = None
+                with contextlib.suppress(asyncio.QueueEmpty):
+                    while True:
+                        pending = queue.get_nowait()
+                        if pending.get("_close"):
+                            break
+                        pending_data = pending.get("data", {})
+                        if pending_data.get("status") in {s.value for s in TERMINAL_STATUSES}:
+                            terminal_msg = pending
+                            break
+                        buffered.append(pending)
+                for pending in buffered:
+                    yield _sse_format(pending.get("event", "message"), pending.get("data", {}))
+                if terminal_msg is not None:
+                    yield _sse_format(terminal_msg.get("event", "message"), terminal_msg.get("data", {}))
                 return
 
             while True:

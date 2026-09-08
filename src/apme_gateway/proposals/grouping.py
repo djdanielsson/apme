@@ -118,6 +118,7 @@ def _as_mapping(v: object) -> Mapping[str, Any]:
         "path": getattr(v, "path", "") or "",
         "line": getattr(v, "line", None),
         "node_line_start": getattr(v, "node_line_start", 0) or 0,
+        "line_end": getattr(v, "line_end", 0) or 0,
         "remediation_class": getattr(v, "remediation_class", 0) or 0,
         "original_yaml": getattr(v, "original_yaml", "") or "",
         "fixed_yaml": getattr(v, "fixed_yaml", "") or "",
@@ -309,6 +310,19 @@ def group_violations(
             if isinstance(line, int):
                 line_start = line
                 break
+        # Violations predate line_end storage, so grouped historical rows
+        # keep 0 until violation storage also carries it; live items that
+        # already carry line_end preserve it here.
+        line_end = 0
+        for i in items:
+            nle = i.get("line_end")
+            if isinstance(nle, int) and nle:
+                line_end = nle
+                break
+            nle = i.get("node_line_end")
+            if isinstance(nle, int) and nle:
+                line_end = nle
+                break
 
         original = next((str(i.get("original_yaml") or "") for i in items if i.get("original_yaml")), "")
         fixed = next((str(i.get("fixed_yaml") or "") for i in items if i.get("fixed_yaml")), "")
@@ -345,6 +359,7 @@ def group_violations(
                 file=file_path,
                 path=path,
                 line_start=line_start,
+                line_end=line_end,
                 tier=tier,
                 source=source,
                 gate=gate,
@@ -448,6 +463,7 @@ def merge_outcomes(
                 file=prop.file,
                 path=prop.path,
                 line_start=prop.line_start,
+                line_end=int(getattr(outcome, "line_end", prop.line_end) or prop.line_end),
                 tier=tier or prop.tier,
                 source=source,
                 gate=gate,

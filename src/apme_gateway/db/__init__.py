@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from sqlalchemy import event, inspect, text
+from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
 from apme_gateway.db.dialect import in_clause_chunk_size
 from apme_gateway.db.models import Base
 from apme_gateway.db.url import is_database_url, is_sqlite_url, resolve_database_url, sqlite_url_from_path
+from apme_gateway.scm.repo_url import normalize_repo_url
 
 _engine: AsyncEngine | None = None
 _session_factory: async_sessionmaker[AsyncSession] | None = None
@@ -220,6 +222,8 @@ def _migrate_proposals_table(conn: object) -> None:
         migrations.append("ALTER TABLE proposals ADD COLUMN violation_ids_json TEXT NOT NULL DEFAULT '[]'")
     if "line_start" not in existing:
         migrations.append("ALTER TABLE proposals ADD COLUMN line_start INTEGER NOT NULL DEFAULT 0")
+    if "line_end" not in existing:
+        migrations.append("ALTER TABLE proposals ADD COLUMN line_end INTEGER NOT NULL DEFAULT 0")
     if "diff_hunk" not in existing:
         migrations.append("ALTER TABLE proposals ADD COLUMN diff_hunk TEXT NOT NULL DEFAULT ''")
     if "explanation" not in existing:
@@ -270,20 +274,24 @@ def _migrate_scans_table(conn: object) -> None:
         conn.execute(text(stmt))
 
 
-def _migrate_projects_table(conn: object) -> None:
+def _migrate_projects_table(conn: Connection) -> None:
     """Add the indexed ``normalized_repo_url`` column to ``projects``.
 
     ``create_all`` only creates missing *tables* — it does not add columns
     to existing tables.  This function adds the column, ensures the lookup
-    index exists, and backfills legacy rows whose marker is still empty.
+    index exists, and (re)computes the canonical URL for every row whose
+    stored value is empty or stale (e.g. legacy rows, or rows written before
+    the normalizer preserved scheme/port).
 
     Args:
         conn: Synchronous SQLAlchemy connection (from ``run_sync``).
-    """
-    from sqlalchemy.engine import Connection  # noqa: PLC0415
 
+    Raises:
+        TypeError: If *conn* is not a SQLAlchemy connection — a wiring
+            error that must fail loudly, never silently skip the migration.
+    """
     if not isinstance(conn, Connection):
-        return
+        raise TypeError(f"_migrate_projects_table requires a SQLAlchemy Connection, got {type(conn).__name__}")
     insp = inspect(conn)
     if not insp.has_table("projects"):
         return
@@ -293,14 +301,14 @@ def _migrate_projects_table(conn: object) -> None:
         conn.execute(text("ALTER TABLE projects ADD COLUMN normalized_repo_url TEXT NOT NULL DEFAULT ''"))
     conn.execute(text("CREATE INDEX IF NOT EXISTS ix_projects_normalized_repo_url ON projects (normalized_repo_url)"))
 
-    from apme_gateway.scm.repo_url import normalize_repo_url  # noqa: PLC0415
-
-    rows = conn.execute(text("SELECT id, repo_url FROM projects WHERE normalized_repo_url = ''")).all()
+    rows = conn.execute(text("SELECT id, repo_url, normalized_repo_url FROM projects")).all()
     for row in rows:
-        conn.execute(
-            text("UPDATE projects SET normalized_repo_url = :normalized WHERE id = :pid"),
-            {"normalized": normalize_repo_url(row[1] or ""), "pid": row[0]},
-        )
+        canonical = normalize_repo_url(row[1] or "")
+        if (row[2] or "") != canonical:
+            conn.execute(
+                text("UPDATE projects SET normalized_repo_url = :normalized WHERE id = :pid"),
+                {"normalized": canonical, "pid": row[0]},
+            )
 
 
 async def close_db() -> None:

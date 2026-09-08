@@ -22,7 +22,11 @@ def test_branch_name_defaults_to_none() -> None:
     ],
 )
 def test_branch_name_accepts_safe_names(name: str) -> None:
-    """Safe branch names validate unchanged."""
+    """Safe branch names validate unchanged.
+
+    Args:
+        name: Candidate branch name.
+    """
     assert SubmitRequest(branch_name=name).branch_name == name
 
 
@@ -37,9 +41,42 @@ def test_branch_name_accepts_safe_names(name: str) -> None:
         "semi;colon",
         "x" * 101,
         "back\\slash",
+        "/leading-slash",
+        "trailing-slash/",
+        "doubled//slash",
+        "trailing-dot.",
+        "name.lock",
+        "feat@{x}",
+        "-leading-dash",
+        ".hidden/component",
     ],
 )
 def test_branch_name_rejects_unsafe_names(name: str) -> None:
-    """Traversal, blank, overlong, and out-of-charset names fail with 422-shape errors."""
+    """Traversal, blank, overlong, and out-of-charset names fail with 422-shape errors.
+
+    Args:
+        name: Candidate branch name.
+    """
     with pytest.raises(ValidationError):
         SubmitRequest(branch_name=name)
+
+
+def test_branch_name_accepts_100_char_name() -> None:
+    """The length boundary itself remains usable."""
+    name = "a" * 100
+    assert SubmitRequest(branch_name=name).branch_name == name
+
+
+@pytest.mark.parametrize("branch_name", ["../escape", "a/b/../../c", "x" * 101])  # type: ignore[untyped-decorator]
+def test_project_branch_validators_share_submit_rules(branch_name: str) -> None:
+    """Project create/update branches reject what SubmitRequest rejects.
+
+    Args:
+        branch_name: Candidate branch name.
+    """
+    from apme_gateway.api.schemas import CreateProjectRequest, UpdateProjectRequest
+
+    with pytest.raises(ValidationError):
+        CreateProjectRequest(name="n", repo_url="https://github.com/o/r.git", branch=branch_name)
+    with pytest.raises(ValidationError):
+        UpdateProjectRequest(branch=branch_name)
