@@ -249,11 +249,11 @@ def validate_branch_name(value: str | None) -> str | None:
         The validated branch name unchanged.
 
     Raises:
-        ValueError: If the name is blank, too long, contains ``..``,
-            uses characters outside the allowlist, or violates ref-format
-            component rules (leading/trailing ``/``, empty components,
-            trailing ``.``, ``.lock`` suffix, ``@{`` sequence, or a
-            leading ``-``).
+        ValueError: If the name is blank, too long, is the reserved ``HEAD``,
+            contains ``..``, uses characters outside the allowlist, or
+            violates ref-format component rules (leading/trailing ``/``,
+            empty components, trailing ``.``, a ``.lock`` suffix on any
+            ``/``-separated component, ``@{`` sequence, or a leading ``-``).
     """
     if value is None:
         return None
@@ -263,15 +263,20 @@ def validate_branch_name(value: str | None) -> str | None:
     if not _BRANCH_NAME_RE.fullmatch(value):
         msg = "branch_name may only contain letters, digits, '.', '_', '/', and '-'"
         raise ValueError(msg)
+    # ``git check-ref-format`` rejects a ``.lock`` suffix on *any* path
+    # component (e.g. ``a.lock/b``), not just a trailing suffix, and
+    # reserves the bare name ``HEAD`` — both pass a whole-string check
+    # but fail late in git, so test per component here.
     if (
-        value.startswith("/")
+        value == "HEAD"
+        or value.startswith("/")
         or value.endswith("/")
         or value.endswith(".")
         or "//" in value
-        or value.endswith(".lock")
         or "@{" in value
         or value.startswith("-")
         or any(comp.startswith(".") for comp in value.split("/"))
+        or any(comp.endswith(".lock") for comp in value.split("/"))
     ):
         msg = "branch_name is not a valid git ref name"
         raise ValueError(msg)

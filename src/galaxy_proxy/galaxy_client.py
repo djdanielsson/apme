@@ -168,9 +168,11 @@ class GalaxyClient:
         Raises:
             httpx.HTTPStatusError: When the last attempted server returns an error status.
             httpx.RequestError: When the last attempted server's request fails.
-            RuntimeError: When no Galaxy servers are configured.
+            RuntimeError: When no Galaxy servers are configured, or when every
+                server's version listing was truncated at the page bound.
         """  # noqa: DOC503
         last_exc: Exception | None = None
+        truncated = False
         for srv, client in zip(self._servers, self._clients, strict=True):
             try:
                 versions = await self._list_versions_from(client, namespace, name)
@@ -192,6 +194,7 @@ class GalaxyClient:
                     name,
                     srv.label(),
                 )
+                truncated = True
                 continue
             logger.debug(
                 "list_versions %s.%s: %d version(s) from %s",
@@ -201,7 +204,12 @@ class GalaxyClient:
                 srv.label(),
             )
             return versions
-        raise last_exc or RuntimeError("No Galaxy servers configured")
+        if last_exc is not None:
+            raise last_exc
+        if truncated:
+            msg = f"Galaxy version listing truncated at {MAX_VERSION_PAGES} pages for {namespace}.{name}"
+            raise RuntimeError(msg)
+        raise RuntimeError("No Galaxy servers configured")
 
     async def get_version_detail(
         self,

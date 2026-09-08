@@ -119,6 +119,7 @@ def _as_mapping(v: object) -> Mapping[str, Any]:
         "line": getattr(v, "line", None),
         "node_line_start": getattr(v, "node_line_start", 0) or 0,
         "line_end": getattr(v, "line_end", 0) or 0,
+        "node_line_end": getattr(v, "node_line_end", 0) or 0,
         "remediation_class": getattr(v, "remediation_class", 0) or 0,
         "original_yaml": getattr(v, "original_yaml", "") or "",
         "fixed_yaml": getattr(v, "fixed_yaml", "") or "",

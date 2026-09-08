@@ -134,7 +134,11 @@ function isProposalArray(v: unknown): v is Proposal[] {
         typeof p.file === "string" &&
         typeof p.rule_id === "string" &&
         typeof p.line_start === "number" &&
-        typeof p.line_end === "number",
+        // line_end is additive: old servers and third-party producers may
+        // omit it. Accept undefined here and normalize to 0 at setProposals
+        // so mixed-version rollouts degrade instead of tearing down.
+        (typeof p.line_end === "number" ||
+          typeof p.line_end === "undefined"),
     )
   );
 }
@@ -347,7 +351,13 @@ export function useSessionStream() {
 
           case "proposals":
             if (isProposalArray(msg.proposals)) {
-              setProposals(msg.proposals);
+              setProposals(
+                msg.proposals.map((p) => ({
+                  ...p,
+                  line_end:
+                    typeof p.line_end === "number" ? p.line_end : 0,
+                })),
+              );
               updateStatus("awaiting_approval");
             } else {
               failMalformed("Received malformed proposals from server");

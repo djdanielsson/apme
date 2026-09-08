@@ -407,3 +407,24 @@ def test_group_violations_splits_mixed_rem_class_path() -> None:
     assert len(props) == 2
     sources = {p.source for p in props}
     assert sources == {"deterministic", "ai-candidate"}
+
+
+def test_group_object_input_preserves_node_line_end() -> None:
+    """Attribute objects keep the ``node_line_end`` fallback like mappings do."""
+
+    class _Violation:
+        id = 7
+        rule_id = "L013"
+        file = "tasks/main.yml"
+        path = "tasks/main.yml::task[0]"
+        line = 5
+        node_line_start = 5
+        node_line_end = 14
+        remediation_class = 1
+        fixed_yaml = "command: echo hi\n"
+        original_yaml = "shell: echo hi\n"
+
+    props = group_violations([_Violation()])
+    assert len(props) == 1
+    assert props[0].line_start == 5
+    assert props[0].line_end == 14

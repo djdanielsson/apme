@@ -657,6 +657,33 @@ class TestVersionDiscoveryWithServers:
         assert result is None
         assert calls == MAX_VERSION_PAGES
 
+
+class TestGalaxyClientTruncation:
+    """All-truncated listings report truncation, not missing configuration."""
+
+    def test_list_versions_all_truncated_raises_truncation_error(self) -> None:
+        """Every server truncated with no other error names the page bound."""
+        import asyncio
+
+        from galaxy_proxy import MAX_VERSION_PAGES
+        from galaxy_proxy.galaxy_client import GalaxyClient, GalaxyServer
+
+        client = GalaxyClient(servers=[GalaxyServer(url="https://galaxy.example.com")])
+        try:
+            with (
+                patch.object(
+                    GalaxyClient,
+                    "_list_versions_from",
+                    AsyncMock(return_value=None),
+                ),
+                pytest.raises(RuntimeError, match="truncated"),
+            ):
+                asyncio.run(client.list_versions("ansible", "posix"))
+        finally:
+            asyncio.run(client.close())
+
+        assert MAX_VERSION_PAGES > 0
+
     @pytest.mark.parametrize(  # type: ignore[untyped-decorator]
         ("raw_url", "expected"),
         [

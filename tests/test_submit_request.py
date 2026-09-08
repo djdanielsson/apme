@@ -19,6 +19,10 @@ def test_branch_name_defaults_to_none() -> None:
         "apme/remediate-abc123",
         "feature/my-fix_2.0",
         "release-1",
+        # Whole-string suffix rules do not apply mid-path: git accepts a
+        # non-final ``.`` component and ``HEAD`` as a path prefix.
+        "a./b",
+        "HEAD/foo",
     ],
 )
 def test_branch_name_accepts_safe_names(name: str) -> None:
@@ -46,6 +50,10 @@ def test_branch_name_accepts_safe_names(name: str) -> None:
         "doubled//slash",
         "trailing-dot.",
         "name.lock",
+        # ``git check-ref-format`` rejects ``.lock`` on any component and
+        # reserves the bare name ``HEAD`` — both must fail fast here.
+        "a.lock/b",
+        "HEAD",
         "feat@{x}",
         "-leading-dash",
         ".hidden/component",
