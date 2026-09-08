@@ -180,6 +180,9 @@ async def _should_write_scan_complete(
         return True
     if scan.project_id and not existing.project_id:
         await db.delete(existing)
+        # Flush so a future (scan_id, type) uniqueness constraint cannot see
+        # both the deleted row and the replacement insert in one flush.
+        await db.flush()
         return True
     return False
 

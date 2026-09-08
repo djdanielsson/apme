@@ -116,6 +116,11 @@ async def gateway_db(tmp_path: Path) -> AsyncIterator[None]:
     await init_db(str(tmp_path / "test.db"))
     await reset_db()
     yield
+    # Drain fire-and-forget notification tasks before disposing the engine so
+    # pending ReportFixCompleted work cannot touch a closed session factory.
+    from apme_gateway.grpc_reporting.servicer import drain_notification_tasks
+
+    await drain_notification_tasks()
     registry = get_operation_registry()
     await registry.shutdown()
     await close_db()
