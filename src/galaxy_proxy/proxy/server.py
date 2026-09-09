@@ -711,9 +711,38 @@ async def _fetch_versions_from(
                         name,
                     )
                     return None
-                for entry in payload.get("data", []):
+                entries = payload.get("data")
+                if not isinstance(entries, list):
+                    logger.debug(
+                        "Version fetch from %s returned non-list data for %s.%s",
+                        base_url,
+                        namespace,
+                        name,
+                    )
+                    return None
+                for entry in entries:
+                    if not isinstance(entry, dict):
+                        logger.debug(
+                            "Version fetch from %s returned non-object entry for %s.%s",
+                            base_url,
+                            namespace,
+                            name,
+                        )
+                        return None
                     versions.append(entry["version"])
-                if not payload.get("links", {}).get("next"):
+                if "links" in payload:
+                    links = payload["links"]
+                    if not isinstance(links, dict):
+                        logger.debug(
+                            "Version fetch from %s returned non-object links for %s.%s",
+                            base_url,
+                            namespace,
+                            name,
+                        )
+                        return None
+                    if not links.get("next"):
+                        break
+                else:
                     break
                 params["offset"] = int(params["offset"]) + int(params["limit"])
             else:

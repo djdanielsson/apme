@@ -937,11 +937,11 @@ def test_chunk_reserves_scan_id_bind() -> None:
 
 def test_draft_coercers_clamp() -> None:
     """Negative lines/tiers clamp to 0 and confidence clamps to 0..1."""
-    from apme_gateway.proposals.draft import _safe_float, _safe_int
+    from apme_gateway.proposals.grouping import _safe_float, _to_int
 
-    assert _safe_int(-5, 7) == 0
-    assert _safe_int("-5", 7) == 0
-    assert _safe_int("abc", 7) == 7
+    assert _to_int(-5, 7) == 0
+    assert _to_int("-5", 7) == 0
+    assert _to_int("abc", 7) == 7
     assert _safe_float(1.5, 0.0) == 1.0
     assert _safe_float(-0.5, 0.7) == 0.0
     assert _safe_float("abc", 0.7) == 0.7

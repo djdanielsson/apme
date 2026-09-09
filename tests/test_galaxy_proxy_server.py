@@ -1322,3 +1322,39 @@ class TestGalaxyNonDictPayload:
             )
 
         assert result is None
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            {"data": None, "links": {}},
+            {"data": ["1.0.0"], "links": {}},
+            {"data": [{"version": "1.0.0"}], "links": None},
+        ],
+    )  # type: ignore[untyped-decorator]
+    def test_fetch_versions_from_malformed_nested_returns_none(self, payload: dict[str, object]) -> None:
+        """Malformed nested version payloads fail over instead of raising.
+
+        Args:
+            payload: Dict body with invalid nested data/links shapes.
+        """
+        import asyncio
+
+        from galaxy_proxy.proxy.server import _fetch_versions_from
+
+        def _capture_client(**kwargs: object) -> unittest.mock.MagicMock:
+            mock_resp = unittest.mock.MagicMock()
+            mock_resp.raise_for_status.return_value = None
+            mock_resp.json.return_value = payload
+
+            client = unittest.mock.MagicMock()
+            client.get = AsyncMock(return_value=mock_resp)
+            client.__aenter__ = AsyncMock(return_value=client)
+            client.__aexit__ = AsyncMock(return_value=False)
+            return client
+
+        with patch("galaxy_proxy.proxy.server.httpx.AsyncClient", side_effect=_capture_client):
+            result = asyncio.run(
+                _fetch_versions_from("ansible", "posix", "https://galaxy.ansible.com"),
+            )
+
+        assert result is None

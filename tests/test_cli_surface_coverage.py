@@ -2775,3 +2775,5 @@ def test_remediate_json_files_updated_reflects_written(tmp_path: Path, capsys: p
     ):
         run_remediate(_rem_args(str(tmp_path), json=True, show_suppressed=True))
     assert exc.value.code == EXIT_ERROR
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["files_updated"] == 1

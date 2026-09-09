@@ -365,9 +365,35 @@ class GalaxyClient:
                     type(payload).__name__,
                 )
                 return None
-            for entry in payload.get("data", []):
+            entries = payload.get("data")
+            if not isinstance(entries, list):
+                logger.debug(
+                    "Galaxy version listing for %s.%s returned non-list data; treating as failure",
+                    namespace,
+                    name,
+                )
+                return None
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    logger.debug(
+                        "Galaxy version listing for %s.%s returned non-object entry; treating as failure",
+                        namespace,
+                        name,
+                    )
+                    return None
                 versions.append(entry["version"])
-            if not payload.get("links", {}).get("next"):
+            if "links" in payload:
+                links = payload["links"]
+                if not isinstance(links, dict):
+                    logger.debug(
+                        "Galaxy version listing for %s.%s returned non-object links; treating as failure",
+                        namespace,
+                        name,
+                    )
+                    return None
+                if not links.get("next"):
+                    break
+            else:
                 break
             params["offset"] = int(params["offset"]) + int(params["limit"])
         else:

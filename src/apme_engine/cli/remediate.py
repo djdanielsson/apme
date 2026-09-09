@@ -131,6 +131,7 @@ def run_remediate(args: argparse.Namespace) -> None:
     result_patches: list[FilePatch] = []
     result_files_written = 0
     got_result = False
+    write_failed = False
 
     def _run_uploads(
         cmd_queue: queue.Queue[SessionCommand | None],
@@ -376,8 +377,6 @@ def run_remediate(args: argparse.Namespace) -> None:
             # Deferred until the producer is proven clean above: a partial
             # or synthetic result must never mutate disk on a failed run.
             result_files_written, write_failed = _write_patches(target, result_patches)
-            if write_failed:
-                sys.exit(EXIT_ERROR)
             break
         if retry:
             time.sleep(1.0 + random.uniform(0, 1.0))
@@ -399,7 +398,9 @@ def run_remediate(args: argparse.Namespace) -> None:
 
     if use_json:
         _emit_json(result_violations, result_patches, tier1_report, result_files_written)
-    elif result_violations:
+    if write_failed:
+        sys.exit(EXIT_ERROR)
+    if not use_json and result_violations:
         ai_count = sum(1 for v in result_violations if v.get("remediation_class") == "ai-candidate")
         manual_count = len(result_violations) - ai_count
         if ai_count:
@@ -457,7 +458,7 @@ def _emit_json(
 def _render_tier1(summary: Tier1Summary) -> None:
     format_diffs = list(summary.format_diffs)
     applied = list(summary.applied_patches)
-    report = summary.report
+    report = summary.report if summary.HasField("report") else None  # type: ignore[attr-defined]
 
     if format_diffs:
         sys.stderr.write(f"Formatted {len(format_diffs)} file(s)\n")

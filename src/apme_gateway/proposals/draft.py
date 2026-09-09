@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import math
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -24,6 +23,8 @@ from apme_gateway.proposals.grouping import (
     SOURCE_AI_CANDIDATE,
     SOURCE_DETERMINISTIC,
     _coerce_violation_ids,
+    _safe_float,
+    _to_int,
     analytics_increments,
     parse_json_list,
     review_status_for_proposal,
@@ -35,130 +36,6 @@ from apme_gateway.proposals.grouping import (
 logger = logging.getLogger(__name__)
 
 _ALLOWED_DRAFT_STATUSES = frozenset({"pending", "approved", "declined", "proposed", "rejected"})
-
-
-def _safe_int(value: object, default: int = 0) -> int:
-    """Coerce JSON-ish input to int, mapping unknowns to default.
-
-    Clamps results at ``>= 0`` since line numbers and tiers are never
-    negative.
-
-    Args:
-        value: Raw value (int, float, numeric string, bool, None, …).
-        default: Fallback when coercion fails.
-
-    Returns:
-        Coerced integer clamped at ``>= 0``, or clamped ``default``.
-    """
-    fallback = max(0, default)
-    if isinstance(value, bool):
-        logger.debug("Falling back line/tier value %r to %r", value, fallback)
-        return fallback
-    if isinstance(value, int):
-        if value < 0:
-            logger.debug("Clamping negative line/tier value %r to 0", value)
-            return 0
-        return value
-    if isinstance(value, float):
-        if value.is_integer():
-            coerced = int(value)
-            if coerced < 0:
-                logger.debug("Clamping negative line/tier value %r to 0", value)
-                return 0
-            return coerced
-        logger.debug("Falling back line/tier value %r to %r", value, fallback)
-        return fallback
-    if isinstance(value, str):
-        text = value.strip()
-        if not text:
-            logger.debug("Falling back line/tier value %r to %r", value, fallback)
-            return fallback
-        try:
-            coerced_str = int(text)
-            if coerced_str < 0:
-                logger.debug("Clamping negative line/tier value %r to 0", value)
-                return 0
-            return coerced_str
-        except ValueError:
-            try:
-                parsed = float(text)
-            except ValueError:
-                logger.debug("Falling back line/tier value %r to %r", value, fallback)
-                return fallback
-            if parsed.is_integer():
-                coerced_float = int(parsed)
-                if coerced_float < 0:
-                    logger.debug("Clamping negative line/tier value %r to 0", value)
-                    return 0
-                return coerced_float
-            logger.debug("Falling back line/tier value %r to %r", value, fallback)
-            return fallback
-    if value is None:
-        logger.debug("Falling back line/tier value %r to %r", value, fallback)
-        return fallback
-    logger.debug("Falling back line/tier value %r to %r", value, fallback)
-    return fallback
-
-
-def _safe_float(value: object, default: float = 0.0) -> float:
-    """Coerce JSON-ish input to float, clamped to 0..1.
-
-    Args:
-        value: Raw value (int, float, numeric string, bool, None, …).
-        default: Fallback when coercion fails.
-
-    Returns:
-        Coerced float in ``[0.0, 1.0]``, or clamped ``default``.
-    """
-    clamped_default = min(1.0, max(0.0, default))
-    if isinstance(value, bool):
-        logger.debug("Falling back confidence value %r to %r", value, clamped_default)
-        return clamped_default
-    if isinstance(value, int):
-        coerced_int = float(value)
-        if coerced_int < 0.0:
-            logger.debug("Clamping confidence value %r to 0.0", value)
-            return 0.0
-        if coerced_int > 1.0:
-            logger.debug("Clamping confidence value %r to 1.0", value)
-            return 1.0
-        return coerced_int
-    if isinstance(value, float):
-        if not math.isfinite(value):
-            logger.debug("Falling back confidence value %r to %r", value, clamped_default)
-            return clamped_default
-        if value < 0.0:
-            logger.debug("Clamping confidence value %r to 0.0", value)
-            return 0.0
-        if value > 1.0:
-            logger.debug("Clamping confidence value %r to 1.0", value)
-            return 1.0
-        return value
-    if isinstance(value, str):
-        text = value.strip()
-        if not text:
-            logger.debug("Falling back confidence value %r to %r", value, clamped_default)
-            return clamped_default
-        try:
-            coerced_str = float(text)
-        except ValueError:
-            logger.debug("Falling back confidence value %r to %r", value, clamped_default)
-            return clamped_default
-        if not math.isfinite(coerced_str):
-            logger.debug("Falling back confidence value %r to %r", value, clamped_default)
-            return clamped_default
-        if coerced_str < 0.0:
-            logger.debug("Clamping confidence value %r to 0.0", value)
-            return 0.0
-        if coerced_str > 1.0:
-            logger.debug("Clamping confidence value %r to 1.0", value)
-            return 1.0
-        return coerced_str
-    if value is None:
-        logger.debug("Falling back confidence value %r to %r", value, clamped_default)
-        return clamped_default
-    logger.debug("Falling back confidence value %r to %r", value, clamped_default)
-    return clamped_default
 
 
 def _gate_for_source(source: str, tier: int) -> str:
@@ -426,7 +303,7 @@ def _prepare_stub_payload(raw: Mapping[str, Any]) -> StubPayload | None:
     file_ = str(raw.get("file") or "")
     rule_id = str(raw.get("rule_id") or "")
     path = str(raw.get("path") or "")
-    tier = _safe_int(raw.get("tier"), 0)
+    tier = _to_int(raw.get("tier"), 0)
     source = str(raw.get("source") or (SOURCE_AI if tier >= 2 else SOURCE_DETERMINISTIC))
     gate = str(raw.get("gate") or "") or _gate_for_source(source, tier)
     rule_parts = tuple(p.strip() for p in rule_id.split(",") if p.strip()) or ((rule_id,) if rule_id else ())
@@ -451,8 +328,8 @@ def _prepare_stub_payload(raw: Mapping[str, Any]) -> StubPayload | None:
             rule_id=primary_rule or rule_id,
             engine_id=engine_id,
         ),
-        line_start=_safe_int(raw.get("line_start"), 0),
-        line_end=_safe_int(raw.get("line_end"), 0),
+        line_start=_to_int(raw.get("line_start"), 0),
+        line_end=_to_int(raw.get("line_end"), 0),
     )
 
 
@@ -620,16 +497,16 @@ async def upsert_live_proposal_stubs(
             # explicit, so test identity and blank strings instead.
             raw_line_start = raw.get("line_start") if "line_start" in raw else None
             if raw_line_start is not None and not (isinstance(raw_line_start, str) and not raw_line_start.strip()):
-                existing.line_start = _safe_int(raw_line_start, existing.line_start)
+                existing.line_start = _to_int(raw_line_start, existing.line_start)
             raw_line_end = raw.get("line_end") if "line_end" in raw else None
             if raw_line_end is not None and not (isinstance(raw_line_end, str) and not raw_line_end.strip()):
-                existing.line_end = _safe_int(raw_line_end, existing.line_end)
+                existing.line_end = _to_int(raw_line_end, existing.line_end)
             raw_confidence = raw.get("confidence") if "confidence" in raw else None
             if raw_confidence is not None and not (isinstance(raw_confidence, str) and not raw_confidence.strip()):
                 existing.confidence = _safe_float(raw_confidence, existing.confidence)
             raw_tier = raw.get("tier") if "tier" in raw else None
             if raw_tier is not None and not (isinstance(raw_tier, str) and not raw_tier.strip()):
-                existing.tier = _safe_int(raw_tier, existing.tier)
+                existing.tier = _to_int(raw_tier, existing.tier)
             if rule_parts:
                 existing.rule_ids_json = serialize_rule_ids(rule_parts)
                 existing.stamp_rule_ids_json = serialize_rule_ids(rule_parts)

@@ -1403,7 +1403,7 @@ class EngineServicer(engine_pb2_grpc.EngineServicer):
         """
         store = self._get_session_store()
         session: SessionState | None = None
-        session_created_by_stream = False
+        upload_created_session_id: str | None = None
         scan_id = ""
 
         try:
@@ -1418,7 +1418,7 @@ class EngineServicer(engine_pb2_grpc.EngineServicer):
                             store,
                             chunk,
                         )
-                        session_created_by_stream = True
+                        upload_created_session_id = session.session_id
                         yield SessionEvent(
                             created=SessionCreated(
                                 session_id=session.session_id,
@@ -1504,7 +1504,7 @@ class EngineServicer(engine_pb2_grpc.EngineServicer):
                 elif oneof == "close":
                     if session:
                         store.remove(session.session_id)
-                        session_created_by_stream = False
+                    upload_created_session_id = None
                     yield SessionEvent(closed=SessionClosed())
                     return
 
@@ -1512,8 +1512,8 @@ class EngineServicer(engine_pb2_grpc.EngineServicer):
             # Client disconnect raises CancelledError (a BaseException), which
             # bypasses the explicit close path.  Remove only sessions this stream
             # created so gateway reconnect can ResumeRequest without NOT_FOUND.
-            if session and session_created_by_stream:
-                store.remove(session.session_id)
+            if upload_created_session_id:
+                store.remove(upload_created_session_id)
             raise
         except ResourceExhaustedError as e:
             await context.abort(grpc.StatusCode.RESOURCE_EXHAUSTED, str(e))

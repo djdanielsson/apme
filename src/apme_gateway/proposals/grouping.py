@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 from collections import deque
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -223,6 +224,9 @@ def _safe_float(value: object, default: float = 0.0) -> float:
             return 1.0
         return coerced_int
     if isinstance(value, float):
+        if not math.isfinite(value):
+            logger.debug("Falling back confidence value %r to %r", value, clamped_default)
+            return clamped_default
         if value < 0.0:
             logger.debug("Clamping confidence value %r to 0.0", value)
             return 0.0
@@ -238,6 +242,9 @@ def _safe_float(value: object, default: float = 0.0) -> float:
         try:
             coerced_str = float(text)
         except ValueError:
+            logger.debug("Falling back confidence value %r to %r", value, clamped_default)
+            return clamped_default
+        if not math.isfinite(coerced_str):
             logger.debug("Falling back confidence value %r to %r", value, clamped_default)
             return clamped_default
         if coerced_str < 0.0:
