@@ -524,3 +524,91 @@ def test_group_violations_bool_lines_map_to_zero() -> None:
     props = group_violations(violations)
     assert props[0].line_start == 0
     assert props[0].line_end == 0
+
+
+def test_merge_outcomes_coerces_string_payloads() -> None:
+    """String outcome fields coerce instead of crashing the merge."""
+    from types import SimpleNamespace
+
+    props = group_violations(
+        [
+            {
+                "id": 1,
+                "rule_id": "L007",
+                "file": "a.yml",
+                "path": "a.yml::t[0]",
+                "remediation_class": 2,
+            }
+        ]
+    )
+    outcome = SimpleNamespace(
+        proposal_id="",
+        rule_id="L007",
+        file="a.yml",
+        status="approved",
+        confidence="0.9",
+        tier="2",
+        line_end="12",
+    )
+    merged = merge_outcomes(props, [outcome])
+    assert merged[0].confidence == 0.9
+    assert merged[0].tier == 2
+    assert merged[0].line_end == 12
+
+
+def test_merge_outcomes_coerces_float_strings_and_falls_back() -> None:
+    """Integral float strings parse; garbage falls back to grouped values."""
+    from types import SimpleNamespace
+
+    props = group_violations(
+        [
+            {
+                "id": 1,
+                "rule_id": "L007",
+                "file": "a.yml",
+                "path": "a.yml::t[0]",
+                "remediation_class": 2,
+            }
+        ]
+    )
+    good = SimpleNamespace(
+        proposal_id="",
+        rule_id="L007",
+        file="a.yml",
+        status="approved",
+        confidence="high",
+        tier="2.0",
+        line_end="12.0",
+    )
+    merged = merge_outcomes(props, [good])
+    assert merged[0].tier == 2
+    assert merged[0].line_end == 12
+    assert merged[0].confidence == props[0].confidence
+
+    bad = SimpleNamespace(
+        proposal_id="",
+        rule_id="L007",
+        file="a.yml",
+        status="approved",
+        confidence="abc",
+        tier="abc",
+        line_end="abc",
+    )
+    merged_bad = merge_outcomes(props, [bad])
+    assert merged_bad[0].tier == props[0].tier
+    assert merged_bad[0].line_end == props[0].line_end
+    assert merged_bad[0].confidence == props[0].confidence
+
+
+def test_grouping_coercers_clamp() -> None:
+    """Negative lines/tiers clamp to 0 and confidence clamps to 0..1."""
+    from apme_gateway.proposals.grouping import _safe_float, _to_int
+
+    assert _to_int(-5) == 0
+    assert _to_int("-5") == 0
+    assert _to_int("12", 7) == 12
+    assert _to_int("abc", 7) == 7
+    assert _safe_float(1.5) == 1.0
+    assert _safe_float(-0.5) == 0.0
+    assert _safe_float("2.0") == 1.0
+    assert _safe_float("abc", 0.7) == 0.7

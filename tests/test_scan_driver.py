@@ -688,3 +688,124 @@ async def test_clone_repo_timeout_maps_to_runtime_error() -> None:
         )
         with tempfile.TemporaryDirectory() as td, pytest.raises(RuntimeError, match="timed out"):
             await clone_repo("https://github.com/o/r.git", "main", td + "/repo", scm_token="s3cret")
+
+
+class TestRedactTightenedPatterns:
+    """Tightened Basic/Bearer patterns avoid prose while covering headers."""
+
+    def test_bearer_token_masked(self) -> None:
+        """Bearer tokens are masked."""
+        token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.c29tZXBheWxvYWQ.c2lnbmF0dXJl"
+        text = f"Authorization: Bearer {token}"
+        result = redact_credentials(text)
+        assert token not in result
+        assert "[REDACTED]" in result
+
+    def test_plain_english_untouched(self) -> None:
+        """Plain English mentioning bearer/basic is left alone."""
+        text = "The bearer of bad news arrived yesterday with a Basic understanding of the system"
+        assert redact_credentials(text) == text
+
+    def test_bare_basic_prose_untouched(self) -> None:
+        """Bare Basic prose without an Authorization prefix is not redacted."""
+        text = "This is a Basic understanding of the configuration format"
+        assert redact_credentials(text) == text
+
+    def test_short_bearer_fragment_untouched(self) -> None:
+        """Short Bearer fragments below the token floor are not redacted."""
+        text = "Bearer of light"
+        assert redact_credentials(text) == text
+
+
+@pytest.mark.asyncio  # type: ignore[untyped-decorator]
+async def test_fetch_remote_head_cache_normalizes_repo_url() -> None:
+    """Variant URL spellings share one cache entry; raw URL still goes to git."""
+    fake_sha = "e" * 40
+    _REMOTE_HEAD_CACHE.clear()
+    _REMOTE_HEAD_NEG_CACHE.clear()
+    with (
+        patch("apme_gateway.scan.driver.asyncio.get_running_loop") as mock_loop,
+        patch("apme_gateway.scan.driver.subprocess.run") as mock_run,
+    ):
+        result = MagicMock()
+        result.returncode = 0
+        result.stdout = f"{fake_sha}\trefs/heads/main\n"
+        mock_run.return_value = result
+        mock_loop.return_value.run_in_executor = AsyncMock(side_effect=lambda _exec, func: func())
+
+        sha1 = await fetch_remote_head("https://github.com/org/repo.git", "main")
+        assert sha1 == fake_sha
+        assert mock_run.call_count == 1
+        raw_argv = mock_run.call_args[0][0]
+        assert raw_argv[3] == "https://github.com/org/repo.git"
+
+        sha2 = await fetch_remote_head("https://GitHub.com/org/repo", "main")
+        assert sha2 == fake_sha
+        assert mock_run.call_count == 1
+
+
+@pytest.mark.asyncio  # type: ignore[untyped-decorator]
+async def test_fetch_remote_head_rejects_none_branch() -> None:
+    """None branch returns None without spawning git or querying refs/heads/None."""
+    _REMOTE_HEAD_CACHE.clear()
+    _REMOTE_HEAD_NEG_CACHE.clear()
+    with patch("apme_gateway.scan.driver.subprocess.run") as mock_run:
+        assert await fetch_remote_head("https://github.com/o/r.git", None) is None  # type: ignore[arg-type]
+        assert await fetch_remote_head("https://github.com/o/r.git", 123) is None  # type: ignore[arg-type]
+    mock_run.assert_not_called()
+
+
+@pytest.mark.asyncio  # type: ignore[untyped-decorator]
+async def test_clone_repo_rejects_none_branch() -> None:
+    """None or non-str branch raises before the shared validator."""
+    with tempfile.TemporaryDirectory() as td, pytest.raises(ValueError, match="Invalid branch name"):
+        await clone_repo("https://github.com/o/r.git", None, td + "/repo")  # type: ignore[arg-type]
+    with tempfile.TemporaryDirectory() as td, pytest.raises(ValueError, match="Invalid branch name"):
+        await clone_repo("https://github.com/o/r.git", 123, td + "/repo")  # type: ignore[arg-type]
+
+
+@pytest.mark.asyncio  # type: ignore[untyped-decorator]
+async def test_clone_repo_redacts_token_straddling_truncation() -> None:
+    """Tokens straddling the 500-char cut are masked (redact before truncate)."""
+    secret = "ghp_straddlingsecret123456"
+    filler = "E" * 470
+    stderr = f"{filler} https://x-access-token:{secret}@github.com/org/repo not found"
+    assert "@" not in stderr[:500]
+    with patch("apme_gateway.scan.driver.asyncio.get_running_loop") as mock_loop:
+        result = MagicMock()
+        result.returncode = 128
+        result.stderr = stderr
+        mock_loop.return_value.run_in_executor = AsyncMock(return_value=result)
+
+        with tempfile.TemporaryDirectory() as td:
+            dest = os.path.join(td, "repo")
+            with pytest.raises(RuntimeError) as exc_info:
+                await clone_repo("https://github.com/bad/repo.git", "main", dest)
+
+        assert secret not in str(exc_info.value)
+        assert "[REDACTED]" in str(exc_info.value)
+
+
+@pytest.mark.asyncio  # type: ignore[untyped-decorator]
+async def test_fetch_remote_head_stores_fresh_timestamp() -> None:
+    """Cache entries use the post-subprocess clock reading, not the stale one."""
+    fake_sha = "d" * 40
+    _REMOTE_HEAD_CACHE.clear()
+    _REMOTE_HEAD_NEG_CACHE.clear()
+    with (
+        patch("apme_gateway.scan.driver.time.monotonic", side_effect=[100.0, 200.0]),
+        patch("apme_gateway.scan.driver.asyncio.get_running_loop") as mock_loop,
+        patch("apme_gateway.scan.driver.subprocess.run") as mock_run,
+    ):
+        result = MagicMock()
+        result.returncode = 0
+        result.stdout = f"{fake_sha}\trefs/heads/main\n"
+        mock_run.return_value = result
+        mock_loop.return_value.run_in_executor = AsyncMock(side_effect=lambda _exec, func: func())
+
+        sha = await fetch_remote_head("https://github.com/org/fresh.git", "main")
+        assert sha == fake_sha
+
+    assert len(_REMOTE_HEAD_CACHE) == 1
+    stored_ts = next(iter(_REMOTE_HEAD_CACHE.values()))[0]
+    assert stored_ts == 200.0

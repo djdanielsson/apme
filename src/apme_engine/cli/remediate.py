@@ -14,7 +14,6 @@ import random
 import sys
 import threading
 import time
-import uuid
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 
@@ -73,12 +72,16 @@ def run_remediate(args: argparse.Namespace) -> None:
     galaxy_servers = discover_galaxy_servers(project_root) or None
     rule_cfgs = load_rule_configs_from_project(project_root)
 
-    # Single scan_id shared across retry attempts so the server correlates
-    # the reconnected FixSession with the original scan.
-    scan_id = str(uuid.uuid4())
-
     def _make_chunks() -> Iterator[ScanChunk]:
         """Build a fresh upload-chunk stream (re-runnable for reconnect retry).
+
+        Each call mints a fresh scan_id inside ``yield_scan_chunks``: a
+        retry is a brand-new server session (``SessionStore.create`` mints
+        a fresh session with no dedup on ``scan_id``; ``scan_id`` is only
+        a reporting label), so sharing an ID across attempts buys nothing
+        and risks reporting-row collision. The attempt-teardown
+        ``channel.close()`` cancels the first session's stream, and
+        interactive approvals are re-prompted on the retry.
 
         Upload failures propagate to the caller — the background producer
         records them and the main thread reports them, so this generator
@@ -89,7 +92,6 @@ def run_remediate(args: argparse.Namespace) -> None:
         """
         yield from yield_scan_chunks(
             str(target),
-            scan_id=scan_id,
             project_root_name="project",
             ansible_core_version=getattr(args, "ansible_version", None),
             collection_specs=getattr(args, "collections", None),
@@ -283,19 +285,17 @@ def run_remediate(args: argparse.Namespace) -> None:
                     break
 
         except grpc.RpcError as e:
-            transient = e.code() in (
-                grpc.StatusCode.UNAVAILABLE,
-                grpc.StatusCode.DEADLINE_EXCEEDED,
-            )
-            # A DEADLINE_EXCEEDED against a user-supplied --timeout is the
-            # user's own budget expiring, not a transport blip — retry only
-            # server-driven deadline expiry (stream_timeout is None).
-            user_deadline = e.code() == grpc.StatusCode.DEADLINE_EXCEEDED and stream_timeout is not None
+            # Only UNAVAILABLE is retried. With stream_timeout=None a
+            # DEADLINE_EXCEEDED is the server adaptive budget expiring —
+            # retrying would re-run the whole scan and double load.
+            transient = e.code() == grpc.StatusCode.UNAVAILABLE
             # Uploads re-stream deterministically from disk and patches are
             # only written once a result arrives, so retrying before any
-            # result is safe (interactive approvals are requested again on
-            # retry; the first session may still be running server-side).
-            if transient and not got_result and not user_deadline and attempt == 0:
+            # result is safe. A retry starts a fresh server session with a
+            # fresh scan_id; the attempt-teardown channel.close() cancels
+            # the first session's stream, and interactive approvals are
+            # re-prompted on the new session.
+            if transient and not got_result and attempt == 0:
                 sys.stderr.write(f"  Connection {e.code().name} before result; retrying session once...\n")
                 retry = True
             else:

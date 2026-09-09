@@ -1618,8 +1618,48 @@ def test_remediate_retry_on_transient_then_success(tmp_path: Path) -> None:
     channel2.close.assert_called_once()
 
 
+def test_remediate_deadline_exceeded_never_retries(tmp_path: Path) -> None:
+    """DEADLINE_EXCEEDED never retries (server budget or user timeout).
+
+    With ``stream_timeout=None`` a DEADLINE_EXCEEDED is the server
+    adaptive budget expiring — retrying would re-run the whole scan and
+    double load. Only UNAVAILABLE is retried.
+
+    Args:
+        tmp_path: Temporary directory fixture.
+    """
+    from apme_engine.cli.remediate import run_remediate
+
+    for timeout in (None, 5):
+        channel = MagicMock()
+        stub = MagicMock()
+        stub.FixSession.side_effect = _FakeRpcError(grpc.StatusCode.DEADLINE_EXCEEDED, "slow")
+        with (
+            patch("apme_engine.cli.remediate.discover_project_root", return_value=tmp_path),
+            patch("apme_engine.cli.remediate.derive_session_id", return_value="s"),
+            patch("apme_engine.cli.remediate.discover_galaxy_servers", return_value=[]),
+            patch("apme_engine.cli.remediate.load_rule_configs_from_project", return_value=[]),
+            patch(
+                "apme_engine.cli.remediate.yield_scan_chunks",
+                side_effect=lambda *a, **k: iter([_scan_chunk()]),
+            ),
+            patch("apme_engine.cli.remediate.resolve_engine", return_value=(channel, "addr")),
+            patch("apme_engine.cli.remediate.engine_pb2_grpc.EngineStub", return_value=stub),
+            patch("apme_engine.cli.remediate.time.sleep") as slp,
+            pytest.raises(SystemExit) as exc,
+        ):
+            run_remediate(_rem_args(str(tmp_path), timeout=timeout))
+        assert exc.value.code == EXIT_ERROR
+        slp.assert_not_called()
+        assert stub.FixSession.call_count == 1
+
+
 def test_remediate_user_deadline_no_retry(tmp_path: Path) -> None:
     """DEADLINE_EXCEEDED with user --timeout does not retry.
+
+    Kept as an alias for the never-retry behavior: DEADLINE_EXCEEDED is
+    never retried regardless of ``--timeout`` (see
+    ``test_remediate_deadline_exceeded_never_retries``).
 
     Args:
         tmp_path: Temporary directory fixture.
@@ -2302,12 +2342,17 @@ def test_remediate_producer_error_terminates_stream(tmp_path: Path) -> None:
             raise AssertionError("expected SystemExit")
 
 
-def test_remediate_retry_resets_state_and_reuses_scan_id(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    """Retry resets per-attempt state and reuses one scan_id.
+def test_remediate_retry_resets_state_and_mints_fresh_scan_id(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Retry resets per-attempt state and mints a fresh scan_id per attempt.
 
     First attempt reports tier1 fixed=99 then a transient UNAVAILABLE;
     second attempt reports a result with no tier1. JSON must show
-    auto_fixable 0 (not stale 99) and both attempts must share scan_id.
+    auto_fixable 0 (not stale 99). Each attempt calls
+    ``yield_scan_chunks`` without a shared scan_id so the server mints a
+    fresh session (``SessionStore.create`` has no dedup on ``scan_id``);
+    the retry therefore produces distinct chunk scan_ids.
 
     Args:
         tmp_path: Temporary directory fixture.
@@ -2338,21 +2383,29 @@ def test_remediate_retry_resets_state_and_reuses_scan_id(tmp_path: Path, capsys:
     channel2 = MagicMock()
     stub = MagicMock()
     stub.FixSession.side_effect = [_first_attempt(), events2]
-    seen_scan_ids: list[str] = []
+    seen_scan_kwargs: list[object] = []
+    seen_chunk_ids: list[str] = []
+    call_index = 0
 
     def _chunks(*args: object, **kwargs: object) -> Iterator[ScanChunk]:
-        """Record scan_id and return one chunk.
+        """Record scan_id kwarg and return one chunk with a fresh ID.
+
+        Mimics real ``yield_scan_chunks`` (mints a fresh scan_id when the
+        caller omits it) so the test proves attempts do not share an ID.
 
         Args:
             *args: Positional chunk args.
             **kwargs: Chunk keyword args.
 
         Returns:
-            Iterator with a single ScanChunk.
+            Iterator with a single ScanChunk carrying a fresh scan_id.
         """
-        raw = kwargs.get("scan_id", "")
-        seen_scan_ids.append(str(raw) if raw is not None else "")
-        return iter([_scan_chunk()])
+        nonlocal call_index
+        call_index += 1
+        seen_scan_kwargs.append(kwargs.get("scan_id"))
+        fresh_id = f"fresh-scan-{call_index}"
+        seen_chunk_ids.append(fresh_id)
+        return iter([_scan_chunk(fresh_id)])
 
     with (
         patch("apme_engine.cli.remediate.discover_project_root", return_value=tmp_path),
@@ -2371,9 +2424,13 @@ def test_remediate_retry_resets_state_and_reuses_scan_id(tmp_path: Path, capsys:
         run_remediate(_rem_args(str(tmp_path), json=True, show_suppressed=True))
     doc = json.loads(capsys.readouterr().out)
     assert doc["remediation_summary"]["auto_fixable"] == 0
-    assert len(seen_scan_ids) == 2
-    assert seen_scan_ids[0] != ""
-    assert seen_scan_ids[0] == seen_scan_ids[1]
+    assert len(seen_scan_kwargs) == 2
+    # No shared scan_id is passed: each attempt lets yield_scan_chunks mint one.
+    assert seen_scan_kwargs[0] is None
+    assert seen_scan_kwargs[1] is None
+    assert len(seen_chunk_ids) == 2
+    assert seen_chunk_ids[0] != ""
+    assert seen_chunk_ids[0] != seen_chunk_ids[1]
 
 
 def test_write_patches_returns_written_count(tmp_path: Path) -> None:

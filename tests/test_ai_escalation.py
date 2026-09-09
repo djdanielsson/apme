@@ -624,3 +624,86 @@ class TestChatWithReconnectTransient:
             await provider._chat_with_reconnect("model", "prompt", {})
         assert mock_client.chat.call_count == 1
         mock_reconnect.assert_not_awaited()
+
+
+def _grpc_error(code: grpc.StatusCode, message: str = "rpc failed") -> grpc.aio.AioRpcError:
+    """Build an ``AioRpcError`` carrying the given status code.
+
+    Args:
+        code: gRPC status code for the fake failure.
+        message: Human-readable error details.
+
+    Returns:
+        Configured ``AioRpcError`` instance.
+    """
+    return grpc.aio.AioRpcError(
+        code,
+        grpc.aio.Metadata(),
+        grpc.aio.Metadata(),
+        message,
+        "debug",
+    )
+
+
+class TestChatWithReconnectGrpcCodes:
+    """Only transient gRPC codes retry; permanent codes fail fast."""
+
+    @pytest.mark.parametrize(
+        "code",
+        [
+            grpc.StatusCode.UNAVAILABLE,
+            grpc.StatusCode.DEADLINE_EXCEEDED,
+            grpc.StatusCode.RESOURCE_EXHAUSTED,
+            grpc.StatusCode.UNKNOWN,
+        ],
+    )
+    async def test_transient_grpc_codes_retry_once(self, code: grpc.StatusCode) -> None:
+        """Each transient gRPC code reconnects once then succeeds.
+
+        Args:
+            code: Transient status code under test.
+        """
+        mock_client: MagicMock = MagicMock()
+        mock_client.chat.side_effect = [_grpc_error(code), _ok_chunks()]
+        provider = _make_provider_with_client(mock_client)
+        with (
+            patch.object(provider, "reconnect", new_callable=AsyncMock) as mock_reconnect,
+            patch(
+                "apme_engine.remediation.abbenay_provider.asyncio.sleep",
+                new_callable=AsyncMock,
+            ),
+        ):
+            result = await provider._chat_with_reconnect("model", "prompt", {})
+        assert result == "fixed"
+        assert mock_client.chat.call_count == 2
+        mock_reconnect.assert_awaited_once()
+
+    @pytest.mark.parametrize(
+        "code",
+        [
+            grpc.StatusCode.UNAUTHENTICATED,
+            grpc.StatusCode.PERMISSION_DENIED,
+            grpc.StatusCode.NOT_FOUND,
+            grpc.StatusCode.INVALID_ARGUMENT,
+        ],
+    )
+    async def test_permanent_grpc_codes_fail_fast(self, code: grpc.StatusCode) -> None:
+        """Each permanent gRPC code raises immediately without reconnect.
+
+        Args:
+            code: Permanent status code under test.
+        """
+        mock_client: MagicMock = MagicMock()
+        mock_client.chat.side_effect = _grpc_error(code)
+        provider = _make_provider_with_client(mock_client)
+        with (
+            patch.object(provider, "reconnect", new_callable=AsyncMock) as mock_reconnect,
+            patch(
+                "apme_engine.remediation.abbenay_provider.asyncio.sleep",
+                new_callable=AsyncMock,
+            ),
+            pytest.raises(grpc.aio.AioRpcError),
+        ):
+            await provider._chat_with_reconnect("model", "prompt", {})
+        assert mock_client.chat.call_count == 1
+        mock_reconnect.assert_not_awaited()

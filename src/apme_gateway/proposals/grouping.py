@@ -8,10 +8,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from collections import deque
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 # Proto RemediationClass numeric values (apme.v1.common).
 _RC_AUTO_FIXABLE = 1
@@ -100,38 +103,125 @@ class _Bucket:
     key: str = ""
 
 
-def _to_int(value: object) -> int:
-    """Coerce JSON-ish line values to int, mapping unknowns to 0.
+def _to_int(value: object, default: int = 0) -> int:
+    """Coerce JSON-ish line values to int, mapping unknowns to default.
+
+    Clamps results at ``>= 0`` since line numbers and tiers are never
+    negative.
 
     Args:
         value: Raw line value (int, float, numeric string, bool, None, …).
+        default: Fallback when coercion fails.
 
     Returns:
-        Coerced integer, or 0 when not an int-like value.
+        Coerced integer clamped at ``>= 0``, or clamped ``default``.
     """
+    fallback = max(0, default)
     if isinstance(value, bool):
-        return 0
+        logger.debug("Falling back line/tier value %r to %r", value, fallback)
+        return fallback
     if isinstance(value, int):
+        if value < 0:
+            logger.debug("Clamping negative line/tier value %r to 0", value)
+            return 0
         return value
     if isinstance(value, float):
         if value.is_integer():
-            return int(value)
-        return 0
+            coerced = int(value)
+            if coerced < 0:
+                logger.debug("Clamping negative line/tier value %r to 0", value)
+                return 0
+            return coerced
+        logger.debug("Falling back line/tier value %r to %r", value, fallback)
+        return fallback
     if isinstance(value, str):
         text = value.strip()
         if not text:
-            return 0
+            logger.debug("Falling back line/tier value %r to %r", value, fallback)
+            return fallback
         try:
-            return int(text)
+            coerced_str = int(text)
+            if coerced_str < 0:
+                logger.debug("Clamping negative line/tier value %r to 0", value)
+                return 0
+            return coerced_str
         except ValueError:
             try:
                 parsed = float(text)
             except ValueError:
-                return 0
+                logger.debug("Falling back line/tier value %r to %r", value, fallback)
+                return fallback
             if parsed.is_integer():
-                return int(parsed)
-            return 0
-    return 0
+                coerced_float = int(parsed)
+                if coerced_float < 0:
+                    logger.debug("Clamping negative line/tier value %r to 0", value)
+                    return 0
+                return coerced_float
+            logger.debug("Falling back line/tier value %r to %r", value, fallback)
+            return fallback
+    if value is None:
+        logger.debug("Falling back line/tier value %r to %r", value, fallback)
+        return fallback
+    logger.debug("Falling back line/tier value %r to %r", value, fallback)
+    return fallback
+
+
+def _safe_float(value: object, default: float = 0.0) -> float:
+    """Coerce JSON-ish confidence values to float, clamped to 0..1.
+
+    Mirrors the draft stub coercion semantics so outcome overlays tolerate
+    numeric strings without raising.
+
+    Args:
+        value: Raw confidence value (int, float, numeric string, bool, None, …).
+        default: Fallback when coercion fails.
+
+    Returns:
+        Coerced float in ``[0.0, 1.0]``, or clamped ``default``.
+    """
+    clamped_default = min(1.0, max(0.0, default))
+    if isinstance(value, bool):
+        logger.debug("Falling back confidence value %r to %r", value, clamped_default)
+        return clamped_default
+    if isinstance(value, int):
+        coerced_int = float(value)
+        if coerced_int < 0.0:
+            logger.debug("Clamping confidence value %r to 0.0", value)
+            return 0.0
+        if coerced_int > 1.0:
+            logger.debug("Clamping confidence value %r to 1.0", value)
+            return 1.0
+        return coerced_int
+    if isinstance(value, float):
+        if value < 0.0:
+            logger.debug("Clamping confidence value %r to 0.0", value)
+            return 0.0
+        if value > 1.0:
+            logger.debug("Clamping confidence value %r to 1.0", value)
+            return 1.0
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            logger.debug("Falling back confidence value %r to %r", value, clamped_default)
+            return clamped_default
+        try:
+            coerced_str = float(text)
+        except ValueError:
+            logger.debug("Falling back confidence value %r to %r", value, clamped_default)
+            return clamped_default
+        if coerced_str < 0.0:
+            logger.debug("Clamping confidence value %r to 0.0", value)
+            return 0.0
+        if coerced_str > 1.0:
+            logger.debug("Clamping confidence value %r to 1.0", value)
+            return 1.0
+        return coerced_str
+    if value is None:
+        logger.debug("Falling back confidence value %r to %r", value, clamped_default)
+        return clamped_default
+    logger.debug("Falling back confidence value %r to %r", value, clamped_default)
+    return clamped_default
 
 
 def _as_mapping(v: object) -> Mapping[str, Any]:
@@ -471,8 +561,11 @@ def merge_outcomes(
         status = str(getattr(outcome, "status", "") or prop.status)
         if status == "rejected":
             status = "declined"
-        confidence = float(getattr(outcome, "confidence", prop.confidence) or 0.0)
-        tier = int(getattr(outcome, "tier", prop.tier) or prop.tier)
+        # Defensive coercion: outcomes may carry JSON-ish strings ("12", "0.9",
+        # "12.0"). _safe_float/_to_int fall back to the grouped value instead
+        # of raising and aborting the whole merge.
+        confidence = _safe_float(getattr(outcome, "confidence", prop.confidence), prop.confidence)
+        tier = _to_int(getattr(outcome, "tier", prop.tier), prop.tier)
         source = prop.source
         gate = prop.gate
         # Outcome tier wins: keep source/gate aligned with tier so analytics
@@ -500,7 +593,8 @@ def merge_outcomes(
                 file=prop.file,
                 path=prop.path,
                 line_start=prop.line_start,
-                line_end=int(getattr(outcome, "line_end", prop.line_end) or prop.line_end),
+                line_end=_to_int(getattr(outcome, "line_end", prop.line_end), prop.line_end)
+                or prop.line_end,
                 tier=tier or prop.tier,
                 source=source,
                 gate=gate,

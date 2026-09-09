@@ -190,7 +190,7 @@ async def find_project_by_repo_url(
     conditions = [Project.normalized_repo_url == target]
     if branch is not None:
         conditions.append(Project.branch == branch)
-    stmt = select(Project).where(*conditions).limit(1)
+    stmt = select(Project).where(*conditions).order_by(Project.id).limit(1)
     result = await db.execute(stmt)
     found = result.scalars().first()
     if found is not None:
@@ -204,7 +204,7 @@ async def find_project_by_repo_url(
     batch_size = 500
     offset = 0
     while True:
-        result = await db.execute(select(Project).where(*fallback).limit(batch_size).offset(offset))
+        result = await db.execute(select(Project).where(*fallback).order_by(Project.id).limit(batch_size).offset(offset))
         batch = list(result.scalars().all())
         if not batch:
             break
@@ -268,12 +268,22 @@ async def update_project(db: AsyncSession, project_id: str, **fields: str | None
         Updated Project or None if not found.
 
     Raises:
-        ValueError: If ``repo_url`` is explicitly ``None``.
+        ValueError: If ``repo_url`` is explicitly ``None``, empty, or blank.
     """
-    fields.pop("normalized_repo_url", None)
-    if "repo_url" in fields and fields["repo_url"] is None:
-        msg = "repo_url cannot be None"
-        raise ValueError(msg)
+    if "normalized_repo_url" in fields:
+        logger.warning(
+            "update_project: ignoring caller-supplied normalized_repo_url %r",
+            fields.get("normalized_repo_url"),
+        )
+        fields.pop("normalized_repo_url", None)
+    if "repo_url" in fields:
+        repo_value = fields["repo_url"]
+        if repo_value is None:
+            msg = "repo_url cannot be None"
+            raise ValueError(msg)
+        if isinstance(repo_value, str) and not normalize_repo_url(repo_value):
+            msg = "repo_url cannot be empty or blank"
+            raise ValueError(msg)
     project = await resolve_project(db, project_id)
     if project is None:
         return None

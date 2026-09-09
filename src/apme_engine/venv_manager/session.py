@@ -304,6 +304,10 @@ def _install_collections_via_proxy(
 
     Returns:
         List of collection specs that failed to install (empty on full success).
+
+    Raises:
+        PipInstallTimeout: If a pip/uv install stalls past its wall-clock
+            bound — fails fast instead of walking the fallback chain.
     """
     simple_url = proxy_url.rstrip("/") + "/simple/"
     pip_specs = [_spec_to_pip(s) for s in collection_specs]

@@ -18,6 +18,7 @@ import random
 from importlib.resources import files as pkg_files
 from pathlib import Path
 
+import grpc
 import grpc.aio
 import httpx
 import yaml
@@ -40,6 +41,19 @@ _CHAT_RETRY_BASE_S = 2.0
 _CHAT_RETRY_JITTER_S = 1.0
 #: Client-side bound for one streaming chat attempt.
 _CHAT_ATTEMPT_TIMEOUT_S = 300.0
+
+#: gRPC codes that may heal on reconnect and are safe to retry once.
+#: Permanent codes (UNAUTHENTICATED, PERMISSION_DENIED, NOT_FOUND,
+#: INVALID_ARGUMENT, and all other non-transient codes) fail fast
+#: without reconnect.
+_CHAT_TRANSIENT_CODES: frozenset[grpc.StatusCode] = frozenset(
+    {
+        grpc.StatusCode.UNAVAILABLE,
+        grpc.StatusCode.DEADLINE_EXCEEDED,
+        grpc.StatusCode.RESOURCE_EXHAUSTED,
+        grpc.StatusCode.UNKNOWN,
+    }
+)
 
 _BEST_PRACTICES: dict[str, list[str]] | None = None
 
@@ -786,7 +800,11 @@ class AbbenayProvider:
             httpx.ConnectError: If the retry attempt fails to connect.
             httpx.TimeoutException: If the retry attempt transport times out
                 (distinct from the attempt bound above).
-            grpc.aio.AioRpcError: If the retry attempt RPC fails.
+            grpc.aio.AioRpcError: If the retry attempt RPC fails with a
+                transient code, or immediately on the first attempt with a
+                permanent code (UNAUTHENTICATED, PERMISSION_DENIED,
+                NOT_FOUND, INVALID_ARGUMENT, and all other non-transient
+                codes fail fast without reconnect).
             AssertionError: If the retry loop exhausts without returning
                 (unreachable defense-in-depth).
             Exception: If the chat call fails for permanent
@@ -808,7 +826,21 @@ class AbbenayProvider:
                 # the same slow call. This must stay before the transient
                 # handler: builtin TimeoutError subclasses OSError.
                 raise
-            except (OSError, httpx.ConnectError, httpx.TimeoutException, grpc.aio.AioRpcError):
+            except grpc.aio.AioRpcError as exc:
+                # Only transient gRPC codes may heal on reconnect. Permanent
+                # codes (auth, not-found, invalid-argument, ...) fail fast
+                # without reconnect.
+                if exc.code() not in _CHAT_TRANSIENT_CODES:
+                    raise
+                if attempt > 0:
+                    raise
+                logger.debug("Chat transient gRPC failure, reconnecting to Abbenay and retrying")
+                # A failed reconnect must not mask the original error or
+                # consume the remaining attempt: suppress it and retry the
+                # chat anyway.
+                with contextlib.suppress(Exception):
+                    await self.reconnect()
+            except (OSError, httpx.ConnectError, httpx.TimeoutException):
                 if attempt > 0:
                     raise
                 logger.debug("Chat connection failed, reconnecting to Abbenay and retrying")

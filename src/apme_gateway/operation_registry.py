@@ -502,8 +502,10 @@ class OperationRegistry:
 
         Terminal broadcasts (``result`` / ``pr_created`` / terminal
         ``status_changed``) are must-deliver: when a slow subscriber's
-        queue is full, the oldest delta is dropped to make room instead of
-        evicting the subscriber and losing the terminal message.
+        queue is full, the oldest non-terminal delta is dropped to make
+        room instead of evicting the subscriber and losing the terminal
+        message. A queued terminal is evicted only when the queue holds
+        nothing else.
 
         Args:
             op: The operation state.
@@ -517,17 +519,28 @@ class OperationRegistry:
             try:
                 q.put_nowait(msg)
             except asyncio.QueueFull:
-                if terminal:
-                    with contextlib.suppress(asyncio.QueueEmpty):
-                        q.get_nowait()
-                    try:
-                        q.put_nowait(msg)
-                    except asyncio.QueueFull:
-                        dead.append(q)
-                        logger.warning("Dropping slow SSE subscriber for operation %s", op.operation_id[:12])
+                if not terminal:
+                    dead.append(q)
+                    logger.warning("Dropping slow SSE subscriber for operation %s", op.operation_id[:12])
                     continue
-                dead.append(q)
-                logger.warning("Dropping slow SSE subscriber for operation %s", op.operation_id[:12])
+                # Must-deliver terminal: drop oldest non-terminals first so
+                # a queued result (with patches) survives a trailing bare
+                # status. Drain synchronously with no await between get and
+                # put, so the re-queue below cannot raise QueueFull.
+                buffered: list[dict[str, Any]] = []
+                with contextlib.suppress(asyncio.QueueEmpty):
+                    while True:
+                        buffered.append(q.get_nowait())
+                while q.maxsize > 0 and len(buffered) >= q.maxsize:
+                    for index, item in enumerate(buffered):
+                        if not is_terminal(item):
+                            del buffered[index]
+                            break
+                    else:
+                        del buffered[0]
+                for item in buffered:
+                    q.put_nowait(item)
+                q.put_nowait(msg)
         for q in dead:
             with contextlib.suppress(ValueError):
                 op.sse_subscribers.remove(q)

@@ -166,10 +166,11 @@ class GalaxyClient:
             List of version strings from the first successful upstream.
 
         Raises:
-            httpx.HTTPStatusError: When the last attempted server returns an error status.
-            httpx.RequestError: When the last attempted server's request fails.
-            RuntimeError: When no Galaxy servers are configured, or when every
-                server's version listing was truncated at the page bound.
+            RuntimeError: When no Galaxy servers are configured, when every
+                server's version listing was truncated at the page bound, or
+                when every server failed (the last failure is chained via
+                ``__cause__`` so callers never see a bare
+                ``ValueError``/``KeyError`` from malformed payloads).
         """  # noqa: DOC503
         last_exc: Exception | None = None
         truncated = False
@@ -205,7 +206,8 @@ class GalaxyClient:
             )
             return versions
         if last_exc is not None:
-            raise last_exc
+            msg = f"Galaxy version listing failed for {namespace}.{name}: {last_exc}"
+            raise RuntimeError(msg) from last_exc
         if truncated:
             msg = f"Galaxy version listing truncated at {MAX_VERSION_PAGES} pages for {namespace}.{name}"
             raise RuntimeError(msg)

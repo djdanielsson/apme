@@ -6,13 +6,14 @@ through caller ``Authorization``. Inference (``GET /api/v1/ai/models`` and
 Abbenay chat) is **not** proxied — chat stays Engine → Abbenay gRPC.
 ``GET /api/v1/ai/engines`` proxies Abbenay's engine registry (read-only
 discovery path, ADR-070 amendment 2026-08-03).
-``POST /api/v1/ai/secrets`` and ``DELETE /api/v1/ai/secrets/{key}`` proxy
-Abbenay's secret store. Memory store: Abbenay ≥ v2026.8.5. File store:
-Abbenay ≥ v2026.8.6. Gateway does not persist keys and does not parse
-``secretStore`` (JSON body and query string are forwarded unchanged).
-``GET /api/v1/ai/secrets`` (secret listing) is **not** proxied: the Gateway
-has no caller authentication yet (#1), so unauthenticated secret-store reads
-are denied at the allowlist rather than relayed upstream.
+The Abbenay secret store (``GET/POST /api/v1/ai/secrets``,
+``DELETE /api/v1/ai/secrets/{key}``) is **not** proxied: the Gateway has
+no caller authentication yet (#1), so unauthenticated secret-store reads
+and writes are denied at the allowlist rather than relayed upstream. Reads
+were denied first (finding #11); writes follow the same rule because an
+unauthenticated client that can overwrite or delete secrets is a more
+severe exposure than listing them. Manage secrets directly against
+Abbenay until caller auth lands.
 """
 
 from __future__ import annotations
@@ -73,15 +74,17 @@ _RESPONSE_DROP: Final = frozenset(
 )
 
 # Admin-only path allowlist (decoded, no leading slash). Matches ADR-070 /
-# ABBENAY_AI.md — no chat/sessions/templates. ``secrets`` is excluded from
-# GET: secret-store listing must not be reachable through the currently
-# unauthenticated Gateway (finding #11; full caller auth is #1).
+# ABBENAY_AI.md — no chat/sessions/templates. The ``secrets`` store is
+# excluded from GET, POST, and DELETE alike: the whole secret-store
+# surface must not be reachable through the currently unauthenticated
+# Gateway (finding #11 for reads; writes denied by the same rule — an
+# unauthenticated client able to overwrite/delete secrets is the more
+# severe exposure. Full caller auth is #1).
 _GET_PATHS: Final = frozenset({"config", "engines", "providers"})
 _GET_PROVIDER_RE: Final = re.compile(r"^provider/[^/]+$")
-_POST_PATHS: Final = frozenset({"config", "secrets"})
+_POST_PATHS: Final = frozenset({"config"})
 _POST_CONFIGURE_RE: Final = re.compile(r"^provider/[^/]+/configure$")
 _DELETE_PROVIDER_RE: Final = re.compile(r"^provider/[^/]+$")
-_DELETE_SECRET_RE: Final = re.compile(r"^secrets/[^/]+$")
 
 router = APIRouter(prefix="/api/v1", tags=["abbenay-admin"])
 
@@ -177,7 +180,7 @@ def _method_allows_path(method: str, admin_path: str) -> bool:
     if method == "POST":
         return admin_path in _POST_PATHS or bool(_POST_CONFIGURE_RE.fullmatch(admin_path))
     if method == "DELETE":
-        return bool(_DELETE_PROVIDER_RE.fullmatch(admin_path)) or bool(_DELETE_SECRET_RE.fullmatch(admin_path))
+        return bool(_DELETE_PROVIDER_RE.fullmatch(admin_path))
     return False
 
 
@@ -250,8 +253,9 @@ async def proxy_abbenay_admin(path: str, request: Request) -> Response:
 
     Allowed (examples): ``GET/POST /ai/config``, ``GET /ai/engines``,
     ``GET /ai/providers``, ``POST /ai/provider/{id}/configure``,
-    ``DELETE /ai/provider/{id}``, ``POST /ai/secrets``,
-    ``DELETE /ai/secrets/{key}``. ``GET /ai/secrets`` (listing) is denied.
+    ``DELETE /ai/provider/{id}``. The secret store (``GET/POST
+    /ai/secrets``, ``DELETE /ai/secrets/{key}``) is denied: manage
+    secrets directly against Abbenay until Gateway caller auth (#1) lands.
     ``GET /api/v1/ai/models`` remains on the main router (Engine). Chat and
     other Abbenay surfaces are not proxied.
 

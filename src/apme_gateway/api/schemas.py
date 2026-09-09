@@ -468,7 +468,9 @@ class CreateProjectRequest(BaseModel):  # type: ignore[misc]
     Attributes:
         name: Display label.
         repo_url: HTTPS clone URL.
-        branch: Branch to clone (default main).
+        branch: Branch to clone (default main). 1-100 chars; letters,
+            digits, '.', '_', '/', '-'; must satisfy git check-ref-format
+            component rules. Invalid names fail with 422.
         scm_token: Per-project SCM token for PR creation (ADR-050).
         scm_provider: Explicit SCM provider type (ADR-050). Auto-detected if omitted.
     """
@@ -501,7 +503,9 @@ class CreateProjectRequest(BaseModel):  # type: ignore[misc]
         from apme_gateway.scm.urls import validate_branch_name  # noqa: PLC0415
 
         validated = validate_branch_name(v)
-        assert validated is not None
+        if validated is None:
+            msg = "branch name validation returned None"
+            raise ValueError(msg)
         return validated
 
 

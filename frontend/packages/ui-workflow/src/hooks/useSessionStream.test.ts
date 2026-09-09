@@ -327,4 +327,305 @@ describe("useSessionStream hardening", () => {
       unmount();
     }
   });
+
+  it("accepts explicit-null line fields (Python None) and normalizes to 0", async () => {
+    const { result, unmount } = await startSessionWithSocket();
+    try {
+      sendMsg(lastSocket(), {
+        type: "session_created",
+        session_id: "sess-1",
+        scan_id: "scan-1",
+      });
+      sendMsg(lastSocket(), validTier1());
+      sendMsg(lastSocket(), {
+        type: "proposals",
+        proposals: [
+          { ...proposalBase(), line_start: null, line_end: null },
+          { ...proposalBase(), id: "p2", line_start: null, line_end: 7 },
+        ],
+      });
+
+      expect(result.current.error).toBeNull();
+      expect(result.current.status).toBe("awaiting_approval");
+      expect(result.current.proposals).toHaveLength(2);
+      expect(result.current.proposals[0]?.line_start).toBe(0);
+      expect(result.current.proposals[0]?.line_end).toBe(0);
+      expect(result.current.proposals[1]?.line_start).toBe(0);
+      expect(result.current.proposals[1]?.line_end).toBe(7);
+    } finally {
+      unmount();
+    }
+  });
+
+  it("accepts patches omitting applied_rules and normalizes to []", async () => {
+    const { result, unmount } = await startSessionWithSocket();
+    try {
+      const ws = lastSocket();
+      sendMsg(ws, {
+        type: "session_created",
+        session_id: "sess-1",
+        scan_id: "scan-1",
+      });
+      // Old servers omit applied_rules on tier1_complete patches.
+      sendMsg(ws, {
+        type: "tier1_complete",
+        idempotency_ok: true,
+        patches: [{ file: "site.yml", diff: "@@ -1 +1 @@" }],
+        format_diffs: [],
+        report: null,
+      });
+
+      expect(result.current.error).toBeNull();
+      expect(result.current.status).toBe("tier1_done");
+      expect(result.current.tier1?.patches).toHaveLength(1);
+      expect(result.current.tier1?.patches[0]?.applied_rules).toEqual([]);
+
+      sendMsg(ws, {
+        type: "proposals",
+        proposals: [{ ...proposalBase(), line_start: 1, line_end: 2 }],
+      });
+      // Old servers omit applied_rules on terminal result patches too.
+      sendMsg(ws, {
+        type: "result",
+        scan_id: "scan-1",
+        patches: [{ file: "site.yml", diff: "@@ -1 +1 @@" }],
+        report: null,
+        remaining_violations: [],
+      });
+
+      expect(result.current.error).toBeNull();
+      expect(result.current.status).toBe("complete");
+      expect(result.current.result?.patches).toHaveLength(1);
+      expect(result.current.result?.patches[0]?.applied_rules).toEqual([]);
+    } finally {
+      unmount();
+    }
+  });
+
+  it("malformed proposals clears a previously accepted stale set", async () => {
+    const { result, unmount } = await startSessionWithSocket();
+    try {
+      const ws = lastSocket();
+      sendMsg(ws, {
+        type: "session_created",
+        session_id: "sess-1",
+        scan_id: "scan-1",
+      });
+      sendMsg(ws, validTier1());
+      sendMsg(ws, {
+        type: "proposals",
+        proposals: [{ ...proposalBase(), line_start: 1, line_end: 2 }],
+      });
+      expect(result.current.status).toBe("awaiting_approval");
+      expect(result.current.proposals).toHaveLength(1);
+
+      sendMsg(ws, { type: "proposals", proposals: [{ id: 123 }] });
+
+      // Approving the stale set must be impossible.
+      expect(result.current.proposals).toHaveLength(0);
+      expect(result.current.error).toBe(
+        "Received malformed proposals from server",
+      );
+      expect(ws.close).not.toHaveBeenCalled();
+    } finally {
+      unmount();
+    }
+  });
+
+  it("ignores a second same-type malformed frame after taint (no re-error)", async () => {
+    const { result, unmount } = await startSessionWithSocket();
+    try {
+      const ws = lastSocket();
+      sendMsg(ws, {
+        type: "session_created",
+        session_id: "sess-1",
+        scan_id: "scan-1",
+      });
+      sendMsg(ws, validTier1());
+      sendMsg(ws, {
+        type: "proposals",
+        proposals: [{ ...proposalBase(), line_start: 1, line_end: 2 }],
+      });
+
+      // First malformed frame: surfaces and clears the stale set.
+      sendMsg(ws, { type: "proposals", proposals: [{ id: 123 }] });
+      expect(result.current.error).toBe(
+        "Received malformed proposals from server",
+      );
+      expect(result.current.proposals).toHaveLength(0);
+
+      // Server recovers with a valid set.
+      sendMsg(ws, {
+        type: "proposals",
+        proposals: [{ ...proposalBase(), line_start: 1, line_end: 2 }],
+      });
+      expect(result.current.status).toBe("awaiting_approval");
+      expect(result.current.proposals).toHaveLength(1);
+
+      // Second same-type malformed frame is tainted: fully ignored — no
+      // re-error, valid set intact, socket kept open.
+      sendMsg(ws, { type: "proposals", proposals: [{ id: 456 }] });
+      expect(result.current.error).toBe(
+        "Received malformed proposals from server",
+      );
+      expect(result.current.proposals).toHaveLength(1);
+      expect(result.current.status).toBe("awaiting_approval");
+      expect(ws.close).not.toHaveBeenCalled();
+    } finally {
+      unmount();
+    }
+  });
+
+  it("routes JSON.parse failures into the malformed path without closing", async () => {
+    const { result, unmount } = await startSessionWithSocket();
+    try {
+      const ws = lastSocket();
+      sendMsg(ws, {
+        type: "session_created",
+        session_id: "sess-1",
+        scan_id: "scan-1",
+      });
+      sendMsg(ws, validTier1());
+      expect(result.current.status).toBe("tier1_done");
+
+      act(() => {
+        ws.onmessage?.({ data: "{not-json" });
+      });
+
+      expect(result.current.error).toBe(
+        "Received malformed message from server",
+      );
+      // Non-terminal: resume material survives and the socket stays open.
+      expect(sessionStorage.getItem(STORAGE_KEY)).not.toBeNull();
+      expect(ws.close).not.toHaveBeenCalled();
+      expect(result.current.canReconnect).toBe(true);
+      expect(result.current.status).toBe("disconnected");
+    } finally {
+      unmount();
+    }
+  });
+
+  it("routes non-record JSON into the malformed path", async () => {
+    const { result, unmount } = await startSessionWithSocket();
+    try {
+      const ws = lastSocket();
+      sendMsg(ws, {
+        type: "session_created",
+        session_id: "sess-1",
+        scan_id: "scan-1",
+      });
+
+      act(() => {
+        ws.onmessage?.({ data: "[1,2]" });
+      });
+
+      expect(result.current.error).toBe(
+        "Received malformed message from server",
+      );
+      expect(ws.close).not.toHaveBeenCalled();
+    } finally {
+      unmount();
+    }
+  });
+
+  it("taint is per-type: a different malformed type still surfaces", async () => {
+    const { result, unmount } = await startSessionWithSocket();
+    try {
+      const ws = lastSocket();
+      sendMsg(ws, {
+        type: "session_created",
+        session_id: "sess-1",
+        scan_id: "scan-1",
+      });
+      sendMsg(ws, validTier1());
+
+      act(() => {
+        ws.onmessage?.({ data: "{not-json" });
+      });
+      expect(result.current.error).toBe(
+        "Received malformed message from server",
+      );
+
+      sendMsg(ws, { type: "proposals", proposals: [{ id: 123 }] });
+      expect(result.current.error).toBe(
+        "Received malformed proposals from server",
+      );
+    } finally {
+      unmount();
+    }
+  });
+
+  function seedPersistedSession(): void {
+    sessionStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        sessionId: "dead-sess",
+        scanId: "scan-9",
+        timestamp: Date.now(),
+        ttlSeconds: 1800,
+      }),
+    );
+  }
+
+  async function resumeToChecking() {
+    const hook = renderHook(() => useSessionStream());
+    act(() => {
+      hook.result.current.resumeSession("dead-sess", "scan-9");
+    });
+    const ws = lastSocket();
+    expect(ws.url).toContain("resume=dead-sess");
+    act(() => {
+      ws.onopen?.(new Event("open"));
+    });
+    expect(hook.result.current.status).toBe("checking");
+    return { hook, ws };
+  }
+
+  it("resume socket error before session_created clears the persisted session", async () => {
+    seedPersistedSession();
+    const { hook, ws } = await resumeToChecking();
+    try {
+      act(() => {
+        ws.onerror?.();
+      });
+
+      expect(sessionStorage.getItem(STORAGE_KEY)).toBeNull();
+      expect(hook.result.current.status).toBe("error");
+      expect(hook.result.current.error).toBe("WebSocket connection error");
+    } finally {
+      hook.unmount();
+    }
+  });
+
+  it("resume error event before session_created clears the persisted session", async () => {
+    seedPersistedSession();
+    const { hook, ws } = await resumeToChecking();
+    try {
+      sendMsg(ws, { type: "error", message: "session not found" });
+
+      expect(sessionStorage.getItem(STORAGE_KEY)).toBeNull();
+      expect(hook.result.current.status).toBe("error");
+      expect(hook.result.current.error).toBe("session not found");
+    } finally {
+      hook.unmount();
+    }
+  });
+
+  it("resume clean close before session_created clears storage and surfaces", async () => {
+    seedPersistedSession();
+    const { hook, ws } = await resumeToChecking();
+    try {
+      act(() => {
+        ws.onclose?.({ code: 1000 });
+      });
+
+      expect(sessionStorage.getItem(STORAGE_KEY)).toBeNull();
+      expect(hook.result.current.status).toBe("error");
+      expect(hook.result.current.error).toBe(
+        "Connection closed unexpectedly",
+      );
+    } finally {
+      hook.unmount();
+    }
+  });
 });

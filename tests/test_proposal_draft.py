@@ -923,3 +923,163 @@ async def test_upsert_live_stubs_chunks_large_preload() -> None:
         assert len(rows) == count
         stored = list((await db.execute(select(Proposal).where(Proposal.scan_id == "scan-chunk"))).scalars().all())
         assert len(stored) == count
+
+
+def test_chunk_reserves_scan_id_bind() -> None:
+    """Per-query budget keeps 2N + scan_id within the IN-clause limit."""
+    chunk = 900
+    per_query = max(1, (chunk - 1) // 2)
+    assert per_query == 449
+    assert per_query * 2 + 1 <= chunk
+    # Old // 2 math forgot scan_id == and exceeded the budget.
+    assert (chunk // 2) * 2 + 1 > chunk
+
+
+def test_draft_coercers_clamp() -> None:
+    """Negative lines/tiers clamp to 0 and confidence clamps to 0..1."""
+    from apme_gateway.proposals.draft import _safe_float, _safe_int
+
+    assert _safe_int(-5, 7) == 0
+    assert _safe_int("-5", 7) == 0
+    assert _safe_int("abc", 7) == 7
+    assert _safe_float(1.5, 0.0) == 1.0
+    assert _safe_float(-0.5, 0.7) == 0.0
+    assert _safe_float("abc", 0.7) == 0.7
+
+
+@pytest.mark.asyncio  # type: ignore[untyped-decorator]
+async def test_upsert_explicit_zero_clears_and_blank_preserves() -> None:
+    """Numeric 0 is explicit (clears); None/blank preserves stored values."""
+    scan_id = "scan-explicit-zero"
+    async with get_session() as db:
+        rows = await upsert_live_proposal_stubs(
+            db,
+            scan_id=scan_id,
+            project_id=None,
+            proposals=[
+                {
+                    "id": "eng-zero",
+                    "rule_id": "L007",
+                    "file": "a.yml",
+                    "tier": 1,
+                    "status": "pending",
+                    "source": "deterministic",
+                    "line_start": 10,
+                    "line_end": 14,
+                    "confidence": 0.8,
+                }
+            ],
+        )
+        await db.commit()
+        assert rows[0].confidence == 0.8
+
+        # Explicit numeric 0 clears stale values.
+        rows = await upsert_live_proposal_stubs(
+            db,
+            scan_id=scan_id,
+            project_id=None,
+            proposals=[
+                {
+                    "id": "eng-zero",
+                    "rule_id": "L007",
+                    "file": "a.yml",
+                    "tier": 0,
+                    "status": "pending",
+                    "source": "deterministic",
+                    "line_start": 0,
+                    "line_end": 0,
+                    "confidence": 0,
+                }
+            ],
+        )
+        await db.commit()
+        assert rows[0].line_start == 0
+        assert rows[0].line_end == 0
+        assert rows[0].confidence == 0.0
+        assert rows[0].tier == 0
+
+    async with get_session() as db:
+        rows = await upsert_live_proposal_stubs(
+            db,
+            scan_id="scan-blank-preserve",
+            project_id=None,
+            proposals=[
+                {
+                    "id": "eng-blank",
+                    "rule_id": "L007",
+                    "file": "a.yml",
+                    "tier": 1,
+                    "status": "pending",
+                    "source": "deterministic",
+                    "line_start": 10,
+                    "line_end": 14,
+                    "confidence": 0.8,
+                }
+            ],
+        )
+        await db.commit()
+        rows = await upsert_live_proposal_stubs(
+            db,
+            scan_id="scan-blank-preserve",
+            project_id=None,
+            proposals=[
+                {
+                    "id": "eng-blank",
+                    "rule_id": "L007",
+                    "file": "a.yml",
+                    "tier": "",
+                    "status": "pending",
+                    "source": "deterministic",
+                    "line_start": "",
+                    "line_end": "",
+                    "confidence": "",
+                }
+            ],
+        )
+        await db.commit()
+        assert rows[0].line_start == 10
+        assert rows[0].line_end == 14
+        assert rows[0].confidence == 0.8
+        assert rows[0].tier == 1
+
+
+@pytest.mark.asyncio  # type: ignore[untyped-decorator]
+async def test_upsert_string_zero_confidence_is_explicit() -> None:
+    """String '0' confidence is explicit and clears to 0.0."""
+    scan_id = "scan-str-zero"
+    async with get_session() as db:
+        await upsert_live_proposal_stubs(
+            db,
+            scan_id=scan_id,
+            project_id=None,
+            proposals=[
+                {
+                    "id": "eng-szero",
+                    "rule_id": "L007",
+                    "file": "a.yml",
+                    "tier": 1,
+                    "status": "pending",
+                    "source": "deterministic",
+                    "confidence": 0.8,
+                }
+            ],
+        )
+        await db.commit()
+        rows = await upsert_live_proposal_stubs(
+            db,
+            scan_id=scan_id,
+            project_id=None,
+            proposals=[
+                {
+                    "id": "eng-szero",
+                    "rule_id": "L007",
+                    "file": "a.yml",
+                    "tier": 1,
+                    "status": "pending",
+                    "source": "deterministic",
+                    "confidence": "0",
+                }
+            ],
+        )
+        await db.commit()
+        assert rows[0].confidence == 0.0

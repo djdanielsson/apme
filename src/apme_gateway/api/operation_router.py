@@ -13,7 +13,7 @@ import json
 import logging
 import time
 import uuid
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -812,7 +812,12 @@ async def operation_events(project_id: str, request: Request) -> StreamingRespon
     if queue is None:
         raise HTTPException(status_code=404, detail="Operation not found")
 
-    async def _event_stream() -> Any:
+    async def _event_stream() -> AsyncIterator[str]:
+        """Yield snapshot then delta events until terminal or disconnect.
+
+        Yields:
+            SSE-formatted message strings.
+        """
         try:
             snapshot = state.to_snapshot()
             yield _sse_format("snapshot", snapshot)
@@ -820,18 +825,18 @@ async def operation_events(project_id: str, request: Request) -> StreamingRespon
             if state.status in TERMINAL_STATUSES:
                 # The snapshot already reflects the full current state, so
                 # buffered pre-snapshot deltas are stale: discard non-terminal
-                # ones and forward only terminal messages (last terminal wins
-                # when several are queued, e.g. status_changed plus a trailing
-                # result carrying patches/violations).
-                terminal_msg: dict[str, object] | None = None
+                # ones and forward all terminal messages in order (production
+                # order is result-with-patches then bare status_changed, so
+                # last-wins would drop the patches).
+                terminal_msgs: list[dict[str, object]] = []
                 with contextlib.suppress(asyncio.QueueEmpty):
                     while True:
                         pending = queue.get_nowait()
                         if pending.get("_close"):
                             break
                         if is_terminal(pending):
-                            terminal_msg = pending
-                if terminal_msg is not None:
+                            terminal_msgs.append(pending)
+                for terminal_msg in terminal_msgs:
                     terminal_event = terminal_msg.get("event", "message")
                     if not isinstance(terminal_event, str):
                         terminal_event = "message"

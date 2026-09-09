@@ -251,12 +251,16 @@ async def test_get_secrets_not_proxied(app_client: AsyncClient) -> None:
 
 @pytest.mark.parametrize("secret_store", ["memory", "file"])  # type: ignore[untyped-decorator]
 @pytest.mark.asyncio  # type: ignore[untyped-decorator]
-async def test_post_secrets_proxied(app_client: AsyncClient, secret_store: str) -> None:
-    """POST /api/v1/ai/secrets forwards JSON including secretStore unchanged.
+async def test_post_secrets_not_proxied(app_client: AsyncClient, secret_store: str) -> None:
+    """POST /api/v1/ai/secrets is denied (no unauthenticated secret writes).
+
+    Reads were denied first (finding #11); writes follow the same rule
+    because an unauthenticated client able to overwrite secrets is the
+    more severe exposure. Manage secrets directly against Abbenay (#1).
 
     Args:
         app_client: Async HTTP test client.
-        secret_store: Abbenay store name forwarded as-is (``memory`` or ``file``).
+        secret_store: Abbenay store name (``memory`` or ``file``).
     """
     client = _mock_upstream(content=b'{"ok":true}')
     body = {
@@ -271,51 +275,23 @@ async def test_post_secrets_proxied(app_client: AsyncClient, secret_store: str) 
             headers={"Cookie": "session=caller-cookie"},
         )
 
-    assert resp.status_code == 200
-    assert client.request.await_args is not None
-    assert client.request.await_args.args[1] == "http://127.0.0.1:8787/api/secrets"
-    assert client.request.await_args.kwargs["headers"]["Authorization"] == "Bearer admin-http-token"
-    assert "Cookie" not in client.request.await_args.kwargs["headers"]
-    content = client.request.await_args.kwargs.get("content") or b""
-    assert b"sk-or-test" in content
-    assert b"secretStore" in content
-    assert secret_store.encode() in content
+    assert resp.status_code == 404
+    client.request.assert_not_awaited()
 
 
-@pytest.mark.parametrize(  # type: ignore[untyped-decorator]
-    ("query", "expected_suffix"),
-    [
-        ("", ""),
-        ("secretStore=memory", "?secretStore=memory"),
-        ("secretStore=file", "?secretStore=file"),
-    ],
-)
 @pytest.mark.asyncio  # type: ignore[untyped-decorator]
-async def test_delete_secret_by_key_proxied(
-    app_client: AsyncClient,
-    query: str,
-    expected_suffix: str,
-) -> None:
-    """DELETE /api/v1/ai/secrets/{key} forwards secretStore query unchanged.
+async def test_delete_secret_by_key_not_proxied(app_client: AsyncClient) -> None:
+    """DELETE /api/v1/ai/secrets/{key} is denied (no unauthenticated deletes).
 
     Args:
         app_client: Async HTTP test client.
-        query: Raw query string (empty, or ``secretStore=…``).
-        expected_suffix: Expected ``?…`` suffix on the upstream URL.
     """
     client = _mock_upstream(content=b'{"deleted":true}')
-    path = "/api/v1/ai/secrets/OPENROUTER_API_KEY"
-    if query:
-        path = f"{path}?{query}"
     with patch("apme_gateway.api.abbenay_proxy.httpx.AsyncClient", return_value=client):
-        resp = await app_client.delete(path)
+        resp = await app_client.delete("/api/v1/ai/secrets/OPENROUTER_API_KEY?secretStore=memory")
 
-    assert resp.status_code == 200
-    assert client.request.await_args is not None
-    assert client.request.await_args.args[1] == (
-        f"http://127.0.0.1:8787/api/secrets/OPENROUTER_API_KEY{expected_suffix}"
-    )
-    assert client.request.await_args.kwargs["headers"]["Authorization"] == "Bearer admin-http-token"
+    assert resp.status_code == 404
+    client.request.assert_not_awaited()
 
 
 @pytest.mark.asyncio  # type: ignore[untyped-decorator]

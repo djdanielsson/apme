@@ -412,6 +412,120 @@ async def test_events_live_delta_then_terminal_close() -> None:
     assert registry.get(state.operation_id).sse_subscribers == []  # type: ignore[union-attr]
 
 
+async def test_events_snapshot_drain_forwards_all_terminals_in_order() -> None:
+    """Snapshot drain forwards queued result-then-status in order with patches intact."""
+    project_id = "proj-lifecycle-events-snapshot-all-terminals"
+    registry = get_operation_registry()
+    state = registry.create(
+        operation_id="op-lifecycle-events-snapshot-all-terminals",
+        project_id=project_id,
+        scan_id="scan-lifecycle-events-snapshot-all-terminals",
+        scan_type="remediate",
+    )
+    registry.transition(state.operation_id, OperationStatus.COMPLETED)
+
+    resp = await operation_events(project_id, _canned_request())
+    stream = resp.body_iterator
+    first = await anext(stream)
+    first_text = first if isinstance(first, str) else bytes(first).decode()
+    assert "event: snapshot" in first_text
+
+    # Production order is RESULT-with-patches THEN bare status_changed;
+    # last-wins would drop the patches.
+    state.sse_subscribers[0].put_nowait(
+        {
+            "event": "progress",
+            "data": {"phase": "scanning", "message": "stale-snapshot-marker"},
+        }
+    )
+    state.sse_subscribers[0].put_nowait(
+        {
+            "event": "result",
+            "data": {"total_violations": 1, "patches": [{"file": "d.yml", "diff": "--- keep-patches"}]},
+        }
+    )
+    state.sse_subscribers[0].put_nowait(
+        {
+            "event": "status_changed",
+            "data": {"status": OperationStatus.COMPLETED.value, "previous": "applying"},
+        }
+    )
+    rest: list[str] = []
+    async with asyncio.timeout(10):
+        async for chunk in stream:
+            rest.append(chunk if isinstance(chunk, str) else bytes(chunk).decode())
+
+    text = "".join(rest)
+    assert "stale-snapshot-marker" not in text
+    assert "event: result" in text
+    assert "keep-patches" in text
+    assert "event: status_changed" in text
+    assert OperationStatus.COMPLETED.value in text
+    assert text.index("event: result") < text.index("event: status_changed")
+
+
+async def test_broadcast_eviction_preserves_queued_terminal_result() -> None:
+    """Must-deliver eviction drops oldest non-terminal first, preserving result."""
+    project_id = "proj-lifecycle-events-evict-terminal"
+    registry = get_operation_registry()
+    state = registry.create(
+        operation_id="op-lifecycle-events-evict-terminal",
+        project_id=project_id,
+        scan_id="scan-lifecycle-events-evict-terminal",
+        scan_type="remediate",
+    )
+    registry.transition(state.operation_id, OperationStatus.SCANNING)
+    queue = registry.subscribe(state.operation_id)
+    assert queue is not None
+    assert queue.empty()
+
+    queue.put_nowait(
+        {
+            "event": "result",
+            "data": {"total_violations": 1, "patches": [{"file": "e.yml", "diff": "--- keep-evicted"}]},
+        }
+    )
+    for index in range(queue.maxsize - 1):
+        queue.put_nowait(
+            {
+                "event": "progress",
+                "data": {"phase": "scanning", "message": f"evict-progress-{index}"},
+            }
+        )
+    assert queue.full()
+
+    # Terminal bare status must make room by dropping a progress delta,
+    # not the queued result carrying patches.
+    registry.transition(state.operation_id, OperationStatus.COMPLETED)
+
+    drained: list[dict[str, object]] = []
+    with contextlib.suppress(asyncio.QueueEmpty):
+        while True:
+            drained.append(queue.get_nowait())
+
+    assert len(drained) == queue.maxsize
+    assert drained[0].get("event") == "result"
+    results = [item for item in drained if item.get("event") == "result"]
+    assert len(results) == 1
+    result_data = results[0].get("data")
+    assert isinstance(result_data, dict)
+    patches = result_data.get("patches")
+    assert isinstance(patches, list)
+    assert any("keep-evicted" in str(patch) for patch in patches)
+    statuses = [
+        item
+        for item in drained
+        if item.get("event") == "status_changed"
+        and isinstance(item.get("data"), dict)
+        and item.get("data").get("status") == OperationStatus.COMPLETED.value  # type: ignore[union-attr]
+    ]
+    assert len(statuses) == 1
+    flat = "".join(str(item) for item in drained)
+    assert "evict-progress-0" not in flat
+    assert "evict-progress-1" in flat
+    assert queue in state.sse_subscribers
+
+
 async def test_events_keepalive_on_queue_timeout(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -676,13 +676,50 @@ class TestGalaxyClientTruncation:
                     "_list_versions_from",
                     AsyncMock(return_value=None),
                 ),
-                pytest.raises(RuntimeError, match="truncated"),
+                pytest.raises(RuntimeError, match="truncated") as excinfo,
             ):
                 asyncio.run(client.list_versions("ansible", "posix"))
         finally:
             asyncio.run(client.close())
 
         assert MAX_VERSION_PAGES > 0
+        assert "truncated" in str(excinfo.value)
+        # Pure truncation has no chained per-server failure to report.
+        assert excinfo.value.__cause__ is None
+
+    @pytest.mark.parametrize("payload_error", [ValueError("bad json"), KeyError("version")])
+    def test_list_versions_exhaustion_wraps_payload_errors_with_cause(
+        self, payload_error: Exception
+    ) -> None:
+        """Exhausted listings surface as RuntimeError chained from the payload error.
+
+        Callers must never see a bare ``ValueError``/``KeyError`` from a
+        malformed Galaxy payload; the last failure is chained via
+        ``__cause__``.
+
+        Args:
+            payload_error: Malformed-payload error raised by the fake server.
+        """
+        import asyncio
+
+        from galaxy_proxy.galaxy_client import GalaxyClient, GalaxyServer
+
+        client = GalaxyClient(servers=[GalaxyServer(url="https://galaxy.example.com")])
+        try:
+            with (
+                patch.object(
+                    GalaxyClient,
+                    "_list_versions_from",
+                    AsyncMock(side_effect=payload_error),
+                ),
+                pytest.raises(RuntimeError, match="failed") as excinfo,
+            ):
+                asyncio.run(client.list_versions("ansible", "posix"))
+        finally:
+            asyncio.run(client.close())
+
+        assert isinstance(excinfo.value.__cause__, type(payload_error))
+        assert str(excinfo.value.__cause__) == str(payload_error)
 
     @pytest.mark.parametrize(  # type: ignore[untyped-decorator]
         ("raw_url", "expected"),

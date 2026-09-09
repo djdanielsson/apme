@@ -395,6 +395,68 @@ async def test_session_proposals_forwarded() -> None:
 
 
 @pytest.mark.asyncio  # type: ignore[untyped-decorator]
+async def test_session_proposals_include_node_type() -> None:
+    """WS proposals payload includes node_type like REST/SSE/registry."""
+    created = _make_created_event()
+    proposals = _make_proposals_event(
+        [
+            {
+                "id": "p1",
+                "file": "tasks/main.yml",
+                "rule_id": "L042",
+                "line_start": 10,
+                "line_end": 15,
+                "before_text": "old",
+                "after_text": "new",
+                "diff_hunk": "- old\n+ new",
+                "confidence": 0.85,
+                "explanation": "Use FQCN",
+                "tier": 2,
+                "status": "proposed",
+                "source": "ai",
+                "suggestion": "",
+                "path": "play.tasks[0]",
+                "node_type": "task",
+            },
+        ]
+    )
+    result = _make_result_event()
+    closed = _make_closed_event()
+    mock_stream = _mock_fix_stream(created, proposals, result, closed)
+
+    file_content = base64.b64encode(b"---\n- hosts: all\n").decode()
+    ws = MockWebSocket(
+        [
+            {"type": "start", "options": {"enable_ai": True}},
+            {"type": "file", "path": "tasks/main.yml", "content": file_content},
+            {"type": "files_done"},
+        ]
+    )
+
+    with (
+        patch("apme_gateway.session_client.grpc.aio.insecure_channel") as mock_ch_fn,
+        patch("apme_gateway.session_client.engine_pb2_grpc.EngineStub") as mock_stub_cls,
+    ):
+        mock_ch = AsyncMock()
+        mock_ch_fn.return_value = mock_ch
+        mock_stub = MagicMock()
+        mock_stub.FixSession.return_value = mock_stream
+        mock_stub_cls.return_value = mock_stub
+
+        from apme_gateway.session_client import handle_session
+
+        await handle_session(ws, "localhost:50051")
+
+    proposal_msgs = [m for m in ws.sent if m["type"] == "proposals"]
+    assert len(proposal_msgs) == 1
+    raw = proposal_msgs[0]["proposals"]
+    assert isinstance(raw, list)
+    proposals_list = raw
+    assert len(proposals_list) == 1
+    assert proposals_list[0]["node_type"] == "task"
+
+
+@pytest.mark.asyncio  # type: ignore[untyped-decorator]
 async def test_path_traversal_rejected() -> None:
     """Files with ``..`` in the path are rejected."""
     from apme_gateway.session_client import _sanitize_path

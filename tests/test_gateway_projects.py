@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from unittest.mock import patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from pydantic import ValidationError
 
 from apme_gateway.api.schemas import CreateProjectRequest, UpdateProjectRequest
 from apme_gateway.app import create_app
@@ -736,3 +738,79 @@ def test_project_branch_fields_expose_max_length() -> None:
     branch_anyof = update_schema.get("anyOf", [])
     assert any(option.get("maxLength") == 100 for option in branch_anyof)
     assert "1-100 chars" in (update_schema.get("description") or "")
+
+
+async def test_update_project_rejects_blank_repo_url() -> None:
+    """Blank repo_url is rejected before colliding with the legacy sentinel."""
+    async with get_session() as db:
+        await q.create_project(
+            db,
+            project_id="proj-blank",
+            name="Blank Project",
+            repo_url="https://github.com/org/repo.git",
+        )
+        with pytest.raises(ValueError, match="repo_url"):
+            await q.update_project(db, "proj-blank", repo_url="")
+        with pytest.raises(ValueError, match="repo_url"):
+            await q.update_project(db, "proj-blank", repo_url="   ")
+
+
+async def test_find_project_by_repo_url_deterministic_order() -> None:
+    """Duplicate normalized URLs resolve to the smallest id deterministically."""
+    async with get_session() as db:
+        await q.create_project(
+            db,
+            project_id="zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+            name="Dup Z Project",
+            repo_url="https://github.com/org/dup.git",
+        )
+        await q.create_project(
+            db,
+            project_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            name="Dup A Project",
+            repo_url="https://github.com/org/dup.git",
+        )
+        first = await q.find_project_by_repo_url(db, "https://github.com/org/dup")
+        second = await q.find_project_by_repo_url(db, "https://github.com/org/dup")
+        assert first is not None
+        assert second is not None
+        assert first.id == "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        assert second.id == first.id
+
+
+async def test_update_project_warns_on_normalized_url_pop(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Caller-supplied normalized_repo_url is popped with a warning.
+
+    Args:
+        caplog: Pytest log capture fixture.
+    """
+    async with get_session() as db:
+        await q.create_project(
+            db,
+            project_id="proj-warn",
+            name="Warn Project",
+            repo_url="https://github.com/org/old.git",
+        )
+        with caplog.at_level("WARNING", logger="apme_gateway.db.queries"):
+            updated = await q.update_project(
+                db,
+                "proj-warn",
+                repo_url="https://github.com/org/new.git",
+                normalized_repo_url="https://evil.example.com/spoof",
+            )
+        assert updated is not None
+        assert updated.normalized_repo_url == normalize_repo_url("https://github.com/org/new.git")
+        assert any("normalized_repo_url" in record.message for record in caplog.records)
+
+
+def test_create_project_branch_validator_rejects_none_result() -> None:
+    """None-result guard raises ValueError (surfaces as 422, survives -O)."""
+    with patch("apme_gateway.scm.urls.validate_branch_name", return_value=None):
+        with pytest.raises(ValidationError):
+            CreateProjectRequest(
+                name="None Guard",
+                repo_url="https://github.com/org/repo.git",
+                branch="main",
+            )

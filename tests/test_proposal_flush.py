@@ -501,3 +501,176 @@ class TestLineEndMapping:
         detail = ProposalDetail.model_validate(payload)
         assert detail.line_start == 10
         assert detail.line_end == 14
+
+
+def test_proposal_detail_dict_coerces_string_lines() -> None:
+    """Duck-typed string spans coerce instead of raising."""
+    from types import SimpleNamespace
+
+    from apme_gateway.proposals.flush import proposal_to_detail_dict
+
+    good = SimpleNamespace(
+        proposal_id="p-1",
+        rule_id="L007",
+        file="a.yml",
+        tier="1",
+        confidence="0.9",
+        status="pending",
+        path="",
+        node_type="",
+        source="deterministic",
+        gate="tier1",
+        rule_ids=("L007",),
+        violation_ids=(),
+        line_start="10",
+        line_end="12.0",
+        diff_hunk="",
+        explanation="",
+        suggestion="",
+        engine_proposal_id=None,
+        draft=False,
+    )
+    payload = proposal_to_detail_dict(good)
+    assert payload["line_start"] == 10
+    assert payload["line_end"] == 12
+    assert payload["tier"] == 1
+    assert payload["confidence"] == 0.9
+
+    bad = SimpleNamespace(
+        proposal_id="p-2",
+        rule_id="L007",
+        file="a.yml",
+        tier="high",
+        confidence="high",
+        status="pending",
+        path="",
+        node_type="",
+        source="deterministic",
+        gate="tier1",
+        rule_ids=("L007",),
+        violation_ids=(),
+        line_start="high",
+        line_end="abc",
+        diff_hunk="",
+        explanation="",
+        suggestion="",
+        engine_proposal_id=None,
+        draft=False,
+    )
+    fallback = proposal_to_detail_dict(bad)
+    assert fallback["line_start"] == 0
+    assert fallback["line_end"] == 0
+    assert fallback["tier"] == 0
+    assert fallback["confidence"] == 0.0
+
+
+async def test_bridge_distinguishes_line_end() -> None:
+    """Same file/rule/line_start with different line_end must not collide."""
+    from apme_gateway.proposals.draft import upsert_live_proposal_stubs
+
+    await _seed_project_scan(scan_id="bridge-line-end")
+    async with get_session() as db:
+        await upsert_live_proposal_stubs(
+            db,
+            scan_id="bridge-line-end",
+            project_id=None,
+            proposals=[
+                {
+                    "id": "eng-a",
+                    "rule_id": "L001",
+                    "file": "same.yml",
+                    "tier": 2,
+                    "status": "approved",
+                    "source": "ai",
+                    "line_start": 1,
+                    "line_end": 10,
+                },
+                {
+                    "id": "eng-b",
+                    "rule_id": "L001",
+                    "file": "same.yml",
+                    "tier": 2,
+                    "status": "declined",
+                    "source": "ai",
+                    "line_start": 1,
+                    "line_end": 20,
+                },
+            ],
+        )
+        await db.commit()
+        for prop in (await db.execute(select(Proposal).where(Proposal.scan_id == "bridge-line-end"))).scalars().all():
+            prop.analytics_flushed = 1
+        await db.commit()
+
+        await replace_scan_proposals(
+            db,
+            scan_id="bridge-line-end",
+            proposals=[
+                GroupedProposal(
+                    proposal_id="prop-ai-a",
+                    rule_id="L001",
+                    rule_ids=("L001",),
+                    violation_ids=(1,),
+                    file="same.yml",
+                    path="same.yml::t[0]",
+                    line_start=1,
+                    line_end=10,
+                    tier=2,
+                    source="ai",
+                    gate="ai",
+                    status="pending",
+                ),
+                GroupedProposal(
+                    proposal_id="prop-ai-b",
+                    rule_id="L001",
+                    rule_ids=("L001",),
+                    violation_ids=(2,),
+                    file="same.yml",
+                    path="same.yml::t[1]",
+                    line_start=1,
+                    line_end=20,
+                    tier=2,
+                    source="ai",
+                    gate="ai",
+                    status="pending",
+                ),
+            ],
+        )
+        await db.commit()
+        by_end = {
+            p.line_end: p
+            for p in (await db.execute(select(Proposal).where(Proposal.scan_id == "bridge-line-end"))).scalars().all()
+        }
+        assert by_end[10].engine_proposal_id == "eng-a"
+        assert by_end[10].status == "approved"
+        assert by_end[20].engine_proposal_id == "eng-b"
+        assert by_end[20].status == "declined"
+
+
+async def test_replace_tolerates_string_line_end() -> None:
+    """Grouped string line_end coerces instead of crashing replace."""
+    from apme_gateway.db.models import Proposal as ProposalRow
+
+    await _seed_project_scan(scan_id="replace-str-line-end")
+    async with get_session() as db:
+        prop = GroupedProposal(
+            proposal_id="prop-str",
+            rule_id="L001",
+            rule_ids=("L001",),
+            violation_ids=(),
+            file="a.yml",
+            path="",
+            line_start=1,
+            tier=1,
+            source="deterministic",
+            gate="tier1",
+            status="pending",
+        )
+        # Bypass the dataclass int contract the way JSON-ish callers do.
+        object.__setattr__(prop, "line_end", "12.0")  # type: ignore[assignment]
+        await replace_scan_proposals(db, scan_id="replace-str-line-end", proposals=[prop])
+        await db.commit()
+        row = (
+            await db.execute(select(ProposalRow).where(ProposalRow.scan_id == "replace-str-line-end"))
+        ).scalar_one()
+        assert row.line_end == 12

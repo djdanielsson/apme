@@ -31,6 +31,7 @@ from apme.v1 import engine_pb2, engine_pb2_grpc
 from apme.v1.common_pb2 import GalaxyServerDef
 from apme_engine.daemon.chunked_fs import yield_scan_chunks
 from apme_gateway.scm.redaction import redact_credentials as _redact_credentials
+from apme_gateway.scm.repo_url import normalize_repo_url
 
 logger = logging.getLogger(__name__)
 
@@ -260,6 +261,12 @@ def _inject_token_in_url(
 ) -> str:
     """Inject an authentication token into an HTTPS git URL.
 
+    .. deprecated::
+        Prefer :func:`_git_auth_env` for subprocess calls so tokens stay out
+        of argv, process listings, and error output. This helper remains only
+        for contexts where a URL is required, and for its unit tests — do not
+        adopt it for new subprocess call sites.
+
     Supports multiple SCM providers with their respective auth schemes:
     - GitHub: ``x-access-token:TOKEN``
     - GitLab: ``oauth2:TOKEN``
@@ -269,10 +276,6 @@ def _inject_token_in_url(
 
     When *scm_provider* is set, it takes precedence over hostname heuristics
     so self-hosted Bitbucket/GitLab hosts authenticate correctly.
-
-    .. note::
-        Prefer :func:`_git_auth_env` for subprocess calls so tokens stay out
-        of argv.  This helper remains for contexts where a URL is required.
 
     Args:
         repo_url: Original HTTPS clone URL.
@@ -352,6 +355,8 @@ async def fetch_remote_head(
     """
     if not any(repo_url.startswith(scheme) for scheme in _ALLOWED_SCHEMES):
         return None
+    if not isinstance(branch, str):
+        return None
     from apme_gateway.scm.urls import validate_branch_name  # noqa: PLC0415
 
     try:
@@ -363,7 +368,7 @@ async def fetch_remote_head(
     # different access must not share one entry.
     token_hash = hashlib.sha256(scm_token.encode()).hexdigest()[:16] if scm_token else ""
     token_marker = f":auth:{token_hash}" if scm_token else ""
-    cache_key = f"{repo_url}:{branch}{token_marker}:{scm_provider or ''}"
+    cache_key = f"{normalize_repo_url(repo_url)}:{branch}{token_marker}:{scm_provider or ''}"
     now = time.monotonic()
     cached = _REMOTE_HEAD_CACHE.get(cache_key)
     if cached and (now - cached[0]) < _REMOTE_HEAD_TTL:
@@ -406,6 +411,7 @@ async def fetch_remote_head(
     except Exception:  # noqa: BLE001
         logger.debug("ls-remote failed for %s branch %s", repo_url, branch, exc_info=True)
 
+    now = time.monotonic()
     if len(_REMOTE_HEAD_CACHE) + len(_REMOTE_HEAD_NEG_CACHE) >= _REMOTE_HEAD_CACHE_MAX:
         _evict_remote_head_entries(now)
 
@@ -472,6 +478,10 @@ async def clone_repo(
         msg = f"Only https:// clone URLs are allowed, got: {repo_url[:60]}"
         raise ValueError(msg)
 
+    if not isinstance(branch, str):
+        msg = f"Invalid branch name: {branch!r}"
+        raise ValueError(msg)
+
     from apme_gateway.scm.urls import validate_branch_name  # noqa: PLC0415
 
     try:
@@ -521,7 +531,7 @@ async def clone_repo(
     except subprocess.TimeoutExpired as exc:
         raise RuntimeError(f"git clone timed out after 120s for branch {branch[:60]}") from exc
     if result.returncode != 0:
-        safe_stderr = _redact_credentials(result.stderr[:500])
+        safe_stderr = _redact_credentials(result.stderr)[:500]
         raise RuntimeError(f"git clone failed (exit {result.returncode}): {safe_stderr}")
 
 

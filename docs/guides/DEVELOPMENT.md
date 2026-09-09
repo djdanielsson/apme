@@ -414,7 +414,7 @@ podman run --rm \
 
 ### Coverage target
 
-Coverage is configured at 50% (`fail_under = 50` in `pyproject.toml`). CI and tox run with `--cov-fail-under=80` as a lower floor; the pyproject.toml target is the ratchet goal. Ratchet up as tests are added. Rule files under `validators/*/rules/` are excluded from coverage measurement (they have colocated tests instead).
+Coverage is configured at 80% (`fail_under = 80` in `pyproject.toml`). tox enforces `--cov-fail-under=80` as the gate; pyproject.toml sets the shared target. Rule files under `validators/*/rules/` are excluded from coverage measurement (they have colocated tests instead).
 
 ## Pod lifecycle
 

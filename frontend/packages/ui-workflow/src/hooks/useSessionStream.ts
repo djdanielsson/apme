@@ -41,8 +41,11 @@ export interface Proposal {
   id: string;
   file: string;
   rule_id: string;
-  line_start: number;
-  line_end: number;
+  // Additive: old servers and third-party producers may omit these (or send
+  // JSON null for Python None). State always holds numbers post-normalization
+  // (see the proposals handler), so readers can treat 0 as unknown.
+  line_start?: number;
+  line_end?: number;
   before_text: string;
   after_text: string;
   diff_hunk: string;
@@ -106,10 +109,25 @@ function isPatchArray(v: unknown): v is Patch[] {
         isRecord(p) &&
         typeof p.file === "string" &&
         typeof p.diff === "string" &&
-        Array.isArray(p.applied_rules) &&
-        (p.applied_rules as unknown[]).every((r) => typeof r === "string"),
+        // applied_rules is additive: old servers omit it. Accept
+        // undefined/null here and normalize to [] where patches enter state
+        // so mixed-version rollouts degrade instead of tearing down.
+        (typeof p.applied_rules === "undefined" ||
+          p.applied_rules === null ||
+          (Array.isArray(p.applied_rules) &&
+            (p.applied_rules as unknown[]).every(
+              (r) => typeof r === "string",
+            ))),
     )
   );
+}
+
+/** Fill additive patch fields old servers omit so state always holds arrays. */
+function normalizePatches(patches: Patch[]): Patch[] {
+  return patches.map((p) => ({
+    ...p,
+    applied_rules: Array.isArray(p.applied_rules) ? p.applied_rules : [],
+  }));
 }
 
 /** Validate a tier1_complete payload before it reaches state. */
@@ -134,13 +152,16 @@ function isProposalArray(v: unknown): v is Proposal[] {
         typeof p.file === "string" &&
         typeof p.rule_id === "string" &&
         // line_start/line_end are additive: old servers and third-party
-        // producers may omit them. Accept undefined here and normalize to 0
+        // producers may omit them, and Python None serializes as JSON null
+        // (not omission). Accept undefined/null here and normalize to 0
         // at setProposals so mixed-version rollouts degrade instead of
         // tearing down.
         (typeof p.line_start === "number" ||
-          typeof p.line_start === "undefined") &&
+          typeof p.line_start === "undefined" ||
+          p.line_start === null) &&
         (typeof p.line_end === "number" ||
-          typeof p.line_end === "undefined"),
+          typeof p.line_end === "undefined" ||
+          p.line_end === null),
     )
   );
 }
@@ -263,6 +284,14 @@ export function useSessionStream() {
   const wsRef = useRef<WebSocket | null>(null);
   const statusRef = useRef<SessionStatus>("idle");
   const sessionIdRef = useRef<string | null>(null);
+  // True once session_created arrived on the current socket. Distinguishes a
+  // live session (keep resume material on failure) from a resume/start that
+  // never established (drop the persisted key: the id is dead).
+  const sessionEstablishedRef = useRef(false);
+  // Malformed-frame taint per frame type: only the first malformed frame of
+  // a given type surfaces via setError; repeats are ignored so a looping
+  // server cannot spam errors while the socket stays open.
+  const malformedTaintRef = useRef<Set<string>>(new Set());
 
   const updateStatus = useCallback((s: SessionStatus) => {
     statusRef.current = s;
@@ -284,6 +313,8 @@ export function useSessionStream() {
     setError(null);
     setCanReconnect(false);
     sessionIdRef.current = null;
+    sessionEstablishedRef.current = false;
+    malformedTaintRef.current = new Set();
     clearPersistedSession();
   }, [updateStatus]);
 
@@ -312,7 +343,19 @@ export function useSessionStream() {
       // still alive and the phase may be reconnectable. Surface the error
       // but preserve the persisted session and the reconnect affordance,
       // and keep the socket open so the server can continue the stream.
-      const failMalformedNonTerminal = (message: string) => {
+      const failMalformedNonTerminal = (message: string, kind: string) => {
+        // Taint tracking: only the first malformed frame of a given type
+        // surfaces. Further same-type frames are fully ignored (no setError
+        // spam loop) while the socket stays open in reconnectable phases.
+        if (malformedTaintRef.current.has(kind)) {
+          return;
+        }
+        malformedTaintRef.current.add(kind);
+        if (kind === "proposals") {
+          // Drop any previously accepted set: approving a stale set after a
+          // malformed frame must be impossible.
+          setProposals([]);
+        }
         setError(message);
         if (
           RECONNECTABLE_PHASES.has(statusRef.current) &&
@@ -324,13 +367,32 @@ export function useSessionStream() {
           updateStatus("error");
         }
       };
+      // True while the current socket never delivered session_created: a
+      // resume/start that fails here points at a dead id, so the persisted
+      // key must go (reloads stop re-offering resume to it).
+      const isPreSession = () =>
+        !sessionEstablishedRef.current &&
+        (statusRef.current === "connecting" ||
+          statusRef.current === "checking");
       ws.onmessage = (event) => {
-        let msg: Record<string, unknown>;
+        let raw: unknown;
         try {
-          msg = JSON.parse(event.data as string);
+          raw = JSON.parse(event.data as string);
         } catch {
+          failMalformedNonTerminal(
+            "Received malformed message from server",
+            "message",
+          );
           return;
         }
+        if (!isRecord(raw)) {
+          failMalformedNonTerminal(
+            "Received malformed message from server",
+            "message",
+          );
+          return;
+        }
+        const msg = raw;
 
         switch (msg.type) {
           case "session_created": {
@@ -344,11 +406,13 @@ export function useSessionStream() {
             ) {
               failMalformedNonTerminal(
                 "Received malformed session from server",
+                "session_created",
               );
               break;
             }
             setSessionId(sid);
             sessionIdRef.current = sid;
+            sessionEstablishedRef.current = true;
             setScanId(scid);
             persistSession(
               sid,
@@ -375,11 +439,12 @@ export function useSessionStream() {
 
           case "tier1_complete":
             if (isTier1Result(msg)) {
-              setTier1(msg);
+              setTier1({ ...msg, patches: normalizePatches(msg.patches) });
               updateStatus("tier1_done");
             } else {
               failMalformedNonTerminal(
                 "Received malformed tier1 result from server",
+                "tier1_complete",
               );
             }
             break;
@@ -399,6 +464,7 @@ export function useSessionStream() {
             } else {
               failMalformedNonTerminal(
                 "Received malformed proposals from server",
+                "proposals",
               );
             }
             break;
@@ -416,7 +482,7 @@ export function useSessionStream() {
               failMalformedTerminal("Received malformed result from server");
               break;
             }
-            setResult(msg);
+            setResult({ ...msg, patches: normalizePatches(msg.patches) });
             setCanReconnect(false);
             clearPersistedSession();
             updateStatus("complete");
@@ -442,6 +508,11 @@ export function useSessionStream() {
               setCanReconnect(true);
               updateStatus("disconnected");
             } else {
+              // A resume that fails before session_created points at a dead
+              // id: drop the persisted key so reloads stop offering it.
+              if (isPreSession()) {
+                clearPersistedSession();
+              }
               updateStatus("error");
             }
             break;
@@ -464,12 +535,24 @@ export function useSessionStream() {
           setCanReconnect(true);
           updateStatus("disconnected");
         } else {
+          // A resume that fails before session_created points at a dead id:
+          // drop the persisted key so reloads stop offering resume to it.
+          if (isPreSession()) {
+            clearPersistedSession();
+          }
           setError("WebSocket connection error");
           updateStatus("error");
         }
       };
 
       ws.onclose = (event) => {
+        // A close before session_created means the resume/start never
+        // established: the persisted id is dead, drop it so reloads stop
+        // re-offering resume to it.
+        const preSession = isPreSession();
+        if (preSession) {
+          clearPersistedSession();
+        }
         if (
           event.code !== 1000 &&
           statusRef.current !== "complete" &&
@@ -484,6 +567,12 @@ export function useSessionStream() {
             setError("Connection closed unexpectedly");
             updateStatus("error");
           }
+        } else if (event.code === 1000 && preSession) {
+          // Clean close with no session_created and no other signal (e.g. a
+          // resume the server rejected): surface it instead of hanging on a
+          // spinner with resume material already dropped.
+          setError("Connection closed unexpectedly");
+          updateStatus("error");
         }
       };
     },
@@ -537,6 +626,9 @@ export function useSessionStream() {
       setError(null);
       setCanReconnect(false);
       updateStatus("connecting");
+      // New socket: nothing established on it yet. Taint intentionally
+      // survives resume (same session lifecycle; only reset() clears it).
+      sessionEstablishedRef.current = false;
 
       let url = `/api/v1/ws/session?resume=${encodeURIComponent(sid)}`;
       if (originalScanId) {

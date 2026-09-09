@@ -35,69 +35,121 @@ _ALLOWED_DRAFT_STATUSES = frozenset({"pending", "approved", "declined", "propose
 
 
 def _safe_int(value: object, default: int = 0) -> int:
-    """Coerce truthy non-numeric input to a default instead of raising.
+    """Coerce JSON-ish input to int, mapping unknowns to default.
+
+    Clamps results at ``>= 0`` since line numbers and tiers are never
+    negative.
 
     Args:
         value: Raw value (int, float, numeric string, bool, None, …).
         default: Fallback when coercion fails.
 
     Returns:
-        Coerced integer or ``default``.
+        Coerced integer clamped at ``>= 0``, or clamped ``default``.
     """
+    fallback = max(0, default)
     if isinstance(value, bool):
-        return default
+        logger.debug("Falling back line/tier value %r to %r", value, fallback)
+        return fallback
     if isinstance(value, int):
+        if value < 0:
+            logger.debug("Clamping negative line/tier value %r to 0", value)
+            return 0
         return value
     if isinstance(value, float):
         if value.is_integer():
-            return int(value)
-        return default
+            coerced = int(value)
+            if coerced < 0:
+                logger.debug("Clamping negative line/tier value %r to 0", value)
+                return 0
+            return coerced
+        logger.debug("Falling back line/tier value %r to %r", value, fallback)
+        return fallback
     if isinstance(value, str):
         text = value.strip()
         if not text:
-            return default
+            logger.debug("Falling back line/tier value %r to %r", value, fallback)
+            return fallback
         try:
-            return int(text)
+            coerced_str = int(text)
+            if coerced_str < 0:
+                logger.debug("Clamping negative line/tier value %r to 0", value)
+                return 0
+            return coerced_str
         except ValueError:
             try:
                 parsed = float(text)
             except ValueError:
-                return default
+                logger.debug("Falling back line/tier value %r to %r", value, fallback)
+                return fallback
             if parsed.is_integer():
-                return int(parsed)
-            return default
+                coerced_float = int(parsed)
+                if coerced_float < 0:
+                    logger.debug("Clamping negative line/tier value %r to 0", value)
+                    return 0
+                return coerced_float
+            logger.debug("Falling back line/tier value %r to %r", value, fallback)
+            return fallback
     if value is None:
-        return default
-    return default
+        logger.debug("Falling back line/tier value %r to %r", value, fallback)
+        return fallback
+    logger.debug("Falling back line/tier value %r to %r", value, fallback)
+    return fallback
 
 
 def _safe_float(value: object, default: float = 0.0) -> float:
-    """Coerce truthy non-numeric input to a default instead of raising.
+    """Coerce JSON-ish input to float, clamped to 0..1.
 
     Args:
         value: Raw value (int, float, numeric string, bool, None, …).
         default: Fallback when coercion fails.
 
     Returns:
-        Coerced float or ``default``.
+        Coerced float in ``[0.0, 1.0]``, or clamped ``default``.
     """
+    clamped_default = min(1.0, max(0.0, default))
     if isinstance(value, bool):
-        return default
+        logger.debug("Falling back confidence value %r to %r", value, clamped_default)
+        return clamped_default
     if isinstance(value, int):
-        return float(value)
+        coerced_int = float(value)
+        if coerced_int < 0.0:
+            logger.debug("Clamping confidence value %r to 0.0", value)
+            return 0.0
+        if coerced_int > 1.0:
+            logger.debug("Clamping confidence value %r to 1.0", value)
+            return 1.0
+        return coerced_int
     if isinstance(value, float):
+        if value < 0.0:
+            logger.debug("Clamping confidence value %r to 0.0", value)
+            return 0.0
+        if value > 1.0:
+            logger.debug("Clamping confidence value %r to 1.0", value)
+            return 1.0
         return value
     if isinstance(value, str):
         text = value.strip()
         if not text:
-            return default
+            logger.debug("Falling back confidence value %r to %r", value, clamped_default)
+            return clamped_default
         try:
-            return float(text)
+            coerced_str = float(text)
         except ValueError:
-            return default
+            logger.debug("Falling back confidence value %r to %r", value, clamped_default)
+            return clamped_default
+        if coerced_str < 0.0:
+            logger.debug("Clamping confidence value %r to 0.0", value)
+            return 0.0
+        if coerced_str > 1.0:
+            logger.debug("Clamping confidence value %r to 1.0", value)
+            return 1.0
+        return coerced_str
     if value is None:
-        return default
-    return default
+        logger.debug("Falling back confidence value %r to %r", value, clamped_default)
+        return clamped_default
+    logger.debug("Falling back confidence value %r to %r", value, clamped_default)
+    return clamped_default
 
 
 def _gate_for_source(source: str, tier: int) -> str:
@@ -421,11 +473,13 @@ async def upsert_live_proposal_stubs(
 
     # Preloaded queries instead of a SELECT per proposal: match the same
     # (engine_proposal_id, proposal_id) pairs the loop used to fetch singly.
-    # Chunked so 2N binds stay within the dialect IN-clause budget.
+    # Each query binds 2N ids plus 1 for scan_id ==, so per_query*2 + 1 <=
+    # chunk (e.g. 449*2 + 1 = 899 <= 900; 450*2 + 1 = 901 would exceed).
     by_engine: dict[str, Proposal] = {}
     by_archival: dict[str, Proposal] = {}
     if prepared:
-        per_query = max(1, get_in_clause_chunk_size() // 2)
+        chunk = get_in_clause_chunk_size()
+        per_query = max(1, (chunk - 1) // 2)
         for start in range(0, len(prepared), per_query):
             batch = prepared[start : start + per_query]
             engine_ids = [item.engine_id for item in batch]
@@ -509,7 +563,6 @@ async def upsert_live_proposal_stubs(
             existing.file = file_ or existing.file
             if primary_rule:
                 existing.rule_id = primary_rule
-            existing.tier = tier or existing.tier
             existing.path = path or existing.path
             nt = str(raw.get("node_type") or "")
             if nt:
@@ -519,13 +572,27 @@ async def upsert_live_proposal_stubs(
             existing.diff_hunk = str(raw.get("diff_hunk") or existing.diff_hunk)
             existing.explanation = str(raw.get("explanation") or existing.explanation)
             existing.suggestion = str(raw.get("suggestion") or existing.suggestion)
-            existing.line_start = item.line_start or existing.line_start
-            existing.line_end = item.line_end or existing.line_end
-            raw_confidence = raw.get("confidence")
-            if raw_confidence:
+            # Explicit 0 clears stale spans/scores; None/missing/"" preserves.
+            # Truthiness would treat numeric 0 as missing but string "0" as
+            # explicit, so test identity and blank strings instead.
+            raw_line_start = raw.get("line_start") if "line_start" in raw else None
+            if raw_line_start is not None and not (
+                isinstance(raw_line_start, str) and not raw_line_start.strip()
+            ):
+                existing.line_start = _safe_int(raw_line_start, existing.line_start)
+            raw_line_end = raw.get("line_end") if "line_end" in raw else None
+            if raw_line_end is not None and not (
+                isinstance(raw_line_end, str) and not raw_line_end.strip()
+            ):
+                existing.line_end = _safe_int(raw_line_end, existing.line_end)
+            raw_confidence = raw.get("confidence") if "confidence" in raw else None
+            if raw_confidence is not None and not (
+                isinstance(raw_confidence, str) and not raw_confidence.strip()
+            ):
                 existing.confidence = _safe_float(raw_confidence, existing.confidence)
-            if "tier" in raw and raw.get("tier") is not None:
-                existing.tier = _safe_int(raw.get("tier"), existing.tier)
+            raw_tier = raw.get("tier") if "tier" in raw else None
+            if raw_tier is not None and not (isinstance(raw_tier, str) and not raw_tier.strip()):
+                existing.tier = _safe_int(raw_tier, existing.tier)
             if rule_parts:
                 existing.rule_ids_json = serialize_rule_ids(rule_parts)
                 existing.stamp_rule_ids_json = serialize_rule_ids(rule_parts)

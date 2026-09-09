@@ -424,6 +424,7 @@ async def _forward_events(
                             "source": p.source,
                             "suggestion": p.suggestion,
                             "path": p.path,
+                            "node_type": getattr(p, "node_type", "") or "",
                         }
                         for p in pr.proposals
                     ],
