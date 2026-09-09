@@ -593,8 +593,7 @@ def merge_outcomes(
                 file=prop.file,
                 path=prop.path,
                 line_start=prop.line_start,
-                line_end=_to_int(getattr(outcome, "line_end", prop.line_end), prop.line_end)
-                or prop.line_end,
+                line_end=_to_int(getattr(outcome, "line_end", prop.line_end), prop.line_end) or prop.line_end,
                 tier=tier or prop.tier,
                 source=source,
                 gate=gate,

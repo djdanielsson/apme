@@ -204,7 +204,9 @@ async def find_project_by_repo_url(
     batch_size = 500
     offset = 0
     while True:
-        result = await db.execute(select(Project).where(*fallback).order_by(Project.id).limit(batch_size).offset(offset))
+        result = await db.execute(
+            select(Project).where(*fallback).order_by(Project.id).limit(batch_size).offset(offset)
+        )
         batch = list(result.scalars().all())
         if not batch:
             break

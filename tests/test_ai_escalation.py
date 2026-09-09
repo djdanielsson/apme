@@ -648,7 +648,7 @@ def _grpc_error(code: grpc.StatusCode, message: str = "rpc failed") -> grpc.aio.
 class TestChatWithReconnectGrpcCodes:
     """Only transient gRPC codes retry; permanent codes fail fast."""
 
-    @pytest.mark.parametrize(
+    @pytest.mark.parametrize(  # type: ignore[untyped-decorator]
         "code",
         [
             grpc.StatusCode.UNAVAILABLE,
@@ -678,7 +678,7 @@ class TestChatWithReconnectGrpcCodes:
         assert mock_client.chat.call_count == 2
         mock_reconnect.assert_awaited_once()
 
-    @pytest.mark.parametrize(
+    @pytest.mark.parametrize(  # type: ignore[untyped-decorator]
         "code",
         [
             grpc.StatusCode.UNAUTHENTICATED,

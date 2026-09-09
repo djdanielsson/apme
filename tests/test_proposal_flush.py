@@ -667,10 +667,8 @@ async def test_replace_tolerates_string_line_end() -> None:
             status="pending",
         )
         # Bypass the dataclass int contract the way JSON-ish callers do.
-        object.__setattr__(prop, "line_end", "12.0")  # type: ignore[assignment]
+        object.__setattr__(prop, "line_end", "12.0")
         await replace_scan_proposals(db, scan_id="replace-str-line-end", proposals=[prop])
         await db.commit()
-        row = (
-            await db.execute(select(ProposalRow).where(ProposalRow.scan_id == "replace-str-line-end"))
-        ).scalar_one()
+        row = (await db.execute(select(ProposalRow).where(ProposalRow.scan_id == "replace-str-line-end"))).scalar_one()
         assert row.line_end == 12

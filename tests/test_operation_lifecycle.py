@@ -512,13 +512,22 @@ async def test_broadcast_eviction_preserves_queued_terminal_result() -> None:
     patches = result_data.get("patches")
     assert isinstance(patches, list)
     assert any("keep-evicted" in str(patch) for patch in patches)
-    statuses = [
-        item
-        for item in drained
-        if item.get("event") == "status_changed"
-        and isinstance(item.get("data"), dict)
-        and item.get("data").get("status") == OperationStatus.COMPLETED.value  # type: ignore[union-attr]
-    ]
+
+    def _is_completed(item: dict[str, object]) -> bool:
+        """Return True for a completed status_changed event.
+
+        Args:
+            item: Drained queue message.
+
+        Returns:
+            True when the message is a completed status change.
+        """
+        if item.get("event") != "status_changed":
+            return False
+        data = item.get("data")
+        return isinstance(data, dict) and data.get("status") == OperationStatus.COMPLETED.value
+
+    statuses = [item for item in drained if _is_completed(item)]
     assert len(statuses) == 1
     flat = "".join(str(item) for item in drained)
     assert "evict-progress-0" not in flat

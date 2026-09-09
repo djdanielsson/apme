@@ -687,10 +687,8 @@ class TestGalaxyClientTruncation:
         # Pure truncation has no chained per-server failure to report.
         assert excinfo.value.__cause__ is None
 
-    @pytest.mark.parametrize("payload_error", [ValueError("bad json"), KeyError("version")])
-    def test_list_versions_exhaustion_wraps_payload_errors_with_cause(
-        self, payload_error: Exception
-    ) -> None:
+    @pytest.mark.parametrize("payload_error", [ValueError("bad json"), KeyError("version")])  # type: ignore[untyped-decorator]
+    def test_list_versions_exhaustion_wraps_payload_errors_with_cause(self, payload_error: Exception) -> None:
         """Exhausted listings surface as RuntimeError chained from the payload error.
 
         Callers must never see a bare ``ValueError``/``KeyError`` from a

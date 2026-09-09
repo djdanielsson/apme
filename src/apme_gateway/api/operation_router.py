@@ -816,7 +816,7 @@ async def operation_events(project_id: str, request: Request) -> StreamingRespon
         """Yield snapshot then delta events until terminal or disconnect.
 
         Yields:
-            SSE-formatted message strings.
+            str: SSE-formatted message strings.
         """
         try:
             snapshot = state.to_snapshot()

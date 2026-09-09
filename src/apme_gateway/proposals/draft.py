@@ -576,19 +576,13 @@ async def upsert_live_proposal_stubs(
             # Truthiness would treat numeric 0 as missing but string "0" as
             # explicit, so test identity and blank strings instead.
             raw_line_start = raw.get("line_start") if "line_start" in raw else None
-            if raw_line_start is not None and not (
-                isinstance(raw_line_start, str) and not raw_line_start.strip()
-            ):
+            if raw_line_start is not None and not (isinstance(raw_line_start, str) and not raw_line_start.strip()):
                 existing.line_start = _safe_int(raw_line_start, existing.line_start)
             raw_line_end = raw.get("line_end") if "line_end" in raw else None
-            if raw_line_end is not None and not (
-                isinstance(raw_line_end, str) and not raw_line_end.strip()
-            ):
+            if raw_line_end is not None and not (isinstance(raw_line_end, str) and not raw_line_end.strip()):
                 existing.line_end = _safe_int(raw_line_end, existing.line_end)
             raw_confidence = raw.get("confidence") if "confidence" in raw else None
-            if raw_confidence is not None and not (
-                isinstance(raw_confidence, str) and not raw_confidence.strip()
-            ):
+            if raw_confidence is not None and not (isinstance(raw_confidence, str) and not raw_confidence.strip()):
                 existing.confidence = _safe_float(raw_confidence, existing.confidence)
             raw_tier = raw.get("tier") if "tier" in raw else None
             if raw_tier is not None and not (isinstance(raw_tier, str) and not raw_tier.strip()):

@@ -807,10 +807,9 @@ async def test_update_project_warns_on_normalized_url_pop(
 
 def test_create_project_branch_validator_rejects_none_result() -> None:
     """None-result guard raises ValueError (surfaces as 422, survives -O)."""
-    with patch("apme_gateway.scm.urls.validate_branch_name", return_value=None):
-        with pytest.raises(ValidationError):
-            CreateProjectRequest(
-                name="None Guard",
-                repo_url="https://github.com/org/repo.git",
-                branch="main",
-            )
+    with patch("apme_gateway.scm.urls.validate_branch_name", return_value=None), pytest.raises(ValidationError):
+        CreateProjectRequest(
+            name="None Guard",
+            repo_url="https://github.com/org/repo.git",
+            branch="main",
+        )

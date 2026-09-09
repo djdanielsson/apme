@@ -499,6 +499,9 @@ class CreateProjectRequest(BaseModel):  # type: ignore[misc]
 
         Returns:
             The validated branch name unchanged.
+
+        Raises:
+            ValueError: If the name fails git ref-format validation.
         """
         from apme_gateway.scm.urls import validate_branch_name  # noqa: PLC0415
 
