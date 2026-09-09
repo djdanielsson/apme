@@ -799,10 +799,10 @@ async def test_find_project_by_repo_url_heal_failure_rolls_back() -> None:
         real_commit = db.commit
 
         async def _fail_once() -> None:
-            db.commit = real_commit  # type: ignore[method-assign]
+            db.commit = real_commit
             raise RuntimeError("boom")
 
-        db.commit = _fail_once  # type: ignore[method-assign]
+        db.commit = _fail_once
         found = await q.find_project_by_repo_url(db, target_url)
         assert found is not None
         # The rolled-back heal expired the row: refresh proves the session
