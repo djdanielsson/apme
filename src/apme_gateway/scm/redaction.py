@@ -5,9 +5,11 @@ from __future__ import annotations
 import re
 
 _CRED_REDACT_RE = re.compile(r"(https?://)[^@]+@")
-# Floors ({8,}/{12,}) apply only to anchored `authorization:`/`bearer` patterns so short English prose is never mangled.
-_BASIC_AUTH_HEADER_RE = re.compile(r"(?i)(authorization:\s*basic\s+)[A-Za-z0-9+/=]{8,}")
-_BEARER_RE = re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._~+/-]{12,}")
+# Basic tokens redact from length 1 — the ``authorization: basic`` prefix is specific
+# enough to avoid prose false positives. Bearer keeps a small floor so ``Bearer of``
+# is not mangled while short access tokens still mask.
+_BASIC_AUTH_HEADER_RE = re.compile(r"(?i)(authorization:\s*basic\s+)[A-Za-z0-9+/=]{1,}")
+_BEARER_RE = re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._~+/-]{4,}")
 
 
 def redact_credentials(text: str) -> str:

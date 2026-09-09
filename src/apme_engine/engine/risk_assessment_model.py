@@ -6,6 +6,7 @@ import json
 import logging
 import os
 from dataclasses import dataclass, field
+from pathlib import PurePath, PureWindowsPath
 from typing import cast
 
 import jsonpickle
@@ -39,6 +40,20 @@ from .utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _findings_path_parts(findings_path: str) -> tuple[str, ...]:
+    """Split a findings JSON path into components on any OS separator.
+
+    Args:
+        findings_path: Absolute or relative path to a findings.json file.
+
+    Returns:
+        Path components using the native or Windows separator as appropriate.
+    """
+    if os.sep == "\\" or "\\" in findings_path:
+        return PureWindowsPath(findings_path).parts
+    return PurePath(findings_path).parts
 
 
 def _safe_str(v: YAMLValue, default: str = "") -> str:
@@ -759,7 +774,7 @@ class RAMClient:
                     if m.fqcn == search_name or m.fqcn == name or m.fqcn.endswith(f".{short_name}"):
                         matched = True
                 if matched:
-                    parts = findings_json.split("/")
+                    parts = _findings_path_parts(findings_json)
                     if len(parts) < 6:
                         logger.debug("Skipping module with short findings path: %r", findings_json)
                         continue
@@ -854,7 +869,7 @@ class RAMClient:
                     if r.fqcn == name or r.fqcn.endswith(f".{name}"):
                         matched = True
                 if matched:
-                    parts = findings_json.split("/")
+                    parts = _findings_path_parts(findings_json)
                     if len(parts) < 5:
                         logger.debug("Skipping role with short findings path: %r", findings_json)
                         continue
@@ -1004,7 +1019,7 @@ class RAMClient:
 
                 # TODO: support taskfile reference with variables
                 if matched:
-                    parts = findings_json.split("/")
+                    parts = _findings_path_parts(findings_json)
                     if len(parts) < 5:
                         logger.debug("Skipping taskfile with short findings path: %r", findings_json)
                         continue
@@ -1113,7 +1128,7 @@ class RAMClient:
                         if t.name == name or (t.name and name in t.name):
                             matched = True
                 if matched:
-                    parts = findings_json.split("/")
+                    parts = _findings_path_parts(findings_json)
                     if len(parts) < 5:
                         logger.debug("Skipping task with short findings path: %r", findings_json)
                         continue
@@ -1213,7 +1228,7 @@ class RAMClient:
             objs = ObjectList.from_json(fpath=obj_json)
             obj = objs.find_by_key(obj_key)
             if obj is not None:
-                parts = obj_json.split("/")
+                parts = _findings_path_parts(obj_json)
                 if len(parts) < 6:
                     logger.debug("Skipping object with short JSON path: %r", obj_json)
                     continue
@@ -1269,7 +1284,7 @@ class RAMClient:
             target_version = "*"
         found_path_list = []
         for findings_path in self._findings_json_list_cache:
-            parts = findings_path.split("/")
+            parts = _findings_path_parts(findings_path)
             if len(parts) < 5:
                 logger.debug("Skipping findings with short path: %r", findings_path)
                 continue

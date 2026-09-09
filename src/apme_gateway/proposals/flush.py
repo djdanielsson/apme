@@ -333,8 +333,12 @@ async def replace_scan_proposals(
 
     def _bridge_key(
         file_: str, source: str, rule_id: str, line_start: object, line_end: object = 0
-    ) -> tuple[str, str, str, int, int]:
-        """Build the stub-to-group bridge key including both span ends.
+    ) -> tuple[str, str, str, int, int | None]:
+        """Build the stub-to-group bridge key.
+
+        When ``line_end`` is unknown (0), the key omits the end line so
+        FixCompleted rebuilds from violations (no end line) still match live
+        stubs that carried a span.
 
         Args:
             file_: Target file path.
@@ -350,29 +354,47 @@ async def replace_scan_proposals(
         src = source or ""
         if src == "ai-candidate":
             src = "ai"
-        return (file_ or "", src, primary_rule, _to_int(line_start, 0), _to_int(line_end, 0))
+        le = _to_int(line_end, 0)
+        return (file_ or "", src, primary_rule, _to_int(line_start, 0), le if le > 0 else None)
 
-    prior: dict[tuple[str, str, str, int, int], tuple[str | None, int, int, str, str]] = {}
-    ambiguous: set[tuple[str, str, str, int, int]] = set()
-    for r in prior_rows:
-        if not (r.engine_proposal_id or r.draft or r.analytics_flushed):
-            continue
-        key = _bridge_key(str(r.file or ""), str(r.source or ""), str(r.rule_id or ""), r.line_start, r.line_end)
+    prior: dict[tuple[str, str, str, int, int | None], tuple[str | None, int, int, str, str]] = {}
+    ambiguous: set[tuple[str, str, str, int, int | None]] = set()
+
+    def _register_bridge(
+        key: tuple[str, str, str, int, int | None],
+        row: Proposal,
+    ) -> None:
+        """Register one prior stub under a bridge key, tracking ambiguity.
+
+        Args:
+            key: Bridge lookup key.
+            row: Prior proposal row supplying bridge metadata.
+        """
         if key in ambiguous:
-            continue
+            return
         if key in prior:
-            # Duplicate key — refuse to guess which stub owns the archival row.
             ambiguous.add(key)
             prior.pop(key, None)
             logger.warning("Ambiguous proposal bridge key for scan %s: %s", scan_id[:12], key)
-            continue
+            return
         prior[key] = (
-            r.engine_proposal_id,
-            _to_int(r.draft or 0),
-            _to_int(r.analytics_flushed or 0),
-            str(r.status or ""),
-            str(r.stamp_rule_ids_json or "[]"),
+            row.engine_proposal_id,
+            _to_int(row.draft or 0),
+            _to_int(row.analytics_flushed or 0),
+            str(row.status or ""),
+            str(row.stamp_rule_ids_json or "[]"),
         )
+
+    for r in prior_rows:
+        if not (r.engine_proposal_id or r.draft or r.analytics_flushed):
+            continue
+        file_ = str(r.file or "")
+        source = str(r.source or "")
+        rule_id = str(r.rule_id or "")
+        key = _bridge_key(file_, source, rule_id, r.line_start, r.line_end)
+        _register_bridge(key, r)
+        if _to_int(r.line_end, 0) > 0:
+            _register_bridge(_bridge_key(file_, source, rule_id, r.line_start, 0), r)
     for prop in typed:
         # Non-interactive deterministic with fixed yaml → approved for analytics.
         status = prop.status

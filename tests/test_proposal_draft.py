@@ -945,6 +945,92 @@ def test_draft_coercers_clamp() -> None:
     assert _safe_float(1.5, 0.0) == 1.0
     assert _safe_float(-0.5, 0.7) == 0.0
     assert _safe_float("abc", 0.7) == 0.7
+    assert _safe_float(float("nan"), 0.7) == 0.7
+    assert _safe_float("nan", 0.7) == 0.7
+
+
+@pytest.mark.asyncio  # type: ignore[untyped-decorator]
+async def test_upsert_reconciles_duplicate_engine_rows() -> None:
+    """Duplicate live rows for one engine id are deleted, keeping the newest."""
+    scan_id = "scan-dupe-reconcile"
+    async with get_session() as db:
+        db.add(
+            Session(
+                session_id="sess-dupe",
+                project_path="/tmp",
+                first_seen="2026-01-01T00:00:00+00:00",
+                last_seen="2026-01-01T00:00:00+00:00",
+            )
+        )
+        db.add(
+            Scan(
+                scan_id=scan_id,
+                session_id="sess-dupe",
+                project_path="/tmp",
+                source="gateway",
+                trigger="ui",
+                created_at="2026-01-01T00:00:00+00:00",
+                scan_type="remediate",
+            )
+        )
+        await db.flush()
+        db.add(
+            Proposal(
+                scan_id=scan_id,
+                proposal_id="prop-old",
+                rule_id="L007",
+                file="a.yml",
+                tier=2,
+                confidence=0.5,
+                status="pending",
+                path="",
+                source="ai",
+                gate="ai",
+                rule_ids_json='["L007"]',
+                violation_ids_json="[]",
+                engine_proposal_id="eng-dup",
+                draft=0,
+            )
+        )
+        db.add(
+            Proposal(
+                scan_id=scan_id,
+                proposal_id="prop-new",
+                rule_id="L007",
+                file="a.yml",
+                tier=2,
+                confidence=0.9,
+                status="approved",
+                path="",
+                source="ai",
+                gate="ai",
+                rule_ids_json='["L007"]',
+                violation_ids_json="[]",
+                engine_proposal_id="eng-dup",
+                draft=0,
+            )
+        )
+        await db.commit()
+        rows = await upsert_live_proposal_stubs(
+            db,
+            scan_id=scan_id,
+            project_id=None,
+            proposals=[
+                {
+                    "id": "eng-dup",
+                    "rule_id": "L007",
+                    "file": "a.yml",
+                    "tier": 2,
+                    "status": "pending",
+                    "source": "ai",
+                }
+            ],
+        )
+        await db.commit()
+        stored = list((await db.execute(select(Proposal).where(Proposal.scan_id == scan_id))).scalars().all())
+        assert len(stored) == 1
+        assert stored[0].engine_proposal_id == "eng-dup"
+        assert rows[0].id == stored[0].id
 
 
 @pytest.mark.asyncio  # type: ignore[untyped-decorator]

@@ -202,6 +202,7 @@ class GitleaksValidatorServicer(validate_pb2_grpc.ValidatorServicer):
             HealthResponse with status including gitleaks version or error.
         """
         try:
+            deadline = time.monotonic() + _HEALTH_TIMEOUT_S
             proc = await asyncio.create_subprocess_exec(
                 GITLEAKS_BIN,
                 "version",
@@ -209,21 +210,19 @@ class GitleaksValidatorServicer(validate_pb2_grpc.ValidatorServicer):
                 stderr=asyncio.subprocess.PIPE,
             )
             try:
-                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=_HEALTH_TIMEOUT_S)
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    with contextlib.suppress(OSError):
+                        proc.kill()
+                    return HealthResponse(status="gitleaks health timeout")
+                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=remaining)
             except TimeoutError:
                 with contextlib.suppress(OSError):
                     proc.kill()
-                try:
-                    await asyncio.wait_for(proc.wait(), timeout=_HEALTH_TIMEOUT_S)
-                except TimeoutError:
-                    # The first kill did not reap the child; re-kill (this
-                    # codebase only uses kill, so no terminate escalation
-                    # applies) and do a final bounded wait. Never return
-                    # while a child may be unreaped without a warning.
-                    with contextlib.suppress(OSError):
-                        proc.kill()
+                remaining = deadline - time.monotonic()
+                if remaining > 0:
                     try:
-                        await asyncio.wait_for(proc.wait(), timeout=_HEALTH_TIMEOUT_S)
+                        await asyncio.wait_for(proc.wait(), timeout=remaining)
                     except TimeoutError:
                         logger.warning("Gitleaks: health probe still unreaped after kill; possible zombie")
                 return HealthResponse(status="gitleaks health timeout")

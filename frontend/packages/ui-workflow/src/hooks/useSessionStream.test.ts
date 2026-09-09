@@ -951,4 +951,99 @@ describe("useSessionStream hardening", () => {
       hook.unmount();
     }
   });
+
+  it("resume clears malformed taint so repeat frames surface again", async () => {
+    const { result, unmount } = await startSessionWithSocket();
+    try {
+      const ws = lastSocket();
+      sendMsg(ws, {
+        type: "session_created",
+        session_id: "sess-1",
+        scan_id: "scan-1",
+      });
+      sendMsg(ws, validTier1());
+      sendMsg(ws, {
+        type: "proposals",
+        proposals: [{ ...proposalBase(), line_start: 1, line_end: 2 }],
+      });
+      expect(result.current.status).toBe("awaiting_approval");
+
+      sendMsg(ws, { type: "proposals", proposals: [{ id: 123 }] });
+      expect(result.current.error).toBe(
+        "Received malformed proposals from server",
+      );
+
+      // Second malformed frame is tainted and ignored.
+      sendMsg(ws, { type: "proposals", proposals: [{ id: 456 }] });
+      expect(result.current.error).toBe(
+        "Received malformed proposals from server",
+      );
+
+      act(() => {
+        result.current.resumeSession("sess-1", "scan-1");
+      });
+      const resumeWs = lastSocket();
+      expect(resumeWs).not.toBe(ws);
+      act(() => {
+        resumeWs.onopen?.(new Event("open"));
+      });
+      expect(result.current.error).toBeNull();
+
+      sendMsg(resumeWs, {
+        type: "session_created",
+        session_id: "sess-1",
+        scan_id: "scan-1",
+      });
+      sendMsg(resumeWs, validTier1());
+
+      // Taint was cleared on resume: malformed proposals surface again.
+      sendMsg(resumeWs, { type: "proposals", proposals: [{ id: 789 }] });
+      expect(result.current.error).toBe(
+        "Received malformed proposals from server",
+      );
+    } finally {
+      unmount();
+    }
+  });
+
+  it("stale socket onclose after resume does not clear storage or set error", async () => {
+    const { result, unmount } = await startSessionWithSocket();
+    try {
+      const oldWs = lastSocket();
+      sendMsg(oldWs, {
+        type: "session_created",
+        session_id: "sess-1",
+        scan_id: "scan-1",
+      });
+      sendMsg(oldWs, validTier1());
+      sendMsg(oldWs, {
+        type: "proposals",
+        proposals: [{ ...proposalBase(), line_start: 1, line_end: 2 }],
+      });
+      expect(result.current.status).toBe("awaiting_approval");
+      expect(sessionStorage.getItem(STORAGE_KEY)).not.toBeNull();
+
+      act(() => {
+        result.current.resumeSession("sess-1", "scan-1");
+      });
+      const newWs = lastSocket();
+      expect(newWs).not.toBe(oldWs);
+      act(() => {
+        newWs.onopen?.(new Event("open"));
+      });
+      expect(result.current.status).toBe("checking");
+      expect(result.current.error).toBeNull();
+
+      // Old socket close fires after replacement: must not affect new connection.
+      act(() => {
+        oldWs.onclose?.({ code: 1006 });
+      });
+
+      expect(sessionStorage.getItem(STORAGE_KEY)).not.toBeNull();
+      expect(result.current.error).toBeNull();
+      expect(result.current.status).toBe("checking");
+    } finally {
+      unmount();
+    }
+  });
 });

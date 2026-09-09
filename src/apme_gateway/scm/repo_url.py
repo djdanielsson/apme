@@ -31,8 +31,12 @@ def normalize_repo_url(repo_url: str) -> str:
         if not parsed.scheme or not parsed.netloc:
             return value
         scheme = parsed.scheme.lower()
+        try:
+            port = parsed.port
+        except ValueError:
+            # Malformed port (e.g. ``:notaport``) — still strip userinfo from host.
+            port = None
         host = parsed.hostname.lower() if parsed.hostname else parsed.netloc.lower()
-        port = parsed.port
         if port is not None:
             is_default = (scheme == "https" and port == 443) or (scheme == "http" and port == 80)
             if not is_default:

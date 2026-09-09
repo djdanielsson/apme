@@ -681,8 +681,31 @@ class TestHealthTimeout:
             patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_proc),
             patch.object(gitleaks_validator_server, "_HEALTH_TIMEOUT_S", 0.05),
         ):
-            resp = await asyncio.wait_for(
-                servicer.Health(common_pb2.HealthRequest(), None),  # type: ignore[arg-type]
-                timeout=5,
-            )
+            t0 = asyncio.get_event_loop().time()
+            resp = await servicer.Health(common_pb2.HealthRequest(), None)  # type: ignore[arg-type]
+            elapsed = asyncio.get_event_loop().time() - t0
         assert "timeout" in resp.status
+        assert elapsed < 1.0
+
+    async def test_health_timeout_respects_total_budget(self) -> None:
+        """communicate() and proc.wait() together stay within _HEALTH_TIMEOUT_S."""
+        from apme.v1 import common_pb2
+        from apme_engine.daemon import gitleaks_validator_server
+        from apme_engine.daemon.gitleaks_validator_server import GitleaksValidatorServicer
+
+        servicer = GitleaksValidatorServicer()
+        mock_proc = MagicMock()
+        mock_proc.communicate = AsyncMock(side_effect=TimeoutError())
+        mock_proc.wait = AsyncMock(side_effect=TimeoutError())
+
+        with (
+            patch("asyncio.create_subprocess_exec", new_callable=AsyncMock, return_value=mock_proc),
+            patch.object(gitleaks_validator_server, "_HEALTH_TIMEOUT_S", 0.1),
+        ):
+            t0 = asyncio.get_event_loop().time()
+            resp = await servicer.Health(common_pb2.HealthRequest(), None)  # type: ignore[arg-type]
+            elapsed = asyncio.get_event_loop().time() - t0
+
+        assert "timeout" in resp.status
+        assert elapsed < 0.5
+        mock_proc.kill.assert_called_once()

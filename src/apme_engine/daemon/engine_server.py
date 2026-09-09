@@ -1397,10 +1397,13 @@ class EngineServicer(engine_pb2_grpc.EngineServicer):
             SessionEvent: Events streamed to the client.
 
         Raises:
+            asyncio.CancelledError: Re-raised after cleaning up upload-created
+                sessions on client disconnect.
             Exception: Propagates unexpected errors after logging.
         """
         store = self._get_session_store()
         session: SessionState | None = None
+        session_created_by_stream = False
         scan_id = ""
 
         try:
@@ -1415,6 +1418,7 @@ class EngineServicer(engine_pb2_grpc.EngineServicer):
                             store,
                             chunk,
                         )
+                        session_created_by_stream = True
                         yield SessionEvent(
                             created=SessionCreated(
                                 session_id=session.session_id,
@@ -1500,9 +1504,17 @@ class EngineServicer(engine_pb2_grpc.EngineServicer):
                 elif oneof == "close":
                     if session:
                         store.remove(session.session_id)
+                        session_created_by_stream = False
                     yield SessionEvent(closed=SessionClosed())
                     return
 
+        except asyncio.CancelledError:
+            # Client disconnect raises CancelledError (a BaseException), which
+            # bypasses the explicit close path.  Remove only sessions this stream
+            # created so gateway reconnect can ResumeRequest without NOT_FOUND.
+            if session and session_created_by_stream:
+                store.remove(session.session_id)
+            raise
         except ResourceExhaustedError as e:
             await context.abort(grpc.StatusCode.RESOURCE_EXHAUSTED, str(e))
         except RequiredValidatorDependencyError as e:
@@ -1512,15 +1524,6 @@ class EngineServicer(engine_pb2_grpc.EngineServicer):
         except Exception as e:
             logger.exception("FixSession failed (session=%s): %s", scan_id, e)
             raise
-        finally:
-            # Client cancellation raises CancelledError (a BaseException),
-            # which bypasses both the except chain and the explicit close
-            # path above — remove here so a cancelled stream never leaks
-            # its session until TTL (exhaustible: _MAX_SESSIONS=10).
-            # SessionStore.remove() is idempotent (pop-with-default), so a
-            # second remove after an explicit close is a harmless no-op.
-            if session:
-                store.remove(session.session_id)
 
     # ── FixSession helpers ─────────────────────────────────────────────
 

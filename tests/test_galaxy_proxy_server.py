@@ -558,6 +558,28 @@ class TestVersionDiscoveryWithServers:
         assert result == ["1.5.4"]
         assert mock_inner.call_count == 2
 
+    def test_fetch_versions_all_servers_fail_returns_none(self) -> None:
+        """Total server failure (including truncation) is None, not an empty list."""
+        import asyncio
+
+        from galaxy_proxy.collection_downloader import GalaxyServerConfig
+        from galaxy_proxy.proxy.server import _fetch_galaxy_versions
+
+        servers = [
+            GalaxyServerConfig(name="hub", url="https://hub.example.com", token="tok"),
+        ]
+
+        with patch(
+            "galaxy_proxy.proxy.server._fetch_versions_from",
+            new_callable=AsyncMock,
+            return_value=None,
+        ):
+            result = asyncio.run(
+                _fetch_galaxy_versions("ansible", "posix", servers=servers),
+            )
+
+        assert result is None
+
     def test_fetch_versions_sends_auth_token(self) -> None:
         """_fetch_versions_from passes the auth token in the Authorization header.
 

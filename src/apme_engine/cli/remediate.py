@@ -136,6 +136,7 @@ def run_remediate(args: argparse.Namespace) -> None:
         cmd_queue: queue.Queue[SessionCommand | None],
         producer_errors: list[Exception],
         attempt_scan_ids: list[str],
+        stop_event: threading.Event,
     ) -> None:
         """Stream upload chunks into the command queue in a background thread.
 
@@ -159,6 +160,8 @@ def run_remediate(args: argparse.Namespace) -> None:
                 chunk's scan_id, recorded before enqueue so the main
                 thread can attribute a retry to the failed attempt's
                 server-side scan row.
+            stop_event: When set, the producer exits without enqueueing
+                further chunks (used during per-attempt teardown).
 
         Raises:
             BaseException: Re-raised after enqueueing the ``None`` sentinel
@@ -169,6 +172,8 @@ def run_remediate(args: argparse.Namespace) -> None:
         try:
             first = True
             for chunk in _make_chunks():
+                if stop_event.is_set():
+                    return
                 if not attempt_scan_ids and chunk.scan_id:
                     attempt_scan_ids.append(chunk.scan_id)
                 if first:
@@ -221,8 +226,11 @@ def run_remediate(args: argparse.Namespace) -> None:
         producer_errors: list[Exception] = []
         attempt_scan_ids: list[str] = []
 
+        stop_event = threading.Event()
         upload_thread = threading.Thread(
-            target=_run_uploads, args=(cmd_queue, producer_errors, attempt_scan_ids), daemon=True
+            target=_run_uploads,
+            args=(cmd_queue, producer_errors, attempt_scan_ids, stop_event),
+            daemon=True,
         )
         upload_thread.start()
 
@@ -353,8 +361,12 @@ def run_remediate(args: argparse.Namespace) -> None:
                 sys.exit(EXIT_ERROR)
         finally:
             # Tear down this attempt before any retry rebuilds it.
+            stop_event.set()
             cmd_queue.put(None)
             upload_thread.join(timeout=30)
+            if upload_thread.is_alive():
+                sys.stderr.write("Error: upload worker did not stop in time\n")
+                sys.exit(EXIT_ERROR)
             channel.close()
 
         if producer_errors:
@@ -363,7 +375,9 @@ def run_remediate(args: argparse.Namespace) -> None:
         if got_result:
             # Deferred until the producer is proven clean above: a partial
             # or synthetic result must never mutate disk on a failed run.
-            result_files_written = _write_patches(target, result_patches)
+            result_files_written, write_failed = _write_patches(target, result_patches)
+            if write_failed:
+                sys.exit(EXIT_ERROR)
             break
         if retry:
             time.sleep(1.0 + random.uniform(0, 1.0))
@@ -537,7 +551,7 @@ def _prompt_ynasq() -> str:
         sys.stderr.write("  Please enter y, n, a, s, or q\n")
 
 
-def _write_patches(target: Path, patches: Iterable[FilePatch]) -> int:
+def _write_patches(target: Path, patches: Iterable[FilePatch]) -> tuple[int, bool]:
     """Write patched files to disk, skipping failures.
 
     Args:
@@ -545,21 +559,24 @@ def _write_patches(target: Path, patches: Iterable[FilePatch]) -> int:
         patches: Patches to apply.
 
     Returns:
-        Number of files actually written (OSError skips excluded).
+        Tuple of (files actually written, whether any patch failed to apply).
     """
     count = 0
+    had_failures = False
     for p in patches:
         out_path = target / p.path if target.is_dir() else target
         try:
-            _safe_write(out_path, p.original, p.patched)
+            if _safe_write(out_path, p.original, p.patched):
+                rules = ", ".join(p.applied_rules) if p.applied_rules else "changes"
+                sys.stderr.write(f"  Fixed: {p.path} [{rules}]\n")
+                count += 1
+            else:
+                had_failures = True
         except OSError as exc:
             sys.stderr.write(f"WARNING: skipping {p.path}: {exc}\n")
-            continue
-        rules = ", ".join(p.applied_rules) if p.applied_rules else "changes"
-        sys.stderr.write(f"  Fixed: {p.path} [{rules}]\n")
-        count += 1
+            had_failures = True
     sys.stderr.write(f"\n{count} file(s) updated.\n")
-    return count
+    return count, had_failures
 
 
 def _render_remaining(result: SessionResult) -> None:
@@ -579,11 +596,12 @@ def _render_remaining(result: SessionResult) -> None:
         sys.stderr.write(f"{manual_count} violation(s) require manual review (Tier 3)\n")
 
 
-def _safe_write(path: Path, expected_original: bytes, new_content: bytes) -> None:
+def _safe_write(path: Path, expected_original: bytes, new_content: bytes) -> bool:
     current = path.read_bytes()
     if current != expected_original:
         sys.stderr.write(
             f"WARNING: {path} was modified since scan — skipping to avoid data loss.\n",
         )
-        return
+        return False
     path.write_bytes(new_content)
+    return True

@@ -33,6 +33,7 @@ from apme_gateway.operation_types import (
     OperationStatus,
     ProgressEntry,
     Proposal,
+    is_must_deliver,
     is_terminal,
 )
 
@@ -834,7 +835,7 @@ async def operation_events(project_id: str, request: Request) -> StreamingRespon
                         pending = queue.get_nowait()
                         if pending.get("_close"):
                             break
-                        if is_terminal(pending):
+                        if is_must_deliver(pending):
                             terminal_msgs.append(pending)
                 for terminal_msg in terminal_msgs:
                     terminal_event = terminal_msg.get("event", "message")
@@ -877,7 +878,7 @@ async def operation_events(project_id: str, request: Request) -> StreamingRespon
                             trailing = queue.get_nowait()
                             if trailing.get("_close"):
                                 break
-                            if is_terminal(trailing):
+                            if is_must_deliver(trailing):
                                 trailing_event = trailing.get("event", "message")
                                 if not isinstance(trailing_event, str):
                                     trailing_event = "message"

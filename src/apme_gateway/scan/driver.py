@@ -22,7 +22,7 @@ import time
 import uuid
 from collections.abc import AsyncIterator, Callable, Coroutine
 from typing import Any
-from urllib.parse import quote, urlparse, urlunparse
+from urllib.parse import quote, unquote, urlparse, urlunparse
 
 import grpc
 import grpc.aio
@@ -180,13 +180,104 @@ def _git_origin(repo_url: str) -> str:
 
     Returns:
         Origin string used to scope git ``http.<origin>.extraHeader`` keys.
+
+    Raises:
+        ValueError: When the URL contains a malformed port.
     """
     parsed = urlparse(repo_url)
     host = parsed.hostname or ""
     origin = f"{parsed.scheme}://{host}"
-    if parsed.port:
-        origin += f":{parsed.port}"
+    try:
+        port = parsed.port
+    except ValueError:
+        raise
+    if port:
+        origin += f":{port}"
     return origin
+
+
+def _url_embedded_userpass(repo_url: str) -> tuple[str, str] | None:
+    """Return username/password embedded in a clone URL's userinfo.
+
+    Args:
+        repo_url: Raw clone URL, possibly with embedded userinfo.
+
+    Returns:
+        ``(username, password)`` tuple, or ``None`` when no userinfo is present.
+    """
+    try:
+        parsed = urlparse(repo_url)
+    except ValueError:
+        return None
+    if not parsed.username:
+        return None
+    user = unquote(parsed.username)
+    password = unquote(parsed.password or "")
+    return user, password
+
+
+def _auth_cache_marker(scm_token: str | None, url_userpass: tuple[str, str] | None) -> str:
+    """Build a stable cache marker for credential-aware SCM lookups.
+
+    Args:
+        scm_token: Explicit SCM token, if any.
+        url_userpass: URL-embedded ``(username, password)`` credentials.
+
+    Returns:
+        Empty string when unauthenticated, otherwise ``:auth:<hash>``.
+    """
+    if scm_token:
+        material = scm_token
+    elif url_userpass is not None:
+        material = f"{url_userpass[0]}:{url_userpass[1]}"
+    else:
+        return ""
+    token_hash = hashlib.sha256(material.encode()).hexdigest()[:16]
+    return f":auth:{token_hash}"
+
+
+def _apply_git_auth_env(
+    env: dict[str, str],
+    repo_url: str,
+    scm_token: str | None,
+    url_userpass: tuple[str, str] | None = None,
+    *,
+    scm_provider: str | None = None,
+) -> dict[str, str]:
+    """Merge per-origin git auth headers into *env* when a token is available.
+
+    Args:
+        env: Base git subprocess environment.
+        repo_url: Stripped HTTPS clone URL.
+        scm_token: Explicit SCM token, if any.
+        url_userpass: URL-embedded credentials when *scm_token* is absent.
+        scm_provider: Optional explicit SCM provider.
+
+    Returns:
+        Environment with auth headers merged, unchanged when no token.
+    """
+    if scm_token:
+        auth = _git_auth_env(repo_url, scm_token, scm_provider=scm_provider)
+    elif url_userpass is not None:
+        username, password = url_userpass
+        encoded = base64.b64encode(f"{username}:{password}".encode()).decode("ascii")
+        auth = {
+            "GIT_CONFIG_COUNT": "1",
+            "GIT_CONFIG_KEY_0": f"http.{_git_origin(repo_url)}.extraHeader",
+            "GIT_CONFIG_VALUE_0": f"AUTHORIZATION: Basic {encoded}",
+        }
+    else:
+        return env
+    try:
+        auth_count = int(auth.get("GIT_CONFIG_COUNT", "0"))
+    except ValueError:
+        auth_count = 0
+    pairs = [
+        (auth[f"GIT_CONFIG_KEY_{i}"], auth[f"GIT_CONFIG_VALUE_{i}"])
+        for i in range(auth_count)
+        if f"GIT_CONFIG_KEY_{i}" in auth and f"GIT_CONFIG_VALUE_{i}" in auth
+    ]
+    return _merge_git_config_env(env, pairs)
 
 
 def _strip_url_userinfo(repo_url: str) -> str:
@@ -319,8 +410,12 @@ def _inject_token_in_url(
     username, password = _scm_basic_credentials(repo_url, token, scm_provider=scm_provider)
     # Percent-encode credentials to handle special characters (@, :, /, etc.)
     netloc_with_auth = f"{quote(username, safe='')}:{quote(password, safe='')}@{hostname}"
-    if parsed.port:
-        netloc_with_auth += f":{parsed.port}"
+    try:
+        port = parsed.port
+    except ValueError:
+        port = None
+    if port:
+        netloc_with_auth += f":{port}"
     return urlunparse(parsed._replace(netloc=netloc_with_auth))
 
 
@@ -381,14 +476,14 @@ async def fetch_remote_head(
     Returns:
         40-char hex SHA, or ``None`` if the lookup fails.
     """
+    url_userpass = _url_embedded_userpass(repo_url) if not scm_token else None
     repo_url = _strip_url_userinfo(repo_url)
     if not any(repo_url.startswith(scheme) for scheme in _ALLOWED_SCHEMES):
         return None
 
     # Key authenticated lookups on a credential hash: two tokens with
     # different access must not share one entry.
-    token_hash = hashlib.sha256(scm_token.encode()).hexdigest()[:16] if scm_token else ""
-    token_marker = f":auth:{token_hash}" if scm_token else ""
+    token_marker = _auth_cache_marker(scm_token, url_userpass)
     cache_key = f"{normalize_repo_url(repo_url)}:{branch}{token_marker}:{scm_provider or ''}"
     now = time.monotonic()
     cached = _REMOTE_HEAD_CACHE.get(cache_key)
@@ -401,18 +496,17 @@ async def fetch_remote_head(
     # Pass the token via a per-origin http.extraHeader env entry so it never
     # appears in argv; pre-existing GIT_CONFIG_* entries are preserved.
     env = _git_subprocess_env()
-    if scm_token:
-        auth = _git_auth_env(repo_url, scm_token, scm_provider=scm_provider)
-        try:
-            auth_count = int(auth.get("GIT_CONFIG_COUNT", "0"))
-        except ValueError:
-            auth_count = 0
-        pairs = [
-            (auth[f"GIT_CONFIG_KEY_{i}"], auth[f"GIT_CONFIG_VALUE_{i}"])
-            for i in range(auth_count)
-            if f"GIT_CONFIG_KEY_{i}" in auth and f"GIT_CONFIG_VALUE_{i}" in auth
-        ]
-        env = _merge_git_config_env(env, pairs)
+    try:
+        env = _apply_git_auth_env(
+            env,
+            repo_url,
+            scm_token,
+            url_userpass,
+            scm_provider=scm_provider,
+        )
+    except ValueError:
+        logger.debug("ls-remote auth env failed for %s branch %s", repo_url, branch, exc_info=True)
+        return None
     cmd = ["git", "ls-remote", "--exit-code", repo_url, f"refs/heads/{branch}"]
     loop = asyncio.get_running_loop()
     sha: str | None = None
@@ -494,6 +588,7 @@ async def clone_repo(
         ValueError: If *repo_url* uses a disallowed scheme.
         RuntimeError: If ``git clone`` fails or times out.
     """
+    url_userpass = _url_embedded_userpass(repo_url) if not scm_token else None
     repo_url = _strip_url_userinfo(repo_url)
     if not any(repo_url.startswith(scheme) for scheme in _ALLOWED_SCHEMES):
         msg = f"Only https:// clone URLs are allowed, got: {repo_url[:60]}"
@@ -506,18 +601,17 @@ async def clone_repo(
     # Pass the token via a per-origin http.extraHeader env entry so it never
     # appears in argv; pre-existing GIT_CONFIG_* entries are preserved.
     env = _git_subprocess_env()
-    if scm_token:
-        auth = _git_auth_env(repo_url, scm_token, scm_provider=scm_provider)
-        try:
-            auth_count = int(auth.get("GIT_CONFIG_COUNT", "0"))
-        except ValueError:
-            auth_count = 0
-        pairs = [
-            (auth[f"GIT_CONFIG_KEY_{i}"], auth[f"GIT_CONFIG_VALUE_{i}"])
-            for i in range(auth_count)
-            if f"GIT_CONFIG_KEY_{i}" in auth and f"GIT_CONFIG_VALUE_{i}" in auth
-        ]
-        env = _merge_git_config_env(env, pairs)
+    try:
+        env = _apply_git_auth_env(
+            env,
+            repo_url,
+            scm_token,
+            url_userpass,
+            scm_provider=scm_provider,
+        )
+    except ValueError as exc:
+        msg = f"Invalid repository URL for authentication: {repo_url[:60]}"
+        raise ValueError(msg) from exc
     cmd = [
         "git",
         "clone",

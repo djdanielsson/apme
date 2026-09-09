@@ -696,6 +696,8 @@ async def test_clone_repo_strips_embedded_userinfo(
     call_args = mock_run.call_args[0][0]
     assert call_args[-2] == "https://github.com/owner/repo.git"
     assert "s3cret-token" not in " ".join(call_args)
+    env = mock_run.call_args.kwargs["env"]
+    assert _decode_auth_env(env) == "deployer:s3cret-token"
     assert "github.com" in caplog.text
     assert "s3cret-token" not in caplog.text
 
@@ -726,6 +728,16 @@ async def test_clone_repo_userinfo_with_token_keeps_header_auth() -> None:
         assert "ghp_test" not in " ".join(call_args)
         env = mock_run.call_args.kwargs["env"]
         assert _decode_auth_env(env) == "x-access-token:ghp_test"
+
+
+@pytest.mark.asyncio  # type: ignore[untyped-decorator]
+async def test_fetch_remote_head_malformed_port_returns_none() -> None:
+    """Malformed ports in authenticated URLs return None instead of raising."""
+    _REMOTE_HEAD_CACHE.clear()
+    _REMOTE_HEAD_NEG_CACHE.clear()
+    bad_url = "https://host:badport/repo.git"
+    sha = await fetch_remote_head(bad_url, "main", scm_token="tok")
+    assert sha is None
 
 
 @pytest.mark.asyncio  # type: ignore[untyped-decorator]
@@ -790,6 +802,20 @@ class TestRedactTightenedPatterns:
         """Short Bearer fragments below the token floor are not redacted."""
         text = "Bearer of light"
         assert redact_credentials(text) == text
+
+    def test_short_basic_auth_header_masked(self) -> None:
+        """Short Basic auth values are redacted when prefixed by Authorization."""
+        text = "AUTHORIZATION: Basic YTpi"
+        result = redact_credentials(text)
+        assert "YTpi" not in result
+        assert "Basic [REDACTED]" in result
+
+    def test_short_bearer_token_masked(self) -> None:
+        """Short bearer access tokens are redacted."""
+        text = "Authorization: Bearer ghp_ab"
+        result = redact_credentials(text)
+        assert "ghp_ab" not in result
+        assert "[REDACTED]" in result
 
 
 @pytest.mark.asyncio  # type: ignore[untyped-decorator]

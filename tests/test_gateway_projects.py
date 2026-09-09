@@ -635,6 +635,11 @@ def test_normalize_repo_url_strips_userinfo() -> None:
     assert normalize_repo_url("https://user:token@host.example.com/org/repo.git") == "https://host.example.com/org/repo"
 
 
+def test_normalize_repo_url_malformed_port_strips_userinfo() -> None:
+    """Invalid ports still strip embedded credentials from the canonical URL."""
+    assert normalize_repo_url("https://user:secret@github.com:notaport/repo.git") == "https://github.com/repo"
+
+
 async def test_lookup_collapses_default_port_variants(client: AsyncClient) -> None:
     """Lookup resolves explicit-default-port spellings to one project.
 
@@ -775,8 +780,16 @@ async def test_find_project_by_repo_url_heals_legacy_row() -> None:
         assert second.id == "healed-proj-1234567890abcdef1234567890ab"
 
 
-async def test_find_project_by_repo_url_heal_failure_rolls_back() -> None:
-    """A failed heal commit rolls back so the session stays usable."""
+async def test_find_project_by_repo_url_heal_failure_rolls_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed isolated heal does not poison the caller session.
+
+    Args:
+        monkeypatch: Pytest fixture used to stub the isolated heal helper.
+    """
+    from unittest.mock import AsyncMock
+
     from sqlalchemy import select
 
     target_url = "https://github.com/org/heal-fail.git"
@@ -793,22 +806,81 @@ async def test_find_project_by_repo_url_heal_failure_rolls_back() -> None:
             )
         )
         await db.commit()
-        real_commit = db.commit
 
-        async def _fail_once() -> None:
-            db.commit = real_commit
-            raise RuntimeError("boom")
+    heal_mock = AsyncMock()
+    monkeypatch.setattr(q, "_heal_project_normalized_url", heal_mock)
 
-        db.commit = _fail_once
+    async with get_session() as db:
         found = await q.find_project_by_repo_url(db, target_url)
         assert found is not None
-        # The rolled-back heal expired the row: refresh proves the session
-        # is usable (raises PendingRollbackError without the rollback).
+        heal_mock.assert_awaited()
         await db.refresh(found)
         assert found.id == "heal-fail-proj-1234567890abcdef12345678"
-        # Session usable after the rolled-back heal (no PendingRollbackError).
         rows = (await db.execute(select(Project.id))).scalars().all()
         assert "heal-fail-proj-1234567890abcdef12345678" in rows
+
+
+async def test_heal_project_normalized_url_swallows_commit_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Isolated heal failures are logged and do not raise to callers.
+
+    Args:
+        monkeypatch: Pytest fixture used to stub the isolated heal session.
+    """
+    target = normalize_repo_url("https://github.com/org/heal-swallow.git")
+    assert target
+    async with get_session() as db:
+        await q.create_project(
+            db,
+            project_id="heal-swallow-proj",
+            name="Heal Swallow",
+            repo_url="https://github.com/org/heal-swallow.git",
+        )
+
+    class _FailSession:
+        """Minimal async session stub whose commit always fails."""
+
+        async def execute(self, *_args: object, **_kwargs: object) -> None:
+            return None
+
+        async def commit(self) -> None:
+            raise RuntimeError("boom")
+
+        async def __aenter__(self) -> _FailSession:
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+    monkeypatch.setattr("apme_gateway.db.get_session", lambda: _FailSession())
+    await q._heal_project_normalized_url("heal-swallow-proj", target)
+
+
+async def test_find_project_by_repo_url_stale_normalized_index() -> None:
+    """Stale non-empty normalized values fall back to raw URL matching."""
+    new_url = "https://github.com/org/new-repo.git"
+    old_canonical = normalize_repo_url("https://github.com/org/old-repo.git")
+    assert old_canonical
+    async with get_session() as db:
+        db.add(
+            Project(
+                id="stale-norm-proj-1234567890abcdef123456",
+                name="Stale Norm Project",
+                repo_url=new_url,
+                normalized_repo_url=old_canonical,
+                branch="main",
+                created_at="2026-03-01T00:00:00Z",
+                health_score=100,
+            )
+        )
+        await db.commit()
+        found = await q.find_project_by_repo_url(db, new_url)
+        assert found is not None
+        assert found.id == "stale-norm-proj-1234567890abcdef123456"
+        await db.refresh(found)
+        assert found.normalized_repo_url == normalize_repo_url(new_url)
+        assert await q.find_project_by_repo_url(db, "https://github.com/org/old-repo") is None
 
 
 async def test_update_project_rejects_blank_repo_url() -> None:

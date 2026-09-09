@@ -320,27 +320,50 @@ class SSEEventType(str, Enum):
     ERROR = "error_event"
 
 
-_TERMINAL_EVENT_VALUES: frozenset[str] = frozenset({SSEEventType.RESULT.value, SSEEventType.PR_CREATED.value})
+_MUST_DELIVER_EVENT_VALUES: frozenset[str] = frozenset({SSEEventType.RESULT.value, SSEEventType.PR_CREATED.value})
 _TERMINAL_STATUS_VALUES: frozenset[str] = frozenset({s.value for s in TERMINAL_STATUSES})
 
 
-def is_terminal(msg: Mapping[str, object]) -> bool:
-    """Return whether an SSE message closes the stream.
+def is_must_deliver(msg: Mapping[str, object]) -> bool:
+    """Return whether an SSE message must not be dropped from subscriber queues.
 
-    A message is terminal when its event type is ``result`` or
-    ``pr_created``, or when its payload carries a terminal ``status``.
-    Shared by the registry broadcast predicate and the router's
-    snapshot-drain and live loops so ``result``/``pr_created`` payloads
-    without a ``status`` field are not misclassified.
+    ``result`` and ``pr_created`` payloads, plus ``status_changed`` events
+    carrying a terminal status, are must-deliver for broadcast eviction.
+    ``result`` is not stream-closing on its own — see :func:`is_terminal`.
 
     Args:
         msg: SSE message with ``event`` and ``data`` keys.
 
     Returns:
-        True when the message is terminal.
+        True when the message must be preserved during queue eviction.
     """
     event = msg.get("event")
-    if isinstance(event, str) and event in _TERMINAL_EVENT_VALUES:
+    if isinstance(event, str) and event in _MUST_DELIVER_EVENT_VALUES:
+        return True
+    data = msg.get("data") or {}
+    if not isinstance(data, dict):
+        return False
+    status = data.get("status")
+    if not isinstance(status, str):
+        return False
+    return status in _TERMINAL_STATUS_VALUES
+
+
+def is_terminal(msg: Mapping[str, object]) -> bool:
+    """Return whether an SSE message closes the live stream.
+
+    Only ``pr_created`` and ``status_changed`` with a terminal ``status``
+    close the stream. ``result`` is must-deliver but non-terminal because
+    production emits it before ``status_changed(completed)``.
+
+    Args:
+        msg: SSE message with ``event`` and ``data`` keys.
+
+    Returns:
+        True when the live SSE loop should close after this message.
+    """
+    event = msg.get("event")
+    if isinstance(event, str) and event == SSEEventType.PR_CREATED.value:
         return True
     data = msg.get("data") or {}
     if not isinstance(data, dict):

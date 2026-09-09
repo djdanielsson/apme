@@ -587,7 +587,7 @@ class TestRunPipInstallIndexStrategy:
 
         with (
             patch.dict(os.environ, {}, clear=False),
-            patch("apme_engine.venv_manager.session.subprocess.run", return_value=mock_result) as mock_run,
+            patch("apme_engine.venv_manager.session._run_subprocess_timed", return_value=mock_result) as mock_run,
         ):
             os.environ.pop("APME_UV_INDEX_STRATEGY", None)
             _run_pip_install(Path("/venv/bin/python"), ["pkg"], "http://proxy", use_uv=True)
@@ -607,7 +607,7 @@ class TestRunPipInstallIndexStrategy:
 
         with (
             patch.dict(os.environ, {"APME_UV_INDEX_STRATEGY": "first-match"}),
-            patch("apme_engine.venv_manager.session.subprocess.run", return_value=mock_result) as mock_run,
+            patch("apme_engine.venv_manager.session._run_subprocess_timed", return_value=mock_result) as mock_run,
         ):
             _run_pip_install(Path("/venv/bin/python"), ["pkg"], "http://proxy", use_uv=True)
 
@@ -626,7 +626,7 @@ class TestRunPipInstallIndexStrategy:
 
         with (
             patch.dict(os.environ, {"APME_UV_INDEX_STRATEGY": "  "}),
-            patch("apme_engine.venv_manager.session.subprocess.run", return_value=mock_result) as mock_run,
+            patch("apme_engine.venv_manager.session._run_subprocess_timed", return_value=mock_result) as mock_run,
         ):
             _run_pip_install(Path("/venv/bin/python"), ["pkg"], "http://proxy", use_uv=True)
 
@@ -1071,14 +1071,14 @@ class TestCreateBaseVenvTimeout:
         venv_dir = tmp_path / "venv"
         with (
             patch(
-                "apme_engine.venv_manager.session.subprocess.run",
+                "apme_engine.venv_manager.session._run_subprocess_timed",
                 side_effect=subprocess.TimeoutExpired(cmd="uv venv", timeout=_PIP_INSTALL_TIMEOUT_S),
             ) as mock_run,
             pytest.raises(PipInstallTimeout),
         ):
             create_base_venv(venv_dir, "2.17.0")
 
-        assert mock_run.call_args is not None
+        assert mock_run.call_count == 1
         assert mock_run.call_args[1].get("timeout") == _PIP_INSTALL_TIMEOUT_S
 
     def test_ansible_core_install_timeout_raises(self, tmp_path: Path) -> None:
@@ -1102,7 +1102,7 @@ class TestCreateBaseVenvTimeout:
                 return_value=False,
             ),
             patch(
-                "apme_engine.venv_manager.session.subprocess.run",
+                "apme_engine.venv_manager.session._run_subprocess_timed",
                 side_effect=[
                     ok_result,
                     subprocess.TimeoutExpired(cmd="pip install", timeout=_PIP_INSTALL_TIMEOUT_S),
@@ -1119,3 +1119,40 @@ class TestCreateBaseVenvTimeout:
         assert mock_run.call_count == 2
         for call in mock_run.call_args_list:
             assert call[1].get("timeout") == _PIP_INSTALL_TIMEOUT_S
+
+
+class TestRunSubprocessTimed:
+    """Process-group isolation and teardown for bounded subprocess runs."""
+
+    def test_run_subprocess_timed_uses_isolated_process_group(self) -> None:
+        """Pip/uv installs start in a new session so timeouts can kill the group."""
+        from apme_engine.venv_manager.session import _run_subprocess_timed
+
+        mock_proc = MagicMock()
+        mock_proc.communicate.return_value = ("ok", "")
+        mock_proc.returncode = 0
+
+        with patch("apme_engine.venv_manager.session.subprocess.Popen", return_value=mock_proc) as mock_popen:
+            result = _run_subprocess_timed(["uv", "pip", "install", "pkg"], timeout=30)
+
+        assert result.returncode == 0
+        assert mock_popen.call_args[1]["start_new_session"] is True
+
+    def test_run_subprocess_timed_terminates_process_group_on_timeout(self) -> None:
+        """TimeoutExpired triggers process-group termination before re-raising."""
+        from apme_engine.venv_manager.session import _run_subprocess_timed
+
+        mock_proc = MagicMock()
+        mock_proc.pid = 4242
+        mock_proc.communicate.side_effect = subprocess.TimeoutExpired(cmd=["uv"], timeout=30)
+
+        with (
+            patch("apme_engine.venv_manager.session.subprocess.Popen", return_value=mock_proc),
+            patch("apme_engine.venv_manager.session._terminate_process_group") as mock_term,
+            patch("apme_engine.venv_manager.session._kill_process_group") as mock_kill,
+            pytest.raises(subprocess.TimeoutExpired),
+        ):
+            _run_subprocess_timed(["uv", "pip", "install", "pkg"], timeout=30)
+
+        mock_term.assert_called_once_with(mock_proc)
+        mock_kill.assert_called_once_with(mock_proc)

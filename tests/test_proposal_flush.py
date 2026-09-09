@@ -565,6 +565,61 @@ def test_proposal_detail_dict_coerces_string_lines() -> None:
     assert fallback["confidence"] == 0.0
 
 
+async def test_bridge_matches_stub_when_rebuild_line_end_zero() -> None:
+    """Rebuild groups without line_end still bridge to live stubs with spans."""
+    from apme_gateway.proposals.draft import upsert_live_proposal_stubs
+
+    await _seed_project_scan(scan_id="bridge-zero-end")
+    async with get_session() as db:
+        await upsert_live_proposal_stubs(
+            db,
+            scan_id="bridge-zero-end",
+            project_id=None,
+            proposals=[
+                {
+                    "id": "eng-span",
+                    "rule_id": "L001",
+                    "file": "tasks/main.yml",
+                    "tier": 2,
+                    "status": "approved",
+                    "source": "ai",
+                    "line_start": 10,
+                    "line_end": 14,
+                }
+            ],
+        )
+        await db.commit()
+        prop = (await db.execute(select(Proposal).where(Proposal.scan_id == "bridge-zero-end"))).scalar_one()
+        prop.analytics_flushed = 1
+        await db.commit()
+
+        await replace_scan_proposals(
+            db,
+            scan_id="bridge-zero-end",
+            proposals=[
+                GroupedProposal(
+                    proposal_id="prop-ai-span",
+                    rule_id="L001",
+                    rule_ids=("L001",),
+                    violation_ids=(1,),
+                    file="tasks/main.yml",
+                    path="tasks/main.yml::t[0]",
+                    line_start=10,
+                    line_end=0,
+                    tier=2,
+                    source="ai",
+                    gate="ai",
+                    status="pending",
+                )
+            ],
+        )
+        await db.commit()
+        rebuilt = (await db.execute(select(Proposal).where(Proposal.scan_id == "bridge-zero-end"))).scalar_one()
+        assert rebuilt.engine_proposal_id == "eng-span"
+        assert rebuilt.status == "approved"
+        assert rebuilt.analytics_flushed == 1
+
+
 async def test_bridge_distinguishes_line_end() -> None:
     """Same file/rule/line_start with different line_end must not collide."""
     from apme_gateway.proposals.draft import upsert_live_proposal_stubs

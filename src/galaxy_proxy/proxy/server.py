@@ -266,8 +266,13 @@ def create_app(
                 name,
                 servers=servers_cfg,
             )
-            cache.put_metadata(namespace, name, galaxy_versions)
-            versions = galaxy_versions
+            if galaxy_versions is not None:
+                cache.put_metadata(namespace, name, galaxy_versions)
+                versions = galaxy_versions
+            else:
+                # Truncation or total server failure — do not cache an empty
+                # listing that would masquerade as a valid zero-version catalog.
+                versions = []
 
         if not versions and not cached_wheel_set:
             lock_key = f"{namespace}.{name}:latest"
@@ -584,7 +589,7 @@ async def _fetch_galaxy_versions(
     name: str,
     *,
     servers: list[GalaxyServerConfig] | None = None,
-) -> list[str]:
+) -> list[str] | None:
     """Fetch all published version strings for a collection from Galaxy.
 
     When *servers* is provided, each configured server is tried in order
@@ -602,7 +607,8 @@ async def _fetch_galaxy_versions(
         servers: Ordered list of Galaxy server configs (optional).
 
     Returns:
-        Sorted list of version strings, empty on error.
+        Sorted list of version strings on success (possibly empty), or
+        ``None`` when every server fails (including pagination truncation).
     """
     base_urls: list[tuple[str, str | None]] = []
     for srv in servers or []:
@@ -621,7 +627,7 @@ async def _fetch_galaxy_versions(
         name,
         ", ".join(tried),
     )
-    return []
+    return None
 
 
 def _normalize_galaxy_url(raw_url: str) -> str:

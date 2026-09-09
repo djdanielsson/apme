@@ -2102,12 +2102,75 @@ class TestFixSessionRPC:
             async for _event in servicer.FixSession(stream, ctx):  # type: ignore[arg-type]
                 pass
 
-    async def test_client_cancel_removes_session(self) -> None:
-        """Client cancellation does not leak the session until TTL.
+    async def test_resume_stream_end_preserves_session(self) -> None:
+        """Disconnecting a resumed stream without close keeps the session alive."""
+        from apme_engine.daemon.engine_server import EngineServicer
+
+        servicer = EngineServicer()
+        store = servicer._get_session_store()
+
+        session = store.create()
+        session.report = FixReport(passes=1, fixed=0)
+        session.status = 1
+        session.proposals = {
+            "t2-0000": Proposal(id="t2-0000", file="test.yml", rule_id="L001"),
+        }
+
+        stream = AsyncCommandStream()
+        ctx = FakeGrpcContext()
+        stream.send(
+            SessionCommand(
+                resume=ResumeRequest(session_id=session.session_id),
+            )
+        )
+
+        async for event in servicer.FixSession(stream, ctx):  # type: ignore[arg-type]
+            if event.WhichOneof("event") == "proposals":
+                stream.close()
+                break
+
+        assert store.get(session.session_id) is session
+
+    async def test_upload_stream_end_preserves_session(self) -> None:
+        """Disconnecting an upload stream without close keeps the session for resume."""
+        from apme_engine.daemon.engine_server import EngineServicer
+
+        servicer = EngineServicer()
+        store = servicer._get_session_store()
+        before = store.count
+
+        stream = AsyncCommandStream()
+        ctx = FakeGrpcContext()
+        stream.send(
+            SessionCommand(
+                upload=ScanChunk(scan_id="test-persist", last=True),
+            )
+        )
+
+        session_id = None
+        with patch.object(
+            EngineServicer,
+            "_session_process",
+            _mock_session_process_with_proposals,
+        ):
+            async for event in servicer.FixSession(stream, ctx):  # type: ignore[arg-type]
+                oneof = event.WhichOneof("event")
+                if oneof == "created" and session_id is None:
+                    session_id = event.created.session_id
+                elif oneof == "proposals":
+                    stream.close()
+                    break
+
+        assert session_id is not None
+        assert store.count == before + 1
+        assert store.get(session_id) is not None
+
+    async def test_client_cancel_removes_created_session(self) -> None:
+        """Client cancellation removes only sessions created by this stream.
 
         A CancelledError from the request stream bypasses the explicit
-        close path; the FixSession finally must still remove the session
-        so repeated client retries cannot exhaust _MAX_SESSIONS.
+        close path; created sessions must still be removed so repeated
+        client retries cannot exhaust _MAX_SESSIONS.
         """
         from apme_engine.daemon.engine_server import EngineServicer
 

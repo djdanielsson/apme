@@ -18,6 +18,7 @@ from apme_gateway.operation_types import (
     OperationStatus,
     ProgressEntry,
     Proposal,
+    is_must_deliver,
     is_terminal,
 )
 
@@ -224,10 +225,10 @@ def _canned_request() -> Request:
 
 
 def test_is_terminal_predicate() -> None:
-    """Result/pr_created events and terminal statuses are terminal; all else is not."""
-    assert is_terminal({"event": "result", "data": {}})
+    """Only pr_created and terminal status_changed close the live SSE stream."""
+    assert not is_terminal({"event": "result", "data": {}})
     assert is_terminal({"event": "pr_created", "data": {}})
-    assert is_terminal({"event": "result", "data": None})
+    assert not is_terminal({"event": "result", "data": None})
     assert is_terminal({"event": "status_changed", "data": {"status": "completed"}})
     assert is_terminal({"event": "status_changed", "data": {"status": "pr_submitted"}})
     assert not is_terminal({"event": "status_changed", "data": {"status": "scanning"}})
@@ -238,8 +239,16 @@ def test_is_terminal_predicate() -> None:
     assert not is_terminal({"event": "status_changed", "data": {"status": 123}})
 
 
-async def test_events_terminal_result_without_status_drained() -> None:
-    """A stateless result delta is terminal: the drain forwards it and closes."""
+def test_is_must_deliver_predicate() -> None:
+    """Result/pr_created and terminal statuses are must-deliver for queue eviction."""
+    assert is_must_deliver({"event": "result", "data": {}})
+    assert is_must_deliver({"event": "pr_created", "data": {}})
+    assert is_must_deliver({"event": "status_changed", "data": {"status": "completed"}})
+    assert not is_must_deliver({"event": "progress", "data": {}})
+
+
+async def test_events_result_then_completed_status_both_delivered() -> None:
+    """Result alone does not close the stream; completed status_changed follows."""
     project_id = "proj-lifecycle-events-result-no-status"
     registry = get_operation_registry()
     state = registry.create(
@@ -248,7 +257,7 @@ async def test_events_terminal_result_without_status_drained() -> None:
         scan_id="scan-lifecycle-events-result-no-status",
         scan_type="remediate",
     )
-    registry.transition(state.operation_id, OperationStatus.COMPLETED)
+    registry.transition(state.operation_id, OperationStatus.APPLYING)
 
     resp = await operation_events(project_id, _canned_request())
     stream = resp.body_iterator
@@ -262,6 +271,12 @@ async def test_events_terminal_result_without_status_drained() -> None:
             "data": {"total_violations": 2, "patches": [{"file": "a.yml", "diff": "--- fix"}]},
         }
     )
+    state.sse_subscribers[0].put_nowait(
+        {
+            "event": "status_changed",
+            "data": {"status": OperationStatus.COMPLETED.value, "previous": "applying"},
+        }
+    )
     rest: list[str] = []
     async with asyncio.timeout(10):
         async for chunk in stream:
@@ -270,6 +285,9 @@ async def test_events_terminal_result_without_status_drained() -> None:
     text = "".join(rest)
     assert "event: result" in text
     assert "a.yml" in text
+    assert "event: status_changed" in text
+    assert OperationStatus.COMPLETED.value in text
+    assert text.index("event: result") < text.index("event: status_changed")
 
 
 async def test_events_snapshot_drain_discards_stale_deltas() -> None:

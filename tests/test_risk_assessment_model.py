@@ -1557,6 +1557,17 @@ def test_search_module_fuzzy_match_via_findings(tmp_path: Path) -> None:
     assert result[0]["name"] == "ns.coll.mymod"
 
 
+def test_findings_path_parts_windows_backslashes() -> None:
+    """Backslash-separated findings paths split into usable components."""
+    from apme_engine.engine.risk_assessment_model import _findings_path_parts
+
+    parts = _findings_path_parts(r"C:\cache\collections\findings\ns.coll\1.0.0\abc123\findings.json")
+    assert len(parts) >= 6
+    assert parts[-4] == "ns.coll"
+    assert parts[-3] == "1.0.0"
+    assert parts[-2] == "abc123"
+
+
 def test_search_module_findings_cache_hit(tmp_path: Path) -> None:
     """Populated findings caches avoid Findings.load calls.
 

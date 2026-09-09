@@ -26,7 +26,7 @@ from apme_gateway.operation_types import (
     ProgressEntry,
     Proposal,
     SSEEventType,
-    is_terminal,
+    is_must_deliver,
 )
 
 logger = logging.getLogger(__name__)
@@ -513,13 +513,13 @@ class OperationRegistry:
             data: Event payload.
         """
         msg = {"event": event_type.value, "data": data}
-        terminal = is_terminal(msg)
+        must_deliver = is_must_deliver(msg)
         dead: list[asyncio.Queue[dict[str, Any]]] = []
         for q in op.sse_subscribers:
             try:
                 q.put_nowait(msg)
             except asyncio.QueueFull:
-                if not terminal:
+                if not must_deliver:
                     dead.append(q)
                     logger.warning("Dropping slow SSE subscriber for operation %s", op.operation_id[:12])
                     continue
@@ -533,7 +533,7 @@ class OperationRegistry:
                         buffered.append(q.get_nowait())
                 while q.maxsize > 0 and len(buffered) >= q.maxsize:
                     for index, item in enumerate(buffered):
-                        if not is_terminal(item):
+                        if not is_must_deliver(item):
                             del buffered[index]
                             break
                     else:

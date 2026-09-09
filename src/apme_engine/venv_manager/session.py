@@ -27,12 +27,14 @@ Storage layout::
 
 from __future__ import annotations
 
+import contextlib
 import fcntl
 import json
 import logging
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -164,6 +166,91 @@ class PipInstallTimeout(TimeoutError):
     """
 
 
+#: Brief bound for reaping a pip/uv process group after SIGTERM/SIGKILL.
+_SUBPROCESS_REAP_TIMEOUT_S = 5.0
+
+
+def _terminate_process_group(proc: subprocess.Popen[str]) -> None:
+    """Send SIGTERM to ``proc`` and its descendants (when supported).
+
+    Args:
+        proc: Running subprocess handle.
+    """
+    if proc.pid is None:
+        return
+    if hasattr(os, "killpg"):
+        with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
+            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+        return
+    with contextlib.suppress(OSError):
+        proc.terminate()
+
+
+def _kill_process_group(proc: subprocess.Popen[str]) -> None:
+    """Force-kill ``proc`` and its descendants (when supported).
+
+    Args:
+        proc: Running subprocess handle.
+    """
+    if proc.pid is None:
+        return
+    if hasattr(os, "killpg"):
+        with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        return
+    with contextlib.suppress(OSError):
+        proc.kill()
+
+
+def _run_subprocess_timed(
+    cmd: list[str],
+    *,
+    timeout: float,
+    check: bool = False,
+) -> subprocess.CompletedProcess[str]:
+    """Run ``cmd`` in an isolated process group with a wall-clock bound.
+
+    ``subprocess.run(..., timeout=...)`` kills only the direct child; pip/uv
+    workers can survive and keep the session lock pinned.  This helper starts
+    the command in a new session/process group and terminates the whole group
+    on timeout.
+
+    Args:
+        cmd: Command argv.
+        timeout: Wall-clock bound in seconds.
+        check: If True, raise ``CalledProcessError`` on non-zero exit.
+
+    Returns:
+        CompletedProcess with stdout/stderr captured.
+
+    Raises:
+        subprocess.TimeoutExpired: If the command exceeds ``timeout``.
+        subprocess.CalledProcessError: If ``check`` is True and exit code is non-zero.
+    """
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        _terminate_process_group(proc)
+        try:
+            stdout, stderr = proc.communicate(timeout=_SUBPROCESS_REAP_TIMEOUT_S)
+        except subprocess.TimeoutExpired:
+            _kill_process_group(proc)
+            with contextlib.suppress(subprocess.TimeoutExpired):
+                stdout, stderr = proc.communicate(timeout=_SUBPROCESS_REAP_TIMEOUT_S)
+        raise subprocess.TimeoutExpired(cmd, timeout, output=exc.output, stderr=exc.stderr) from exc
+
+    if check and proc.returncode != 0:
+        raise subprocess.CalledProcessError(proc.returncode, cmd, stdout, stderr)
+    return subprocess.CompletedProcess(cmd, proc.returncode or 0, stdout, stderr)
+
+
 def _run_pip_install(
     pip_python: Path,
     pip_specs: list[str],
@@ -228,7 +315,7 @@ def _run_pip_install(
             cmd.extend(["--only-binary", ":all:"])
         cmd.extend(pip_specs)
     try:
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=_PIP_INSTALL_TIMEOUT_S)
+        return _run_subprocess_timed(cmd, timeout=_PIP_INSTALL_TIMEOUT_S)
     except subprocess.TimeoutExpired as exc:
         logger.warning(
             "pip/uv install timed out after %ds, failing fast (no exclude/no-build retry)",
@@ -466,7 +553,7 @@ def _run_base_venv_cmd(cmd: list[str]) -> subprocess.CompletedProcess[str]:
         PipInstallTimeout: If the command exceeds its wall-clock bound.
     """
     try:
-        return subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=_PIP_INSTALL_TIMEOUT_S)
+        return _run_subprocess_timed(cmd, timeout=_PIP_INSTALL_TIMEOUT_S, check=True)
     except subprocess.TimeoutExpired as exc:
         logger.warning(
             "base venv setup timed out after %ds, failing fast",

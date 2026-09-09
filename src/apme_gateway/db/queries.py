@@ -169,6 +169,26 @@ async def list_projects(
     return list(result.scalars().all())
 
 
+async def _heal_project_normalized_url(project_id: str, target: str) -> None:
+    """Persist canonical ``normalized_repo_url`` in an isolated write session.
+
+    Uses a separate session so heal failures never commit or roll back the
+    caller's transaction.
+
+    Args:
+        project_id: Project primary key.
+        target: Canonical normalized URL to store.
+    """
+    from apme_gateway.db import get_session  # noqa: PLC0415
+
+    try:
+        async with get_session() as heal_db:
+            await heal_db.execute(update(Project).where(Project.id == project_id).values(normalized_repo_url=target))
+            await heal_db.commit()
+    except Exception:
+        logger.debug("find_project_by_repo_url: failed to heal normalized_repo_url", exc_info=True)
+
+
 async def find_project_by_repo_url(
     db: AsyncSession,
     repo_url: str,
@@ -193,12 +213,15 @@ async def find_project_by_repo_url(
     stmt = select(Project).where(*conditions).order_by(Project.id).limit(1)
     result = await db.execute(stmt)
     found = result.scalars().first()
-    if found is not None:
+    if found is not None and normalize_repo_url(found.repo_url) == target:
+        if found.normalized_repo_url != target:
+            await _heal_project_normalized_url(found.id, target)
         return cast(Project, found)
-    # Legacy fallback for rows written out-of-band without the startup
-    # backfill running (bounded batches; scheduled for removal once all
-    # writers go through create_project/update_project).
-    fallback = [Project.normalized_repo_url == ""]
+    # Indexed normalized value may be stale — fall through to raw-url scan.
+    # Legacy / stale fallback for rows written out-of-band (empty normalized
+    # or normalized out of sync with ``repo_url``). Bounded batches; scheduled
+    # for removal once all writers go through create_project/update_project.
+    fallback = [or_(Project.normalized_repo_url == "", Project.normalized_repo_url != target)]
     if branch is not None:
         fallback.append(Project.branch == branch)
     batch_size = 500
@@ -213,16 +236,8 @@ async def find_project_by_repo_url(
         for project in batch:
             if normalize_repo_url(project.repo_url) != target:
                 continue
-            # Heal legacy rows so the next lookup hits the primary path
-            # instead of re-scanning the fallback batches every time.
-            project.normalized_repo_url = target
-            try:
-                await db.commit()
-            except Exception:
-                # Roll back so the failed heal does not poison the session
-                # for the caller (PendingRollbackError on next use).
-                await db.rollback()
-                logger.debug("find_project_by_repo_url: failed to heal normalized_repo_url", exc_info=True)
+            if project.normalized_repo_url != target:
+                await _heal_project_normalized_url(project.id, target)
             return cast(Project, project)
         if len(batch) < batch_size:
             break

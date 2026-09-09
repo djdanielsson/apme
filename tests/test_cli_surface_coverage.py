@@ -2254,7 +2254,9 @@ def test_write_patches_oserror_skips(tmp_path: Path, capsys: pytest.CaptureFixtu
 
     patches = [FilePatch(path="x.yml", original=b"o", patched=b"n", diff="d")]
     with patch("apme_engine.cli.remediate._safe_write", side_effect=OSError("denied")):
-        _write_patches(tmp_path, patches)
+        written, failed = _write_patches(tmp_path, patches)
+    assert written == 0
+    assert failed is True
     assert "WARNING: skipping" in capsys.readouterr().err
 
 
@@ -2283,9 +2285,9 @@ def test_rem_safe_write_match_and_skip(tmp_path: Path) -> None:
 
     p = tmp_path / "w.yml"
     p.write_bytes(b"orig")
-    _safe_write(p, b"orig", b"new")
+    assert _safe_write(p, b"orig", b"new") is True
     assert p.read_bytes() == b"new"
-    _safe_write(p, b"stale", b"other")
+    assert _safe_write(p, b"stale", b"other") is False
     assert p.read_bytes() == b"new"
 
 
@@ -2669,6 +2671,24 @@ def test_remediate_retry_resets_state_and_mints_fresh_scan_id(
     assert seen_chunk_ids[0] != seen_chunk_ids[1]
 
 
+def test_write_patches_stale_skip_not_counted(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """Stale files skipped by _safe_write are not counted as updated.
+
+    Args:
+        tmp_path: Temporary directory fixture.
+        capsys: Pytest capture fixture.
+    """
+    from apme_engine.cli.remediate import _write_patches
+
+    p = tmp_path / "stale.yml"
+    p.write_bytes(b"changed")
+    patches = [FilePatch(path="stale.yml", original=b"orig", patched=b"new", diff="d")]
+    written, failed = _write_patches(tmp_path, patches)
+    assert written == 0
+    assert failed is True
+    assert "Fixed:" not in capsys.readouterr().err
+
+
 def test_write_patches_returns_written_count(tmp_path: Path) -> None:
     """_write_patches returns files actually written, skipping OSError.
 
@@ -2683,10 +2703,11 @@ def test_write_patches_returns_written_count(tmp_path: Path) -> None:
     ]
     with patch(
         "apme_engine.cli.remediate._safe_write",
-        side_effect=[None, OSError("denied")],
+        side_effect=[True, OSError("denied")],
     ):
-        written = _write_patches(tmp_path, patches)
+        written, failed = _write_patches(tmp_path, patches)
     assert written == 1
+    assert failed is True
 
 
 def test_emit_json_uses_written_count(capsys: pytest.CaptureFixture[str]) -> None:
@@ -2748,8 +2769,9 @@ def test_remediate_json_files_updated_reflects_written(tmp_path: Path, capsys: p
         patch("apme_engine.cli.remediate.engine_pb2_grpc.EngineStub", return_value=stub),
         patch(
             "apme_engine.cli.remediate._safe_write",
-            side_effect=[None, OSError("denied")],
+            side_effect=[True, OSError("denied")],
         ),
+        pytest.raises(SystemExit) as exc,
     ):
         run_remediate(_rem_args(str(tmp_path), json=True, show_suppressed=True))
-    assert json.loads(capsys.readouterr().out)["files_updated"] == 1
+    assert exc.value.code == EXIT_ERROR

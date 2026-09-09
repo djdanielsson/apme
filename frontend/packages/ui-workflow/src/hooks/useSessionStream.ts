@@ -436,6 +436,7 @@ export function useSessionStream() {
         (statusRef.current === "connecting" ||
           statusRef.current === "checking");
       ws.onmessage = (event) => {
+        if (wsRef.current !== ws) return;
         let raw: unknown;
         try {
           raw = JSON.parse(event.data as string);
@@ -644,6 +645,7 @@ export function useSessionStream() {
       };
 
       ws.onerror = () => {
+        if (wsRef.current !== ws) return;
         errorSourceRef.current = null;
         if (RECONNECTABLE_PHASES.has(statusRef.current) && sessionIdRef.current) {
           setError("Connection lost. Your session is still active on the server.");
@@ -661,6 +663,7 @@ export function useSessionStream() {
       };
 
       ws.onclose = (event) => {
+        if (wsRef.current !== ws) return;
         // A close before session_created means the resume/start never
         // established: the persisted id is dead, drop it so reloads stop
         // re-offering resume to it.
@@ -742,10 +745,10 @@ export function useSessionStream() {
       }
       setError(null);
       errorSourceRef.current = null;
+      malformedTaintRef.current = new Set();
       setCanReconnect(false);
       updateStatus("connecting");
-      // New socket: nothing established on it yet. Taint intentionally
-      // survives resume (same session lifecycle; only reset() clears it).
+      // New socket: nothing established on it yet.
       sessionEstablishedRef.current = false;
 
       let url = `/api/v1/ws/session?resume=${encodeURIComponent(sid)}`;

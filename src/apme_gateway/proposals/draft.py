@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import math
+from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC
@@ -122,6 +124,9 @@ def _safe_float(value: object, default: float = 0.0) -> float:
             return 1.0
         return coerced_int
     if isinstance(value, float):
+        if not math.isfinite(value):
+            logger.debug("Falling back confidence value %r to %r", value, clamped_default)
+            return clamped_default
         if value < 0.0:
             logger.debug("Clamping confidence value %r to 0.0", value)
             return 0.0
@@ -137,6 +142,9 @@ def _safe_float(value: object, default: float = 0.0) -> float:
         try:
             coerced_str = float(text)
         except ValueError:
+            logger.debug("Falling back confidence value %r to %r", value, clamped_default)
+            return clamped_default
+        if not math.isfinite(coerced_str):
             logger.debug("Falling back confidence value %r to %r", value, clamped_default)
             return clamped_default
         if coerced_str < 0.0:
@@ -500,10 +508,44 @@ async def upsert_live_proposal_stubs(
                 .scalars()
                 .all()
             )
+            engine_groups: defaultdict[str, list[Proposal]] = defaultdict(list)
+            archival_groups: defaultdict[str, list[Proposal]] = defaultdict(list)
             for row in rows:
                 if row.engine_proposal_id:
-                    by_engine.setdefault(str(row.engine_proposal_id), row)
-                by_archival.setdefault(str(row.proposal_id), row)
+                    engine_groups[str(row.engine_proposal_id)].append(row)
+                archival_groups[str(row.proposal_id)].append(row)
+
+            for engine_id, dupes in engine_groups.items():
+                if len(dupes) > 1:
+                    keep = max(dupes, key=lambda row: row.id)
+                    for dup in dupes:
+                        if dup is not keep:
+                            await db.delete(dup)
+                    logger.warning(
+                        "Reconciled %s duplicate live proposals for engine id %s on scan %s",
+                        len(dupes) - 1,
+                        engine_id,
+                        scan_id[:12],
+                    )
+                    by_engine[engine_id] = keep
+                else:
+                    by_engine[engine_id] = dupes[0]
+
+            for archival_id, dupes in archival_groups.items():
+                if len(dupes) > 1:
+                    keep = max(dupes, key=lambda row: row.id)
+                    for dup in dupes:
+                        if dup is not keep:
+                            await db.delete(dup)
+                    logger.warning(
+                        "Reconciled %s duplicate live proposals for archival id %s on scan %s",
+                        len(dupes) - 1,
+                        archival_id,
+                        scan_id[:12],
+                    )
+                    by_archival[archival_id] = keep
+                else:
+                    by_archival[archival_id] = dupes[0]
 
     out: list[Proposal] = []
     for item in prepared:
