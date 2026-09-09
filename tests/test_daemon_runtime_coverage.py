@@ -434,10 +434,11 @@ def test_launcher_run_daemon_all_services(monkeypatch: pytest.MonkeyPatch) -> No
     old_env = dict(os.environ)
     try:
         asyncio.run(launcher._run_daemon(services))
+        proxy_url = os.environ.get("APME_GALAXY_PROXY_URL")
     finally:
         os.environ.clear()
         os.environ.update(old_env)
-    assert os.environ.get("APME_GALAXY_PROXY_URL") is None or True
+    assert proxy_url == "http://127.0.0.1:8765"
 
 
 def test_launcher_start_unlocked_stops_stale_then_starts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1189,10 +1190,13 @@ def test_chunked_should_include_stat_oserror(tmp_path: Path) -> None:
 
     root = tmp_path / "proj"
     root.mkdir()
-    target = root / "a.yml"
-    target.write_text("x\n")
-    with patch.object(Path, "stat", side_effect=OSError("denied")):
-        assert chunked_fs._should_include(target, root) is False
+    target = MagicMock()
+    target.is_file.return_value = True
+    target.stat.side_effect = OSError("denied")
+    target.relative_to.return_value = Path("a.yml")
+    target.name = "a.yml"
+    target.suffix = ".yml"
+    assert chunked_fs._should_include(target, root) is False
 
 
 def test_chunked_should_include_named_and_noext(tmp_path: Path) -> None:
@@ -1857,11 +1861,7 @@ def test_ansible_server_validate_exception_returns_infra() -> None:
             files=[common_pb2.File(path="a.yml", content=b"x\n")],
             hierarchy_payload=b"{}",
         )
-        with (
-            patch.object(mod, "_run_ansible_validate", side_effect=RuntimeError("boom")),
-            patch("apme_engine.daemon.ansible_validator_server.asyncio.get_event_loop") as loop_mock,
-        ):
-            loop_mock.side_effect = RuntimeError("no loop")
+        with patch.object(mod, "_run_ansible_validate", side_effect=RuntimeError("boom")):
             resp = await AnsibleValidatorServicer().Validate(req, MagicMock())
         assert resp.violations[0].rule_id == RULE_VALIDATOR_FAILURE  # type: ignore[attr-defined]
 
@@ -2196,6 +2196,7 @@ def test_launcher_save_load_roundtrip(tmp_path: Path, monkeypatch: pytest.Monkey
     data_dir = tmp_path / "data"
     monkeypatch.setattr(launcher, "_DATA_DIR", data_dir)
     monkeypatch.setattr(launcher, "_STATE_FILE", data_dir / "daemon.json")
+    monkeypatch.setattr(launcher, "_MARKER_FILE", data_dir / "daemon.marker")
     state = launcher.DaemonState(
         pid=4242,
         engine="127.0.0.1:50051",

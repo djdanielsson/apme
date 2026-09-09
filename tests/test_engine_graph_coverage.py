@@ -322,8 +322,10 @@ class TestCollectionModel:
         c.taskfiles = ["t2", "t1"]
         out = c.children_to_key()
         assert out is c
-        assert list(c.modules)[:2] == sorted(cast(list[str], list(c.modules)[:2])) or True
+        assert c.modules == ["module a", "module m0", "module z"]
         assert c.playbooks == ["pb1", "pb2"]
+        assert c.roles == ["r1", "r2"]
+        assert c.taskfiles == ["t1", "t2"]
 
     def test_resolver_targets_combines(self) -> None:
         """resolver_targets concatenates children."""

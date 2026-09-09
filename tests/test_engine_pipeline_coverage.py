@@ -594,11 +594,16 @@ class TestKeyutil:
 
     def test_set_taskfile_playbook_file_keys(self) -> None:
         """Taskfile/playbook/file keys share the prefix helper."""
-        for setter in [keyutil.set_taskfile_key, keyutil.set_playbook_key, keyutil.set_file_key]:
-            obj = _dummy_key_obj(type="taskfile", collection="ns.col", role="", defined_in="tasks/a.yml")
+        cases = [
+            (keyutil.set_taskfile_key, "taskfile", "taskfile taskfile:"),
+            (keyutil.set_playbook_key, "playbook", "playbook playbook:"),
+            (keyutil.set_file_key, "file", "file file:"),
+        ]
+        for setter, obj_type, local_prefix in cases:
+            obj = _dummy_key_obj(type=obj_type, collection="ns.col", role="", defined_in="tasks/a.yml")
             setter(obj)
             assert "collection:ns.col#" in obj.key
-            assert obj.local_key.startswith("taskfile taskfile:")
+            assert obj.local_key.startswith(local_prefix)
 
     def test_set_repository_key(self) -> None:
         """set_repository_key mirrors global key to local key."""
