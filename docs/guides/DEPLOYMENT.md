@@ -504,13 +504,17 @@ Install flavors use named values files under `deploy/helm/apme/`
 standalone UI enabled; portal installs pass `-f values-portal.yaml`.
 
 Create a Secret with the Gateway database URL before installing (replace host,
-credentials, and TLS parameters for your PostgreSQL service):
+credentials, and TLS parameters for your PostgreSQL service). Write the URL to a
+protected file so it is not exposed in shell history or process arguments:
 
 ```bash
 kubectl create namespace apme --dry-run=client -o yaml | kubectl apply -f -
+printf '%s\n' 'postgresql+asyncpg://apme:CHANGE_ME@postgres.example:5432/apme?sslmode=verify-full' > /tmp/apme-database-url
+chmod 600 /tmp/apme-database-url
 kubectl create secret generic apme-database \
   --namespace apme \
-  --from-literal=database-url='postgresql+asyncpg://apme:CHANGE_ME@postgres.example:5432/apme?sslmode=verify-full'
+  --from-file=database-url=/tmp/apme-database-url
+rm -f /tmp/apme-database-url
 ```
 
 #### Standalone UI (default)

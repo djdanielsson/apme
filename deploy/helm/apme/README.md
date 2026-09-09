@@ -24,13 +24,17 @@ GitHub Pages:
 
 ### CLI
 
-Create a Secret with the Gateway database URL before installing:
+Create a Secret with the Gateway database URL before installing (write the URL to
+a protected file so it is not exposed in shell history or process arguments):
 
 ```bash
 kubectl create namespace apme --dry-run=client -o yaml | kubectl apply -f -
+printf '%s\n' 'postgresql+asyncpg://apme:CHANGE_ME@postgres.example:5432/apme?sslmode=verify-full' > /tmp/apme-database-url
+chmod 600 /tmp/apme-database-url
 kubectl create secret generic apme-database \
   --namespace apme \
-  --from-literal=database-url='postgresql+asyncpg://apme:CHANGE_ME@postgres.example:5432/apme?sslmode=verify-full'
+  --from-file=database-url=/tmp/apme-database-url
+rm -f /tmp/apme-database-url
 ```
 
 ```bash
@@ -151,19 +155,25 @@ helm install apme apme/apme \
 
 ### From a local clone (contributors)
 
+The chart does not deploy PostgreSQL. Point `gateway.database.url` at a service
+reachable from the Gateway pod (for example an in-cluster Service DNS name).
+`127.0.0.1` resolves to the Gateway container itself and causes a crash loop.
+Credential-free URLs are valid only when PostgreSQL permits trust or peer
+authentication.
+
 ```bash
-# Standalone (chart default) — credential-free URL for local eval
+# Standalone (chart default) — PostgreSQL must be reachable from the pod
 helm install apme ./deploy/helm/apme/ \
-  --set 'gateway.database.url=postgresql+asyncpg://127.0.0.1:5432/apme'
+  --set 'gateway.database.url=postgresql+asyncpg://postgres.apme.svc:5432/apme'
 
 # Portal / backend-only
 helm install apme ./deploy/helm/apme/ \
   -f ./deploy/helm/apme/values-portal.yaml \
-  --set 'gateway.database.url=postgresql+asyncpg://127.0.0.1:5432/apme'
+  --set 'gateway.database.url=postgresql+asyncpg://postgres.apme.svc:5432/apme'
 
 # With AI enabled (OpenRouter provider)
 helm install apme ./deploy/helm/apme/ \
-  --set 'gateway.database.url=postgresql+asyncpg://127.0.0.1:5432/apme' \
+  --set 'gateway.database.url=postgresql+asyncpg://postgres.apme.svc:5432/apme' \
   --set abbenay.enabled=true \
   --set abbenay.token=$APME_ABBENAY_TOKEN \
   --set-json 'abbenay.providers={"openrouter":{"engine":"openrouter","apiKey":"'$OPENROUTER_API_KEY'","models":{"anthropic/claude-sonnet-4-6":{}}}}'
