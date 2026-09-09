@@ -36,7 +36,8 @@ def normalize_repo_url(repo_url: str) -> str:
         except ValueError:
             # Malformed port (e.g. ``:notaport``) — still strip userinfo from host.
             port = None
-        host = parsed.hostname.lower() if parsed.hostname else parsed.netloc.lower()
+        netloc_no_userinfo = parsed.netloc.rsplit("@", 1)[-1]
+        host = parsed.hostname.lower() if parsed.hostname else netloc_no_userinfo.lower()
         if port is not None:
             is_default = (scheme == "https" and port == 443) or (scheme == "http" and port == 80)
             if not is_default:

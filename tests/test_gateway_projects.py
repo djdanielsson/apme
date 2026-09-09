@@ -640,6 +640,12 @@ def test_normalize_repo_url_malformed_port_strips_userinfo() -> None:
     assert normalize_repo_url("https://user:secret@github.com:notaport/repo.git") == "https://github.com/repo"
 
 
+def test_normalize_repo_url_empty_host_strips_userinfo() -> None:
+    """Malformed URLs with userinfo but no host never retain credentials."""
+    assert normalize_repo_url("https://user:token@") == "https://"
+    assert normalize_repo_url("https://user:token@/repo") == "https:///repo"
+
+
 async def test_lookup_collapses_default_port_variants(client: AsyncClient) -> None:
     """Lookup resolves explicit-default-port spellings to one project.
 
@@ -786,11 +792,11 @@ async def test_find_project_by_repo_url_heal_failure_rolls_back(
     """A failed isolated heal does not poison the caller session.
 
     Args:
-        monkeypatch: Pytest fixture used to stub the isolated heal helper.
+        monkeypatch: Pytest fixture used to stub the isolated heal session.
     """
-    from unittest.mock import AsyncMock
-
     from sqlalchemy import select
+
+    from apme_gateway import db as db_module
 
     target_url = "https://github.com/org/heal-fail.git"
     async with get_session() as db:
@@ -807,15 +813,41 @@ async def test_find_project_by_repo_url_heal_failure_rolls_back(
         )
         await db.commit()
 
-    heal_mock = AsyncMock()
-    monkeypatch.setattr(q, "_heal_project_normalized_url", heal_mock)
+    real_get_session = db_module.get_session
+    get_session_calls = 0
 
-    async with get_session() as db:
+    class _FailHealSession:
+        """Minimal async session stub whose commit always fails."""
+
+        async def execute(self, *_args: object, **_kwargs: object) -> None:
+            return None
+
+        async def commit(self) -> None:
+            raise RuntimeError("isolated heal commit failed")
+
+        async def __aenter__(self) -> _FailHealSession:
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+    def _get_session_router() -> object:
+        nonlocal get_session_calls
+        get_session_calls += 1
+        if get_session_calls == 1:
+            return real_get_session()
+        return _FailHealSession()
+
+    monkeypatch.setattr(db_module, "get_session", _get_session_router)
+
+    async with db_module.get_session() as db:
         found = await q.find_project_by_repo_url(db, target_url)
         assert found is not None
-        heal_mock.assert_awaited()
-        await db.refresh(found)
         assert found.id == "heal-fail-proj-1234567890abcdef12345678"
+        assert get_session_calls == 2
+        stored = await db.get(Project, found.id)
+        assert stored is not None
+        assert stored.normalized_repo_url == ""
         rows = (await db.execute(select(Project.id))).scalars().all()
         assert "heal-fail-proj-1234567890abcdef12345678" in rows
 
