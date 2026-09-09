@@ -13,6 +13,7 @@ from apme_gateway.app import create_app
 from apme_gateway.db import get_session
 from apme_gateway.db.models import Project, Proposal, ProposalRuleAnalytics, Scan, Session, Violation
 from apme_gateway.proposals.draft import (
+    _preload_per_query_limit,
     abandon_project_drafts,
     apply_draft_updates,
     commit_gate_decisions,
@@ -928,7 +929,7 @@ async def test_upsert_live_stubs_chunks_large_preload() -> None:
 def test_chunk_reserves_scan_id_bind() -> None:
     """Per-query budget keeps 2N + scan_id within the IN-clause limit."""
     chunk = 900
-    per_query = max(1, (chunk - 1) // 2)
+    per_query = _preload_per_query_limit(chunk)
     assert per_query == 449
     assert per_query * 2 + 1 <= chunk
     # Old // 2 math forgot scan_id == and exceeded the budget.

@@ -333,6 +333,18 @@ def _prepare_stub_payload(raw: Mapping[str, Any]) -> StubPayload | None:
     )
 
 
+def _preload_per_query_limit(chunk: int) -> int:
+    """Max proposals per preload SELECT while reserving one bind for scan_id.
+
+    Args:
+        chunk: SQLite IN-clause bind limit from ``get_in_clause_chunk_size``.
+
+    Returns:
+        Maximum proposals per preload batch (``(chunk - 1) // 2``).
+    """
+    return max(1, (chunk - 1) // 2)
+
+
 async def upsert_live_proposal_stubs(
     db: AsyncSession,
     *,
@@ -363,9 +375,10 @@ async def upsert_live_proposal_stubs(
     # chunk (e.g. 449*2 + 1 = 899 <= 900; 450*2 + 1 = 901 would exceed).
     by_engine: dict[str, Proposal] = {}
     by_archival: dict[str, Proposal] = {}
+    discarded: set[int] = set()
     if prepared:
         chunk = get_in_clause_chunk_size()
-        per_query = max(1, (chunk - 1) // 2)
+        per_query = _preload_per_query_limit(chunk)
         for start in range(0, len(prepared), per_query):
             batch = prepared[start : start + per_query]
             engine_ids = [item.engine_id for item in batch]
@@ -398,6 +411,7 @@ async def upsert_live_proposal_stubs(
                     for dup in dupes:
                         if dup is not keep:
                             await db.delete(dup)
+                            discarded.add(dup.id)
                     logger.warning(
                         "Reconciled %s duplicate live proposals for engine id %s on scan %s",
                         len(dupes) - 1,
@@ -414,6 +428,7 @@ async def upsert_live_proposal_stubs(
                     for dup in dupes:
                         if dup is not keep:
                             await db.delete(dup)
+                            discarded.add(dup.id)
                     logger.warning(
                         "Reconciled %s duplicate live proposals for archival id %s on scan %s",
                         len(dupes) - 1,
@@ -423,6 +438,10 @@ async def upsert_live_proposal_stubs(
                     by_archival[archival_id] = keep
                 else:
                     by_archival[archival_id] = dupes[0]
+
+        if discarded:
+            by_engine = {k: v for k, v in by_engine.items() if v.id not in discarded}
+            by_archival = {k: v for k, v in by_archival.items() if v.id not in discarded}
 
     out: list[Proposal] = []
     for item in prepared:
