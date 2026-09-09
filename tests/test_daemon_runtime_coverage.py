@@ -18,7 +18,6 @@ import pytest
 from apme.v1 import common_pb2, validate_pb2
 from apme_engine.daemon.session import SessionState, SessionStore
 
-
 # ---------------------------------------------------------------------------
 # launcher: DaemonState.load error paths
 # ---------------------------------------------------------------------------
@@ -441,9 +440,7 @@ def test_launcher_run_daemon_all_services(monkeypatch: pytest.MonkeyPatch) -> No
     assert os.environ.get("APME_GALAXY_PROXY_URL") is None or True
 
 
-def test_launcher_start_unlocked_stops_stale_then_starts(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_launcher_start_unlocked_stops_stale_then_starts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Stale recorded daemon is stopped before forking a replacement.
 
     Args:
@@ -660,7 +657,9 @@ def test_launcher_stop_unowned_removes_state(tmp_path: Path, monkeypatch: pytest
     data_dir.mkdir()
     state_file = data_dir / "daemon.json"
     state_file.write_text(
-        json.dumps({"pid": 4242, "engine": "127.0.0.1:50051", "version": "v", "started_at": datetime.now(UTC).isoformat()})
+        json.dumps(
+            {"pid": 4242, "engine": "127.0.0.1:50051", "version": "v", "started_at": datetime.now(UTC).isoformat()}
+        )
     )
     monkeypatch.setattr(launcher, "_DATA_DIR", data_dir)
     monkeypatch.setattr(launcher, "_STATE_FILE", state_file)
@@ -683,7 +682,9 @@ def test_launcher_stop_sigkill_after_grace(tmp_path: Path, monkeypatch: pytest.M
     data_dir.mkdir()
     state_file = data_dir / "daemon.json"
     state_file.write_text(
-        json.dumps({"pid": 4242, "engine": "127.0.0.1:50051", "version": "v", "started_at": datetime.now(UTC).isoformat()})
+        json.dumps(
+            {"pid": 4242, "engine": "127.0.0.1:50051", "version": "v", "started_at": datetime.now(UTC).isoformat()}
+        )
     )
     monkeypatch.setattr(launcher, "_DATA_DIR", data_dir)
     monkeypatch.setattr(launcher, "_STATE_FILE", state_file)
@@ -713,7 +714,9 @@ def test_launcher_stop_kill_oserror_suppressed(tmp_path: Path, monkeypatch: pyte
     data_dir.mkdir()
     state_file = data_dir / "daemon.json"
     state_file.write_text(
-        json.dumps({"pid": 4242, "engine": "127.0.0.1:50051", "version": "v", "started_at": datetime.now(UTC).isoformat()})
+        json.dumps(
+            {"pid": 4242, "engine": "127.0.0.1:50051", "version": "v", "started_at": datetime.now(UTC).isoformat()}
+        )
     )
     monkeypatch.setattr(launcher, "_DATA_DIR", data_dir)
     monkeypatch.setattr(launcher, "_STATE_FILE", state_file)
@@ -740,9 +743,7 @@ def test_launcher_startup_window_branches() -> None:
     recent = DaemonState(pid=1, engine="e", version="v", started_at=datetime.now(UTC).isoformat())
     assert _is_within_startup_window(recent) is True
 
-    old = DaemonState(
-        pid=1, engine="e", version="v", started_at=(datetime.now(UTC) - timedelta(hours=1)).isoformat()
-    )
+    old = DaemonState(pid=1, engine="e", version="v", started_at=(datetime.now(UTC) - timedelta(hours=1)).isoformat())
     assert _is_within_startup_window(old) is False
 
 
@@ -764,7 +765,9 @@ def test_launcher_status_no_state_and_dead_pid(tmp_path: Path, monkeypatch: pyte
     assert launcher._daemon_status_unlocked() is None
 
     state_file.write_text(
-        json.dumps({"pid": 4242, "engine": "127.0.0.1:50051", "version": "v", "started_at": datetime.now(UTC).isoformat()})
+        json.dumps(
+            {"pid": 4242, "engine": "127.0.0.1:50051", "version": "v", "started_at": datetime.now(UTC).isoformat()}
+        )
     )
     with patch.object(launcher, "_pid_alive", return_value=False):
         assert launcher._daemon_status_unlocked() is None
@@ -784,7 +787,9 @@ def test_launcher_status_healthy_returns_state(tmp_path: Path, monkeypatch: pyte
     data_dir.mkdir()
     state_file = data_dir / "daemon.json"
     state_file.write_text(
-        json.dumps({"pid": 4242, "engine": "127.0.0.1:50051", "version": "v", "started_at": datetime.now(UTC).isoformat()})
+        json.dumps(
+            {"pid": 4242, "engine": "127.0.0.1:50051", "version": "v", "started_at": datetime.now(UTC).isoformat()}
+        )
     )
     monkeypatch.setattr(launcher, "_DATA_DIR", data_dir)
     monkeypatch.setattr(launcher, "_STATE_FILE", state_file)
@@ -1324,7 +1329,6 @@ def test_chunked_yield_splits_batches(tmp_path: Path) -> None:
 
 def test_grpc_sink_start_immediate_available() -> None:
     """First probe success skips retries but still starts health loop."""
-    from apme_engine.daemon.sinks import grpc_reporting
     from apme_engine.daemon.sinks.grpc_reporting import GrpcReportingSink
 
     async def _run() -> GrpcReportingSink:
@@ -1353,7 +1357,6 @@ def test_grpc_sink_start_immediate_available() -> None:
 
 def test_grpc_sink_start_retries_then_warns() -> None:
     """Persistent probe failure warns and still launches the health loop."""
-    from apme_engine.daemon.sinks import grpc_reporting
     from apme_engine.daemon.sinks.grpc_reporting import GrpcReportingSink
 
     async def _run() -> bool:
@@ -1505,12 +1508,14 @@ def test_grpc_sink_probe_success_failure_cancelled() -> None:
             await sink._probe()
         assert sink._available is False
 
-        with patch(
-            "grpc_health.v1.health_pb2_grpc.HealthStub",
-            return_value=MagicMock(Check=AsyncMock(side_effect=asyncio.CancelledError())),
+        with (
+            patch(
+                "grpc_health.v1.health_pb2_grpc.HealthStub",
+                return_value=MagicMock(Check=AsyncMock(side_effect=asyncio.CancelledError())),
+            ),
+            pytest.raises(asyncio.CancelledError),
         ):
-            with pytest.raises(asyncio.CancelledError):
-                await sink._probe()
+            await sink._probe()
 
     asyncio.run(_run())
 
@@ -1519,7 +1524,6 @@ def test_grpc_sink_health_loop_probes_once() -> None:
     """Health loop sleeps then probes; cancellation stops it."""
 
     async def _run() -> None:
-        from apme_engine.daemon.sinks import grpc_reporting
         from apme_engine.daemon.sinks.grpc_reporting import GrpcReportingSink
 
         sink = GrpcReportingSink("127.0.0.1:50051")
@@ -1530,9 +1534,11 @@ def test_grpc_sink_health_loop_probes_once() -> None:
             raise asyncio.CancelledError
 
         sink._probe = _fake_probe  # type: ignore[method-assign]
-        with patch("apme_engine.daemon.sinks.grpc_reporting.asyncio.sleep", new=AsyncMock(return_value=None)):
-            with pytest.raises(asyncio.CancelledError):
-                await sink._health_loop()
+        with (
+            patch("apme_engine.daemon.sinks.grpc_reporting.asyncio.sleep", new=AsyncMock(return_value=None)),
+            pytest.raises(asyncio.CancelledError),
+        ):
+            await sink._health_loop()
         assert calls == ["probe"]
 
     asyncio.run(_run())
@@ -1569,13 +1575,26 @@ def test_ansible_build_lookup_branches() -> None:
     assert build_node_lookup(_json.dumps({"nodes": "nope"}).encode()) == {}
     assert build_node_lookup(_json.dumps({"nodes": ["x"]}).encode()) == {}
     assert build_node_lookup(_json.dumps({"nodes": [{"id": "", "data": {}}]}).encode()) == {}
-    assert build_node_lookup(_json.dumps({"nodes": [{"id": "n1", "data": {"file_path": "", "line_start": 1, "line_end": 2}}]}).encode()) == {}
     assert (
-        build_node_lookup(_json.dumps({"nodes": [{"id": "n1", "data": {"file_path": "a.yml", "line_start": "x", "line_end": 2}}]}).encode())
+        build_node_lookup(
+            _json.dumps({"nodes": [{"id": "n1", "data": {"file_path": "", "line_start": 1, "line_end": 2}}]}).encode()
+        )
         == {}
     )
     assert (
-        build_node_lookup(_json.dumps({"nodes": [{"id": "n1", "data": {"file_path": "a.yml", "line_start": 0, "line_end": 0}}]}).encode())
+        build_node_lookup(
+            _json.dumps(
+                {"nodes": [{"id": "n1", "data": {"file_path": "a.yml", "line_start": "x", "line_end": 2}}]}
+            ).encode()
+        )
+        == {}
+    )
+    assert (
+        build_node_lookup(
+            _json.dumps(
+                {"nodes": [{"id": "n1", "data": {"file_path": "a.yml", "line_start": 0, "line_end": 0}}]}
+            ).encode()
+        )
         == {}
     )
 
@@ -1764,8 +1783,8 @@ def test_ansible_server_validate_empty_returns_empty() -> None:
 
         req = validate_pb2.ValidateRequest(request_id="empty-1")
         resp = await AnsibleValidatorServicer().Validate(req, MagicMock())
-        assert getattr(resp, "violations") == []
-        assert getattr(resp, "request_id") == "empty-1"
+        assert resp.violations == []  # type: ignore[attr-defined]
+        assert resp.request_id == "empty-1"  # type: ignore[attr-defined]
 
     asyncio.run(_run())
 
@@ -1784,10 +1803,12 @@ def test_ansible_server_validate_bad_hierarchy_payload() -> None:
             hierarchy_payload=b"not-json",
             ansible_core_version="2.20",
         )
-        fake = mod._AnsibleResult(run_result=AnsibleRunResult(violations=[], rule_timings=[], metadata={}), ansible_core_version="2.20")
+        fake = mod._AnsibleResult(
+            run_result=AnsibleRunResult(violations=[], rule_timings=[], metadata={}), ansible_core_version="2.20"
+        )
         with patch.object(mod, "_run_ansible_validate", return_value=fake):
             resp = await AnsibleValidatorServicer().Validate(req, MagicMock())
-        assert getattr(resp, "request_id") == "bad-h"
+        assert resp.request_id == "bad-h"  # type: ignore[attr-defined]
 
     asyncio.run(_run())
 
@@ -1807,7 +1828,9 @@ def test_ansible_server_validate_metadata_and_source() -> None:
         )
         fake = mod._AnsibleResult(
             run_result=AnsibleRunResult(
-                violations=[{"rule_id": "L057", "severity": "error", "message": "m", "file": "a.yml", "line": 1, "path": ""}],
+                violations=[
+                    {"rule_id": "L057", "severity": "error", "message": "m", "file": "a.yml", "line": 1, "path": ""}
+                ],
                 rule_timings=[AnsibleRuleTiming(rule_id="L057", elapsed_ms=1.0, violations=1)],
                 metadata={"cache_introspect_hits": 2},
             ),
@@ -1815,8 +1838,8 @@ def test_ansible_server_validate_metadata_and_source() -> None:
         )
         with patch.object(mod, "_run_ansible_validate", return_value=fake):
             resp = await AnsibleValidatorServicer().Validate(req, MagicMock())
-        assert getattr(resp, "diagnostics").metadata["cache_introspect_hits"] == "2"
-        assert getattr(resp, "diagnostics").metadata["ansible_core_version"] == "2.20"
+        assert resp.diagnostics.metadata["cache_introspect_hits"] == "2"  # type: ignore[attr-defined]
+        assert resp.diagnostics.metadata["ansible_core_version"] == "2.20"  # type: ignore[attr-defined]
 
     asyncio.run(_run())
 
@@ -1834,11 +1857,13 @@ def test_ansible_server_validate_exception_returns_infra() -> None:
             files=[common_pb2.File(path="a.yml", content=b"x\n")],
             hierarchy_payload=b"{}",
         )
-        with patch.object(mod, "_run_ansible_validate", side_effect=RuntimeError("boom")):
-            with patch("apme_engine.daemon.ansible_validator_server.asyncio.get_event_loop") as loop_mock:
-                loop_mock.side_effect = RuntimeError("no loop")
-                resp = await AnsibleValidatorServicer().Validate(req, MagicMock())
-        assert getattr(resp, "violations")[0].rule_id == RULE_VALIDATOR_FAILURE
+        with (
+            patch.object(mod, "_run_ansible_validate", side_effect=RuntimeError("boom")),
+            patch("apme_engine.daemon.ansible_validator_server.asyncio.get_event_loop") as loop_mock,
+        ):
+            loop_mock.side_effect = RuntimeError("no loop")
+            resp = await AnsibleValidatorServicer().Validate(req, MagicMock())
+        assert resp.violations[0].rule_id == RULE_VALIDATOR_FAILURE  # type: ignore[attr-defined]
 
     asyncio.run(_run())
 
@@ -1853,7 +1878,9 @@ def test_ansible_server_health_and_serve() -> None:
         resp = await AnsibleValidatorServicer().Health(common_pb2.HealthRequest(), MagicMock())
         assert resp.status == "ok"
         sentinel = MagicMock()
-        with patch("apme_engine.daemon.validator_grpc.start_validator_server", new=AsyncMock(return_value=sentinel)) as starter:
+        with patch(
+            "apme_engine.daemon.validator_grpc.start_validator_server", new=AsyncMock(return_value=sentinel)
+        ) as starter:
             out = await mod.serve("127.0.0.1:50053")
         assert out is sentinel
         assert starter.await_count == 1
@@ -2012,7 +2039,7 @@ def test_collection_health_validate_no_venv() -> None:
 
         req = validate_pb2.ValidateRequest(request_id="ch-empty")
         resp = await CollectionHealthValidatorServicer().Validate(req, MagicMock())
-        assert getattr(resp, "violations") == []
+        assert resp.violations == []  # type: ignore[attr-defined]
 
     asyncio.run(_run())
 
@@ -2028,8 +2055,8 @@ def test_collection_health_validate_success() -> None:
         viol = {"rule_id": "L001", "severity": "low", "message": "m", "file": "c.yml", "line": 1, "path": ""}
         with patch.object(mod, "_run_scan", return_value=[viol]):
             resp = await CollectionHealthValidatorServicer().Validate(req, MagicMock())
-        assert len(getattr(resp, "violations")) == 1
-        assert getattr(resp, "diagnostics").validator_name == "collection_health"
+        assert len(resp.violations) == 1  # type: ignore[attr-defined]
+        assert resp.diagnostics.validator_name == "collection_health"  # type: ignore[attr-defined]
 
     asyncio.run(_run())
 
@@ -2045,7 +2072,7 @@ def test_collection_health_validate_exception_returns_infra() -> None:
         req = validate_pb2.ValidateRequest(request_id="ch-exc", venv_path="/sessions/v1")
         with patch.object(mod, "_run_scan", side_effect=RuntimeError("boom")):
             resp = await CollectionHealthValidatorServicer().Validate(req, MagicMock())
-        assert getattr(resp, "violations")[0].rule_id == RULE_VALIDATOR_FAILURE
+        assert resp.violations[0].rule_id == RULE_VALIDATOR_FAILURE  # type: ignore[attr-defined]
 
     asyncio.run(_run())
 
@@ -2097,7 +2124,7 @@ def test_dep_audit_validate_no_venv() -> None:
 
         req = validate_pb2.ValidateRequest(request_id="dep-empty")
         resp = await DepAuditValidatorServicer().Validate(req, MagicMock())
-        assert getattr(resp, "violations") == []
+        assert resp.violations == []  # type: ignore[attr-defined]
 
     asyncio.run(_run())
 
@@ -2113,8 +2140,8 @@ def test_dep_audit_validate_success() -> None:
         viol = {"rule_id": "R200", "severity": "high", "message": "cve", "file": "", "line": 1, "path": ""}
         with patch.object(mod, "_run_audit", return_value=[viol]):
             resp = await DepAuditValidatorServicer().Validate(req, MagicMock())
-        assert len(getattr(resp, "violations")) == 1
-        assert getattr(resp, "diagnostics").validator_name == "dep_audit"
+        assert len(resp.violations) == 1  # type: ignore[attr-defined]
+        assert resp.diagnostics.validator_name == "dep_audit"  # type: ignore[attr-defined]
 
     asyncio.run(_run())
 
@@ -2130,7 +2157,7 @@ def test_dep_audit_validate_exception_returns_infra() -> None:
         req = validate_pb2.ValidateRequest(request_id="dep-exc", venv_path="/sessions/v1")
         with patch.object(mod, "_run_audit", side_effect=RuntimeError("boom")):
             resp = await DepAuditValidatorServicer().Validate(req, MagicMock())
-        assert getattr(resp, "violations")[0].rule_id == RULE_VALIDATOR_FAILURE
+        assert resp.violations[0].rule_id == RULE_VALIDATOR_FAILURE  # type: ignore[attr-defined]
 
     asyncio.run(_run())
 
@@ -2380,7 +2407,9 @@ def test_launcher_stop_breaks_when_child_dies_in_grace(tmp_path: Path, monkeypat
     data_dir.mkdir()
     state_file = data_dir / "daemon.json"
     state_file.write_text(
-        json.dumps({"pid": 4242, "engine": "127.0.0.1:50051", "version": "v", "started_at": datetime.now(UTC).isoformat()})
+        json.dumps(
+            {"pid": 4242, "engine": "127.0.0.1:50051", "version": "v", "started_at": datetime.now(UTC).isoformat()}
+        )
     )
     monkeypatch.setattr(launcher, "_DATA_DIR", data_dir)
     monkeypatch.setattr(launcher, "_STATE_FILE", state_file)

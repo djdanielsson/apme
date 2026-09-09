@@ -1,9 +1,11 @@
-"""Unit tests for engine graph/model modules (finder, parser, utils, yaml_utils, scan_state, graph_opa_payload, model_loader, models)."""
+"""Unit tests for engine graph/model modules.
+
+Covers finder, parser, utils, yaml_utils, scan_state, graph_opa_payload, model_loader, models.
+"""
 
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 from typing import cast
 from unittest.mock import MagicMock, patch
@@ -22,7 +24,6 @@ from apme_engine.engine.finder import (
     find_collection_name_of_repo,
     find_module_dirs,
     find_module_name,
-    flatten_block_tasks,
     get_project_info_for_file,
     get_role_info_from_path,
     get_task_blocks,
@@ -55,12 +56,8 @@ from apme_engine.engine.models import (
     Load,
     LoadType,
     Location,
-    LocationType,
     Module,
-    ModuleArgument,
     ModuleMetadata,
-    MutableContent,
-    NetworkTransferDetail,
     Object,
     ObjectList,
     PackageInstallDetail,
@@ -81,7 +78,6 @@ from apme_engine.engine.models import (
     TaskFile,
     Variable,
     VariableDict,
-    VariablePrecedence,
     VariableType,
     YAMLDict,
     YAMLValue,
@@ -101,9 +97,10 @@ def _write(tmp_path: Path, name: str, content: str) -> str:
         tmp_path: Pytest temporary directory fixture.
         name: Relative file name to create.
         content: Text content to write.
+
     Returns:
         Absolute path string of the written file.
-    
+
     """
     p = tmp_path / name
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -247,7 +244,7 @@ class TestResolvable:
     def test_base_property_raises(self) -> None:
         """Base resolver_targets raises NotImplementedError."""
         with pytest.raises(NotImplementedError):
-            Resolvable().resolver_targets
+            _ = Resolvable().resolver_targets
 
 
 class TestObjectListExtra:
@@ -515,9 +512,10 @@ class TestRiskAnnotationExtra:
             Args:
                 anno: Annotation.
                 **kw: Extra kwargs.
+
             Returns:
                 True.
-            
+
             """
             return True
 
@@ -600,7 +598,7 @@ class TestTaskModelExtra:
         assert t.str2double_quoted_scalar(["a", {"k": "v"}, 1])
         t.set_key("p", "pl")
         assert t.children_to_key() is t
-        assert "msg" in t.defined_vars or True
+        assert True  # original `"msg" in t.defined_vars or True` is always True
         t2 = Task(options={"tags": ["a"], "when": "true"})
         assert t2.tags == ["a"]
         assert t2.when == "true"
@@ -758,7 +756,9 @@ class TestStructuralModels:
         pb.children_to_key()
         pb.set_key()
         assert pb.resolver_targets
-        repo = Repository(playbooks=["p"], roles=["r"], modules=["m"], installed_roles=["ir"], installed_collections=["ic"])
+        repo = Repository(
+            playbooks=["p"], roles=["r"], modules=["m"], installed_roles=["ir"], installed_collections=["ic"]
+        )
         assert len(repo.resolver_targets) == 5
         repo.set_key()
         repo.children_to_key()
@@ -783,11 +783,16 @@ class TestStructuralModels:
         m = Module(name="m", fqcn="ns.col.m")
         mm = ModuleMetadata.from_module(m, {"type": "t", "name": "n", "version": "v", "hash": "h"})
         assert mm.fqcn == "ns.col.m"
-        assert mm == ModuleMetadata.from_dict({"fqcn": "ns.col.m", "type": "t", "name": "n", "version": "v", "hash": "h"})
+        assert mm == ModuleMetadata.from_dict(
+            {"fqcn": "ns.col.m", "type": "t", "name": "n", "version": "v", "hash": "h"}
+        )
         assert (mm == "x") is False
-        assert ModuleMetadata.from_routing("ns.col.m", {"type": "t", "name": "n", "version": "v", "hash": "h"}).deprecated is True
+        assert (
+            ModuleMetadata.from_routing("ns.col.m", {"type": "t", "name": "n", "version": "v", "hash": "h"}).deprecated
+            is True
+        )
         r = Role(name="r", fqcn="ns.col.r")
-        from apme_engine.engine.models import RoleMetadata, TaskFileMetadata, ActionGroupMetadata
+        from apme_engine.engine.models import ActionGroupMetadata, RoleMetadata, TaskFileMetadata
 
         rm = RoleMetadata.from_role(r, {"type": "t", "name": "n", "version": "v", "hash": "h"})
         assert rm.fqcn == "ns.col.r"
@@ -795,7 +800,9 @@ class TestStructuralModels:
         tfm = TaskFileMetadata.from_taskfile(TaskFile(key="k"), {"type": "t", "name": "n", "version": "v", "hash": "h"})
         assert tfm.key == "k"
         assert (tfm == "x") is False
-        agm = ActionGroupMetadata.from_action_group("g", [Module(name="m")], {"type": "t", "name": "n", "version": "v", "hash": "h"})
+        agm = ActionGroupMetadata.from_action_group(
+            "g", [Module(name="m")], {"type": "t", "name": "n", "version": "v", "hash": "h"}
+        )
         assert agm is not None
         assert (agm == "x") is False
 
@@ -989,7 +996,7 @@ class TestIdentifyLines:
         assert identify_lines_with_jsonpath(yaml_str="---\n", jsonpath=".0") == (None, None)
 
     def test_plays_passthrough(self) -> None:
-        """plays segment is skipped."""
+        """Plays segment is skipped."""
         yml = "- hosts: localhost\n  tasks:\n    - name: hi\n      ansible.builtin.debug:\n        msg: x\n"
         lines, rng = identify_lines_with_jsonpath(yaml_str=yml, jsonpath=".plays.0.tasks.0")
         assert lines is None or rng is None or lines
@@ -1349,9 +1356,11 @@ class TestParserExtra:
         from apme_engine.engine.parser import Parser
 
         ld = Load(target_type=LoadType.COLLECTION, target_name="ns.col", path="/tmp/x")
-        with patch("apme_engine.engine.parser.load_collection", side_effect=PlaybookFormatError("bad")):
-            with pytest.raises(PlaybookFormatError):
-                Parser(skip_playbook_format_error=False).run(load_data=ld)
+        with (
+            patch("apme_engine.engine.parser.load_collection", side_effect=PlaybookFormatError("bad")),
+            pytest.raises(PlaybookFormatError),
+        ):
+            Parser(skip_playbook_format_error=False).run(load_data=ld)
 
     def test_collection_task_format(self) -> None:
         """Collection TaskFormatError skip vs raise."""
@@ -1407,7 +1416,13 @@ class TestParserExtra:
         ld2 = Load(target_type=LoadType.PLAYBOOK, target_name="pb", path="/base/site.yml")
         with patch("apme_engine.engine.parser.load_repository", return_value=Repository(name="r")):
             assert Parser(use_ansible_doc=False).run(load_data=ld2) is not None
-        ld3 = Load(target_type=LoadType.PLAYBOOK, target_name="pb", path="/x.yml", playbook_yaml=PLAYBOOK_YAML, playbook_only=False)
+        ld3 = Load(
+            target_type=LoadType.PLAYBOOK,
+            target_name="pb",
+            path="/x.yml",
+            playbook_yaml=PLAYBOOK_YAML,
+            playbook_only=False,
+        )
         with patch("apme_engine.engine.parser.load_repository", return_value=Repository(name="r")):
             assert Parser(use_ansible_doc=False).run(load_data=ld3) is not None
 
@@ -1415,7 +1430,13 @@ class TestParserExtra:
         """Playbook generic exception returns None."""
         from apme_engine.engine.parser import Parser
 
-        ld = Load(target_type=LoadType.PLAYBOOK, target_name="pb", path="/x.yml", playbook_yaml=PLAYBOOK_YAML, playbook_only=True)
+        ld = Load(
+            target_type=LoadType.PLAYBOOK,
+            target_name="pb",
+            path="/x.yml",
+            playbook_yaml=PLAYBOOK_YAML,
+            playbook_only=True,
+        )
         with patch("apme_engine.engine.parser.load_playbook", side_effect=RuntimeError("boom")):
             assert Parser().run(load_data=ld) is None
 
@@ -1424,16 +1445,30 @@ class TestParserExtra:
         from apme_engine.engine.models import Repository, TaskFormatError
         from apme_engine.engine.parser import Parser
 
-        ld = Load(target_type=LoadType.TASKFILE, target_name="tf", path="/base/roles/r/tasks/main.yml", base_dir="/base")
+        ld = Load(
+            target_type=LoadType.TASKFILE, target_name="tf", path="/base/roles/r/tasks/main.yml", base_dir="/base"
+        )
         with patch("apme_engine.engine.parser.load_repository", return_value=Repository(name="r")):
             assert Parser(use_ansible_doc=False).run(load_data=ld) is not None
         ld2 = Load(target_type=LoadType.TASKFILE, target_name="tf", path="/base/main.yml")
         with patch("apme_engine.engine.parser.load_repository", return_value=Repository(name="r")):
             assert Parser(use_ansible_doc=False).run(load_data=ld2) is not None
-        ld3 = Load(target_type=LoadType.TASKFILE, target_name="tf", path="/x.yml", taskfile_yaml=TASKFILE_YAML, taskfile_only=False)
+        ld3 = Load(
+            target_type=LoadType.TASKFILE,
+            target_name="tf",
+            path="/x.yml",
+            taskfile_yaml=TASKFILE_YAML,
+            taskfile_only=False,
+        )
         with patch("apme_engine.engine.parser.load_repository", return_value=Repository(name="r")):
             assert Parser(use_ansible_doc=False).run(load_data=ld3) is not None
-        ld4 = Load(target_type=LoadType.TASKFILE, target_name="tf", path="/x.yml", taskfile_yaml=TASKFILE_YAML, taskfile_only=True)
+        ld4 = Load(
+            target_type=LoadType.TASKFILE,
+            target_name="tf",
+            path="/x.yml",
+            taskfile_yaml=TASKFILE_YAML,
+            taskfile_only=True,
+        )
         with patch("apme_engine.engine.parser.load_taskfile", side_effect=TaskFormatError("bad")):
             assert Parser().run(load_data=ld4) is not None
             with pytest.raises(TaskFormatError):
@@ -1591,7 +1626,9 @@ class TestUtilsExtra:
             {"type": "role", "name": f"dep.r{i}", "used_in": "u", "defined_in": {"name": "dep", "version": "1"}}
             for i in range(6)
         ]
-        out = summarize_findings_data({"name": "x"}, [], {"summary": {}}, {}, cast(list[dict[str, object]], reqs), False)
+        out = summarize_findings_data(
+            {"name": "x"}, [], {"summary": {}}, {}, cast(list[dict[str, object]], reqs), False
+        )
         assert "other modules" in out or "Unresolved" in out
 
     def test_get_module_specs_empty(self) -> None:
@@ -1613,7 +1650,7 @@ class TestUtilsExtra:
             assert "ns.m" in out
 
     def test_get_module_specs_stderr_no_stdout(self) -> None:
-        """stderr without stdout returns empty."""
+        """Stderr without stdout returns empty."""
         from apme_engine.engine.utils import get_module_specs_by_ansible_doc
 
         proc = MagicMock()
@@ -1645,7 +1682,9 @@ class TestUtilsExtra:
         """
         from apme_engine.engine.utils import load_classes_in_dir
 
-        (tmp_path / "good.py").write_text("from apme_engine.engine.models import Rule\nclass R1(Rule):\n rule_id='X'\n description='d'\n")
+        (tmp_path / "good.py").write_text(
+            "from apme_engine.engine.models import Rule\nclass R1(Rule):\n rule_id='X'\n description='d'\n"
+        )
         (tmp_path / "bad.py").write_text("raise RuntimeError('boom')\n")
         (tmp_path / "skip_test.py").write_text("x=1\n")
         from apme_engine.engine.models import Rule as _Rule
@@ -1758,7 +1797,17 @@ class TestYamlUtilsExtra:
         assert y.version == (1, 1)
         y.version = None
         assert y.version == (1, 1)
-        y2 = FormattedYAML(config={"explicit_start": True, "explicit_end": False, "width": 80, "indent_sequences": False, "preferred_quote": "'", "min_spaces_inside": 0, "max_spaces_inside": 1})
+        y2 = FormattedYAML(
+            config={
+                "explicit_start": True,
+                "explicit_end": False,
+                "width": 80,
+                "indent_sequences": False,
+                "preferred_quote": "'",
+                "min_spaces_inside": 0,
+                "max_spaces_inside": 1,
+            }
+        )
         assert y2.sequence_indent == 2
         # version unset object
         y3 = FormattedYAML.__new__(FormattedYAML)
@@ -1787,7 +1836,9 @@ class TestYamlUtilsExtra:
         assert data is not None
         out = y.dumps(data)
         assert "name" in out
-        pp = FormattedYAML._post_process_yaml("%YAML 1.1\n---\na: 1\n", strip_version_directive=True, strip_explicit_start=False)
+        pp = FormattedYAML._post_process_yaml(
+            "%YAML 1.1\n---\na: 1\n", strip_version_directive=True, strip_explicit_start=False
+        )
         assert "%YAML" not in pp
         pp2 = FormattedYAML._post_process_yaml("---\na: 1\n", strip_explicit_start=True)
         assert pp2.strip()
@@ -1870,7 +1921,9 @@ class TestScanStateExtra:
 
         s1 = SingleScan(type=LoadType.TASKFILE, name="inline", taskfile_yaml=TASKFILE_YAML, root_dir=str(tmp_path))
         assert s1.taskfile_only is True
-        s2 = SingleScan(type=LoadType.TASKFILE, name="/base/roles/r/tasks/main.yml", base_dir="/base", root_dir=str(tmp_path))
+        s2 = SingleScan(
+            type=LoadType.TASKFILE, name="/base/roles/r/tasks/main.yml", base_dir="/base", root_dir=str(tmp_path)
+        )
         assert s2.target_taskfile_name == "roles/r/tasks/main.yml"
         s3 = SingleScan(type=LoadType.TASKFILE, name="/base/main.yml", root_dir=str(tmp_path))
         assert s3.target_taskfile_name
@@ -1990,9 +2043,9 @@ class TestScanStateExtra:
         with (
             patch("apme_engine.engine.scan_state.load_object", return_value=None),
             patch.object(type(s), "get_definition_path", return_value=str(tmp_path / "nocache-xyz")),
+            pytest.raises(ValueError, match="Parser not initialized"),
         ):
-            with pytest.raises(ValueError, match="Parser not initialized"):
-                s.load_definition_ext("role", "r", str(tmp_path))
+            s.load_definition_ext("role", "r", str(tmp_path))
 
     def test_load_definition_ext_parser_fail(self, tmp_path: Path) -> None:
         """Parser returning None raises.
@@ -2009,9 +2062,9 @@ class TestScanStateExtra:
             patch("apme_engine.engine.scan_state.load_object", return_value=None),
             patch.object(type(s), "get_definition_path", return_value=str(tmp_path / "nocache2")),
             patch.object(Parser, "run", return_value=None),
+            pytest.raises(ValueError, match="Parser run failed"),
         ):
-            with pytest.raises(ValueError, match="Parser run failed"):
-                s.load_definition_ext("role", "r", str(tmp_path))
+            s.load_definition_ext("role", "r", str(tmp_path))
 
     def test_set_load_root_and_definitions(self, tmp_path: Path) -> None:
         """Root load and definitions via mocked parser.
@@ -2034,11 +2087,13 @@ class TestScanStateExtra:
             s2.load_definitions_root(str(tmp_path))
             assert "definitions" in s2.root_definitions
         s3 = SingleScan(type=LoadType.ROLE, name="r", root_dir=str(tmp_path))
-        with pytest.raises(ValueError, match="Parser not initialized"):
-            with patch("apme_engine.engine.scan_state.load_object", return_value=None):
-                # need root load ok but no parser
-                s3._set_load_root(str(tmp_path))
-                s3.load_definitions_root(str(tmp_path))
+        with (
+            pytest.raises(ValueError, match="Parser not initialized"),
+            patch("apme_engine.engine.scan_state.load_object", return_value=None),
+        ):
+            # need root load ok but no parser
+            s3._set_load_root(str(tmp_path))
+            s3.load_definitions_root(str(tmp_path))
 
     def test_target_object_and_graph(self, tmp_path: Path) -> None:
         """set_target_object picks single/matching; graph builds.
@@ -2046,7 +2101,7 @@ class TestScanStateExtra:
         Args:
             tmp_path: Pytest temporary directory fixture.
         """
-        from apme_engine.engine.models import ObjectList, Playbook
+        from apme_engine.engine.models import Playbook
         from apme_engine.engine.scan_state import SingleScan
 
         s = SingleScan(type=LoadType.PROJECT, name="proj", root_dir=str(tmp_path))
@@ -2141,7 +2196,7 @@ class TestGraphOpaExtra:
     def test_content_node_unknown(self) -> None:
         """Unknown node type yields empty dict."""
         from apme_engine.engine.graph_opa_payload import content_node_to_opa_dict
-        from apme_engine.graph.content_graph import ContentGraph, ContentNode, NodeIdentity, NodeType
+        from apme_engine.graph.content_graph import ContentNode, NodeIdentity, NodeType
 
         n = ContentNode(identity=NodeIdentity(path="v.yml", node_type=NodeType.VARS_FILE))
         assert content_node_to_opa_dict(n) == {}
@@ -2185,9 +2240,13 @@ class TestGraphOpaExtra:
         p = build_hierarchy_from_graph(ContentGraph(), scan_type="role", scan_name="r")
         assert p["scan_id"]
         assert _extract_collections([{"nodes": "bad"}]) == []
-        assert _extract_collections([{"nodes": [{"type": "taskcall", "module": "bad mod", "original_module": 1}]}]) == []
+        assert (
+            _extract_collections([{"nodes": [{"type": "taskcall", "module": "bad mod", "original_module": 1}]}]) == []
+        )
         assert _extract_collections([{"nodes": [{"type": "taskcall", "module": "ansible.builtin.debug"}]}]) == []
-        assert _extract_collections([{"nodes": [{"type": "taskcall", "module": "community.general.x"}]}]) == ["community.general"]
+        assert _extract_collections([{"nodes": [{"type": "taskcall", "module": "community.general.x"}]}]) == [
+            "community.general"
+        ]
 
 
 # ---------------------------------------------------------------------------
@@ -2245,14 +2304,19 @@ class TestModelLoaderExtra:
         assert isinstance(f2.body, str)
         f3 = load_file(path="missing.yml", basedir=str(tmp_path))
         assert "not found" in f3.error.lower() or f3.body == ""
-        f4 = load_file(path="d.yml", basedir=str(tmp_path), role_name="r", collection_name="c")
-        assert f4.role == "" or f4.collection == "" or True
+        _f4 = load_file(path="d.yml", basedir=str(tmp_path), role_name="r", collection_name="c")
+        assert True  # original `f4.role == "" or f4.collection == "" or True` is always True
         p = tmp_path / "v.yml"
         p.write_text("a: 1\n")
         f5 = load_file(path="v.yml", basedir=str(tmp_path), role_name="myrole", collection_name="mycol")
         assert f5.role == "myrole"
         assert load_files(str(tmp_path), yaml_label_list=None) == []
-        assert load_files(str(tmp_path), yaml_label_list=[("", "", None), ("a.yml", "", None), ("a.yml", "playbook", None)]) == []
+        assert (
+            load_files(
+                str(tmp_path), yaml_label_list=[("", "", None), ("a.yml", "", None), ("a.yml", "playbook", None)]
+            )
+            == []
+        )
         out = load_files(str(tmp_path), yaml_label_list=[("v.yml", "others", None)], load_children=False)
         assert out == ["v.yml"]
 
@@ -2288,7 +2352,14 @@ class TestModelLoaderExtra:
         play2 = load_play(
             path="p.yml",
             index=0,
-            play_block_dict={"hosts": "all", "vars": {"a": 1}, "vars_files": ["v.yml"], "module_defaults": {"d": 1}, "import_playbook": "other.yml", "roles": ["myrole", {"role": "r2"}]},
+            play_block_dict={
+                "hosts": "all",
+                "vars": {"a": 1},
+                "vars_files": ["v.yml"],
+                "module_defaults": {"d": 1},
+                "import_playbook": "other.yml",
+                "roles": ["myrole", {"role": "r2"}],
+            },
             yaml_lines="",
         )
         assert play2.import_playbook == "other.yml"
@@ -2298,7 +2369,9 @@ class TestModelLoaderExtra:
         """Name popped from options when empty."""
         from apme_engine.engine.model_loader import load_roleinplay
 
-        rip = load_roleinplay(name="", options={"name": "myrole"}, defined_in="/base/pb.yml", role_index=0, play_index=0, basedir="/base")
+        rip = load_roleinplay(
+            name="", options={"name": "myrole"}, defined_in="/base/pb.yml", role_index=0, play_index=0, basedir="/base"
+        )
         assert rip.name == "myrole"
         assert rip.defined_in == "pb.yml"
 
@@ -2313,14 +2386,14 @@ class TestModelLoaderExtra:
 
         with pytest.raises(ValueError, match="file not found"):
             load_playbook(path="missing.yml", basedir=str(tmp_path))
-        f = _write(tmp_path, "t.txt", "hi")
+        _f = _write(tmp_path, "t.txt", "hi")
         with pytest.raises(ValueError, match="file not found"):
             load_playbook(path="t.txt", basedir="/nonexistent-base-xyz")
         # yaml_str bad with skip False raises
         with pytest.raises(PlaybookFormatError):
             load_playbook(yaml_str="{{{ bad", skip_playbook_format_error=False)
         # file bad yaml skipped
-        bf = _write(tmp_path, "bad.yml", "{{{ bad")
+        _bf = _write(tmp_path, "bad.yml", "{{{ bad")
         pb = load_playbook(path="bad.yml", basedir=str(tmp_path))
         assert pb is not None
         with pytest.raises(PlaybookFormatError):
@@ -2341,7 +2414,9 @@ class TestModelLoaderExtra:
         with pytest.raises(ValueError, match="not found"):
             load_module("missing.py", basedir=str(tmp_path))
         mod = tmp_path / "mymod.py"
-        mod.write_text('DOCUMENTATION = """---\noptions:\n  src:\n    type: str\n    required: true\n    description: x\n"""\n')
+        mod.write_text(
+            'DOCUMENTATION = """---\noptions:\n  src:\n    type: str\n    required: true\n    description: x\n"""\n'
+        )
         m = load_module(str(mod), collection_name="ns.col", basedir="", use_ansible_doc=False)
         assert m.fqcn == "ns.col.mymod"
         assert any(a.name == "src" for a in m.arguments)
@@ -2353,9 +2428,21 @@ class TestModelLoaderExtra:
         m3 = load_module(str(mod), role_name="myrole", basedir="", use_ansible_doc=False)
         assert m3.role == "myrole"
         # ansible-doc specs path
-        m4 = load_module(str(mod), collection_name="ns.col", basedir="", use_ansible_doc=True, module_specs={"ns.col.mymod": {"doc": "---\noptions:\n  p:\n    type: int\n", "examples": "ex"}})
+        m4 = load_module(
+            str(mod),
+            collection_name="ns.col",
+            basedir="",
+            use_ansible_doc=True,
+            module_specs={"ns.col.mymod": {"doc": "---\noptions:\n  p:\n    type: int\n", "examples": "ex"}},
+        )
         assert m4.examples == "ex"
-        m5 = load_module(str(mod), collection_name="ns.col", basedir="", use_ansible_doc=True, module_specs=cast(dict[str, dict[str, object]], {"ns.col.mymod": "bad"}))
+        m5 = load_module(
+            str(mod),
+            collection_name="ns.col",
+            basedir="",
+            use_ansible_doc=True,
+            module_specs=cast(dict[str, dict[str, object]], {"ns.col.mymod": "bad"}),
+        )
         assert m5.documentation == ""
 
     def test_load_builtin_and_modules(self, tmp_path: Path) -> None:
@@ -2405,7 +2492,14 @@ class TestModelLoaderExtra:
         t4 = load_task(
             path="t.yml",
             index=0,
-            task_block_dict={"name": "s", "ansible.builtin.set_fact": {"k": "v"}, "register": "r", "loop": ["a"], "vars": {"x": 1}, "module_defaults": {"m": 1}},
+            task_block_dict={
+                "name": "s",
+                "ansible.builtin.set_fact": {"k": "v"},
+                "register": "r",
+                "loop": ["a"],
+                "vars": {"x": 1},
+                "module_defaults": {"m": 1},
+            },
             yaml_lines="- name: s\n  ansible.builtin.set_fact:\n    k: v\n",
         )
         assert t4.set_facts == {"k": "v"}

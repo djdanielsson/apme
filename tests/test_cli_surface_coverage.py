@@ -61,9 +61,10 @@ def _rem_args(target: str, **overrides: object) -> argparse.Namespace:
     Args:
         target: Scan target path string.
         **overrides: Attribute overrides.
+
     Returns:
         Populated argparse namespace.
-    
+
     """
     defaults: dict[str, object] = {
         "target": target,
@@ -93,9 +94,10 @@ def _check_args_ns(target: str, **overrides: object) -> argparse.Namespace:
     Args:
         target: Scan target path string.
         **overrides: Attribute overrides.
+
     Returns:
         Populated argparse namespace.
-    
+
     """
     defaults: dict[str, object] = {
         "command": "check",
@@ -124,9 +126,10 @@ def _format_args_ns(target: str, **overrides: object) -> argparse.Namespace:
     Args:
         target: Format target path string.
         **overrides: Attribute overrides.
+
     Returns:
         Populated argparse namespace.
-    
+
     """
     defaults: dict[str, object] = {
         "command": "format",
@@ -146,9 +149,10 @@ def _mk_event(kind: str) -> MagicMock:
 
     Args:
         kind: Value for ``WhichOneof("event")``.
+
     Returns:
         Configured MagicMock event.
-    
+
     """
     ev = MagicMock()
     ev.WhichOneof.return_value = kind
@@ -160,9 +164,10 @@ def _scan_chunk(scan_id: str = "scan-1") -> ScanChunk:
 
     Args:
         scan_id: Scan identifier.
+
     Returns:
         ScanChunk proto.
-    
+
     """
     return ScanChunk(scan_id=scan_id, project_root="project", last=True)
 
@@ -2077,9 +2082,10 @@ def test_remediate_two_chunks_and_draining_stub(tmp_path: Path) -> None:
         Args:
             cmd_iter: Command iterator from run_remediate.
             timeout: Stream timeout.
+
         Returns:
             Event list with result and close.
-        
+
         """
         drained = list(cmd_iter)
         assert len(drained) >= 2

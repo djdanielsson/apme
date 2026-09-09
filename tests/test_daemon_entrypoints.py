@@ -54,9 +54,10 @@ def _daemon_state(
         version: Installed version string.
         started_at: ISO-format start timestamp.
         services: Service name to address map.
+
     Returns:
         DaemonState instance for daemon_cmd tests.
-    
+
     """
     return DaemonState(
         pid=pid,
@@ -72,9 +73,10 @@ def _health_args(**overrides: object) -> argparse.Namespace:
 
     Args:
         **overrides: Argument overrides.
+
     Returns:
         Parsed-args namespace for ``run_health_check``.
-    
+
     """
     defaults: dict[str, object] = {"json": False, "timeout": 5.0}
     defaults.update(overrides)
@@ -447,9 +449,7 @@ class TestDaemonMainSuccess:
 class TestDaemonMainFailure:
     """Tests for each daemon ``main`` error path (exit 1 + OTel shutdown)."""
 
-    def test_all_mains_exit_1_on_failure(
-        self, monkeypatch: MonkeyPatch, capsys: CaptureFixture[str]
-    ) -> None:
+    def test_all_mains_exit_1_on_failure(self, monkeypatch: MonkeyPatch, capsys: CaptureFixture[str]) -> None:
         """Every main converts _run errors into SystemExit(1) and shuts down OTel.
 
         Args:
