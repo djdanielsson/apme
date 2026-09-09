@@ -66,8 +66,18 @@ Abbenay surfaces (ADR-046 inference stays Engine). Reject path traversal
 (`..` / encoded forms). Abbenay remains the source of truth for config.
 
 Allowlist: `GET/POST /config`, `GET /engines`, `GET /providers`,
-`POST /provider/{id}/configure`, `DELETE /provider/{id}`,
-`GET/POST /secrets`, `DELETE /secrets/{key}`.
+`POST /provider/{id}/configure`, `DELETE /provider/{id}`.
+
+**Secret-store denial (amended 2026-09-09):** `GET/POST /secrets` and
+`DELETE /secrets/{key}` are **not** proxied. The Gateway allowlist rejects
+`GET/POST /api/v1/ai/secrets` and `DELETE /api/v1/ai/secrets/{key}` with
+404 before contacting Abbenay. With no Gateway caller authentication yet
+(#1), unauthenticated secret-store reads *and writes* are a security
+exposure; operators inject, list, and delete secrets directly against
+Abbenay HTTP on loopback (see `ABBENAY_AI.md`). This is a documented
+**ADR-060 security exception**: the v1 URLs are intentionally unavailable
+through the Gateway until caller auth lands; restore proxying only with
+authenticated compatibility behavior and a new ADR.
 
 **3. Enable Abbenay HTTP on loopback when Abbenay is enabled.**  
 In addition to gRPC `:50057` (Engine), start Abbenay’s HTTP admin surface on
@@ -146,8 +156,10 @@ After the first successful configure, the writable file is SoT — Helm value /
 ConfigMap changes do not overwrite an existing runtime config.
 
 **7. Secrets source of truth remains Abbenay (not Gateway).**  
-Runtime API keys injected via `POST /api/v1/ai/secrets` are stored by
-Abbenay. Gateway reverse-proxies the secrets API and does **not** persist
+Runtime API keys are injected directly against Abbenay HTTP (`POST
+/api/secrets`); the Gateway secret-store surface (`GET/POST
+/api/v1/ai/secrets`, `DELETE /api/v1/ai/secrets/{key}`) is denied with
+404 at the allowlist until caller auth (#1). Gateway does **not** persist
 provider keys. Durable keys in containers use Abbenay's filesystem store
 (`secretStore: "file"`, Abbenay ≥ v2026.8.6), which writes
 `<configDir>/secrets.json` (mode `0600` as written by Abbenay) on the same
@@ -299,8 +311,8 @@ Gateway stays a proxy. Default Helm `emptyDir` is still ephemeral — enable
   Gateway `info.description` references ADR-070.
 - **Tests**: path rewrite, Bearer inject, Cookie strip, 502, models/chat not
   proxied, traversal rejected, missing token 503, Set-Cookie stripped; secrets
-  GET/POST/DELETE proxy tests; helm asserts ordered
-  `--host`/`127.0.0.1`/`--port`/`8787` and Gateway HTTP URL.
+  GET/POST/DELETE denied at allowlist (404, upstream never contacted); helm
+  asserts ordered `--host`/`127.0.0.1`/`--port`/`8787` and Gateway HTTP URL.
 - **Portal UI**: out of scope for the first implementation PR; catalog proxy +
   Quality settings follow in a later change.
 - **Config durability** ([#498](https://github.com/ansible/apme/issues/498)):
@@ -344,3 +356,4 @@ Gateway stays a proxy. Default Helm `emptyDir` is still ephemeral — enable
 | 2026-08-04 | bthornto | §4: document Simple caller-trust + loopback token threat model (Helm/Podman evidence) |
 | 2026-08-13 | bthornto | Amended allowlist: added `GET/POST /secrets`, `DELETE /secrets/{key}` for Abbenay ≥ v2026.8.5 memory secret store |
 | 2026-08-14 | bthornto | §7 secrets remain Abbenay SoT: file store (`secretStore: "file"`, ≥ v2026.8.6) on a durable config volume (Helm PVC / Podman cache); Gateway stays proxy-only (rejects Gateway DB SoT, #560) |
+| 2026-09-09 | bthornto | Amended §2/§7: deny secret-store routes at Gateway allowlist (404) until caller auth (#1); ADR-060 security exception; direct-to-Abbenay secret management |

@@ -52,12 +52,30 @@ environments where a system keychain is unavailable. Secrets (API keys) are
 injected at runtime directly against Abbenay — not via the Gateway proxy,
 which denies the whole secret-store surface (see above).
 
+**Helm vs Podman access:** Podman (`tox -e up`) publishes Abbenay HTTP on
+host loopback (`127.0.0.1:8787`); the curl examples below work as shown
+(`ABBENAY_HTTP_AUTH=0` disables Bearer auth for local dev only). Helm Simple
+has no Service or hostPort for `:8787` — port-forward the engine pod and
+retrieve the chart token before running the examples:
+
+```bash
+# Substitute your release name and namespace (e.g. apme / apme).
+export ABBENAY_API_TOKEN=$(kubectl get secret apme-secrets -n apme \
+  -o jsonpath='{.data.abbenay-token}' | base64 -d)
+kubectl port-forward pod/$(kubectl get pod -n apme -l app.kubernetes.io/name=apme \
+  -o jsonpath='{.items[0].metadata.name}') 8787:8787 -n apme
+```
+
+Alternatively, `kubectl exec` into the pod and curl
+`http://127.0.0.1:8787` directly (the Abbenay container already has
+`ABBENAY_API_TOKEN` in its environment).
+
 **Inject a secret at runtime (Abbenay directly):**
 
 > **Token hygiene:** the examples below pass the Abbenay Bearer token and
 > raw API keys on the command line. Command lines are saved in shell
 > history (`~/.bash_history`, `~/.zsh_history`) and visible in `ps`
-> output — prefer `read -s ABBEBAY_API_TOKEN` / `read -s API_KEY` or an
+> output — prefer `read -s ABBENAY_API_TOKEN` / `read -s API_KEY` or an
 > env-var file, redact pasted output before sharing, and clear history
 > entries that contain secrets. `:8787` must remain loopback-bound
 > (`127.0.0.1`); never expose Abbenay HTTP beyond localhost without its
