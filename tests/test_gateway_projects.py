@@ -778,6 +778,42 @@ async def test_find_project_by_repo_url_heals_legacy_row() -> None:
         assert second.id == "healed-proj-1234567890abcdef1234567890ab"
 
 
+async def test_find_project_by_repo_url_heal_failure_rolls_back() -> None:
+    """A failed heal commit rolls back so the session stays usable."""
+    from sqlalchemy import select
+
+    target_url = "https://github.com/org/heal-fail.git"
+    async with get_session() as db:
+        db.add(
+            Project(
+                id="heal-fail-proj-1234567890abcdef12345678",
+                name="Heal Fail Project",
+                repo_url=target_url,
+                normalized_repo_url="",
+                branch="main",
+                created_at="2026-03-01T00:00:00Z",
+                health_score=100,
+            )
+        )
+        await db.commit()
+        real_commit = db.commit
+
+        async def _fail_once() -> None:
+            db.commit = real_commit  # type: ignore[method-assign]
+            raise RuntimeError("boom")
+
+        db.commit = _fail_once  # type: ignore[method-assign]
+        found = await q.find_project_by_repo_url(db, target_url)
+        assert found is not None
+        # The rolled-back heal expired the row: refresh proves the session
+        # is usable (raises PendingRollbackError without the rollback).
+        await db.refresh(found)
+        assert found.id == "heal-fail-proj-1234567890abcdef12345678"
+        # Session usable after the rolled-back heal (no PendingRollbackError).
+        rows = (await db.execute(select(Project.id))).scalars().all()
+        assert "heal-fail-proj-1234567890abcdef12345678" in rows
+
+
 def test_project_branch_fields_expose_max_length() -> None:
     """Project branch fields document the 100-char boundary for OpenAPI."""
     create_schema = CreateProjectRequest.model_json_schema()["properties"]["branch"]

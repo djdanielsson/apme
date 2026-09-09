@@ -219,6 +219,9 @@ async def find_project_by_repo_url(
             try:
                 await db.commit()
             except Exception:
+                # Roll back so the failed heal does not poison the session
+                # for the caller (PendingRollbackError on next use).
+                await db.rollback()
                 logger.debug("find_project_by_repo_url: failed to heal normalized_repo_url", exc_info=True)
             return cast(Project, project)
         if len(batch) < batch_size:
