@@ -13,6 +13,9 @@ from apme_gateway.db import get_in_clause_chunk_size
 from apme_gateway.db.dialect import dialect_insert
 from apme_gateway.db.models import Proposal, ProposalRuleAnalytics, Scan, Violation
 from apme_gateway.proposals.grouping import (
+    _coerce_violation_ids,
+    _safe_float,
+    _to_int,
     analytics_increments,
     parse_json_list,
     review_status_for_proposal,
@@ -237,7 +240,7 @@ async def _flush_proposals(
         review = review_status_for_proposal(prop.source, prop.status)
         if review:
             v_ids = parse_json_list(prop.violation_ids_json)
-            int_ids = [int(v) for v in v_ids if str(v).isdigit() or isinstance(v, int)]
+            int_ids = _coerce_violation_ids(v_ids)
             if int_ids:
                 stamp_rules = stamp_rule_allowlist(
                     stamp_rule_ids_json=getattr(prop, "stamp_rule_ids_json", None),
@@ -319,26 +322,42 @@ async def replace_scan_proposals(
 
     prior_rows = list((await db.execute(select(Proposal).where(Proposal.scan_id == scan_id))).scalars().all())
     await db.execute(delete(Proposal).where(Proposal.scan_id == scan_id))
-    # Bridge live stubs → archival groups. Key by file+source+primary_rule+line
-    # because engine.Proposal has no path field — stubs always have path="".
+    # Bridge live stubs → archival groups. Key by file+source+primary_rule+
+    # line_start+line_end because engine.Proposal has no path field — stubs
+    # always have path="". line_end keeps two proposals that share
+    # (file, source, rule, line_start) but cover different spans distinct.
     # Normalize: coupled stubs may store "L007,L013" while groups use "L007";
     # ai-candidate groups must match stub source "ai".
     # Carry analytics_flushed / terminal status / stamp_rule_ids so gate-commit
     # survives FixCompleted rebuild without double-counting analytics.
 
-    def _bridge_key(file_: str, source: str, rule_id: str, line_start: int) -> tuple[str, str, str, int]:
+    def _bridge_key(
+        file_: str, source: str, rule_id: str, line_start: object, line_end: object = 0
+    ) -> tuple[str, str, str, int, int]:
+        """Build the stub-to-group bridge key including both span ends.
+
+        Args:
+            file_: Target file path.
+            source: Proposal source string.
+            rule_id: Raw rule id (possibly coupled CSV).
+            line_start: First line of the span (JSON-ish, coerced defensively).
+            line_end: Last line of the span (JSON-ish, coerced defensively).
+
+        Returns:
+            Bridge key tuple with primary rule and coerced span.
+        """
         primary_rule = (rule_id or "").split(",")[0].strip()
         src = source or ""
         if src == "ai-candidate":
             src = "ai"
-        return (file_ or "", src, primary_rule, int(line_start or 0))
+        return (file_ or "", src, primary_rule, _to_int(line_start, 0), _to_int(line_end, 0))
 
-    prior: dict[tuple[str, str, str, int], tuple[str | None, int, int, str, str]] = {}
-    ambiguous: set[tuple[str, str, str, int]] = set()
+    prior: dict[tuple[str, str, str, int, int], tuple[str | None, int, int, str, str]] = {}
+    ambiguous: set[tuple[str, str, str, int, int]] = set()
     for r in prior_rows:
         if not (r.engine_proposal_id or r.draft or r.analytics_flushed):
             continue
-        key = _bridge_key(str(r.file or ""), str(r.source or ""), str(r.rule_id or ""), int(r.line_start or 0))
+        key = _bridge_key(str(r.file or ""), str(r.source or ""), str(r.rule_id or ""), r.line_start, r.line_end)
         if key in ambiguous:
             continue
         if key in prior:
@@ -349,8 +368,8 @@ async def replace_scan_proposals(
             continue
         prior[key] = (
             r.engine_proposal_id,
-            int(r.draft or 0),
-            int(r.analytics_flushed or 0),
+            _to_int(r.draft or 0),
+            _to_int(r.analytics_flushed or 0),
             str(r.status or ""),
             str(r.stamp_rule_ids_json or "[]"),
         )
@@ -359,11 +378,17 @@ async def replace_scan_proposals(
         status = prop.status
         if status == "pending" and prop.source == "deterministic" and prop.fixed_yaml:
             status = "approved"
-        key = _bridge_key(prop.file or "", prop.source, prop.rule_id or "", int(prop.line_start or 0))
+        key = _bridge_key(
+            prop.file or "",
+            prop.source,
+            prop.rule_id or "",
+            getattr(prop, "line_start", 0),
+            getattr(prop, "line_end", 0),
+        )
         bridge = prior.get(key, (None, 0, 0, "", "[]"))
         engine_id = getattr(prop, "engine_proposal_id", None) or bridge[0]
-        draft_flag = int(getattr(prop, "draft", 0) or bridge[1] or 0)
-        flushed = int(bridge[2] or 0)
+        draft_flag = _to_int(getattr(prop, "draft", 0) or bridge[1] or 0)
+        flushed = _to_int(bridge[2] or 0)
         bridged_status = str(bridge[3] or "")
         if bridged_status in {"approved", "declined"} and status in {"pending", "proposed", ""}:
             status = bridged_status
@@ -376,16 +401,17 @@ async def replace_scan_proposals(
                 proposal_id=prop.proposal_id,
                 rule_id=prop.rule_id,
                 file=prop.file,
-                tier=prop.tier,
-                confidence=prop.confidence,
+                tier=_to_int(prop.tier, 0),
+                confidence=_safe_float(prop.confidence, 0.0),
                 status=status,
                 path=prop.path,
                 node_type=getattr(prop, "node_type", "") or "",
                 source=prop.source,
                 gate=prop.gate,
                 rule_ids_json=serialize_rule_ids(prop.rule_ids),
-                violation_ids_json=serialize_violation_ids(prop.violation_ids),
-                line_start=prop.line_start,
+                violation_ids_json=serialize_violation_ids(_coerce_violation_ids(list(prop.violation_ids))),
+                line_start=_to_int(prop.line_start, 0),
+                line_end=_to_int(getattr(prop, "line_end", 0), 0),
                 diff_hunk=prop.diff_hunk,
                 explanation=prop.explanation,
                 suggestion=prop.suggestion,
@@ -422,8 +448,9 @@ def proposal_to_detail_dict(prop: Proposal | object) -> dict[str, object]:
             "source": prop.source,
             "gate": prop.gate,
             "rule_ids": [str(r) for r in rule_ids],
-            "violation_ids": [int(v) for v in violation_ids if str(v).isdigit() or isinstance(v, int)],
+            "violation_ids": _coerce_violation_ids(violation_ids),
             "line_start": prop.line_start,
+            "line_end": prop.line_end,
             "diff_hunk": prop.diff_hunk,
             "explanation": prop.explanation,
             "suggestion": prop.suggestion,
@@ -438,16 +465,17 @@ def proposal_to_detail_dict(prop: Proposal | object) -> dict[str, object]:
         "proposal_id": getattr(prop, "proposal_id", ""),
         "rule_id": getattr(prop, "rule_id", ""),
         "file": getattr(prop, "file", ""),
-        "tier": int(getattr(prop, "tier", 0) or 0),
-        "confidence": float(getattr(prop, "confidence", 0.0) or 0.0),
+        "tier": _to_int(getattr(prop, "tier", 0), 0),
+        "confidence": _safe_float(getattr(prop, "confidence", 0.0), 0.0),
         "status": getattr(prop, "status", "pending"),
         "path": getattr(prop, "path", ""),
         "node_type": getattr(prop, "node_type", "") or "",
         "source": getattr(prop, "source", "outcome"),
         "gate": getattr(prop, "gate", ""),
         "rule_ids": [str(r) for r in rule_ids],
-        "violation_ids": [int(v) for v in violation_ids],
-        "line_start": int(getattr(prop, "line_start", 0) or 0),
+        "violation_ids": _coerce_violation_ids(violation_ids),
+        "line_start": _to_int(getattr(prop, "line_start", 0), 0),
+        "line_end": _to_int(getattr(prop, "line_end", 0), 0),
         "diff_hunk": getattr(prop, "diff_hunk", "") or "",
         "explanation": getattr(prop, "explanation", "") or "",
         "suggestion": getattr(prop, "suggestion", "") or "",

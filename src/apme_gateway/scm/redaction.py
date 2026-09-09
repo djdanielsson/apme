@@ -5,13 +5,22 @@ from __future__ import annotations
 import re
 
 _CRED_REDACT_RE = re.compile(r"(https?://)[^@]+@")
+# Floors ({8,}/{12,}) apply only to anchored `authorization:`/`bearer` patterns so short English prose is never mangled.
+_BASIC_AUTH_HEADER_RE = re.compile(r"(?i)(authorization:\s*basic\s+)[A-Za-z0-9+/=]{8,}")
+_BEARER_RE = re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._~+/-]{12,}")
 
 
 def redact_credentials(text: str) -> str:
-    """Redact embedded credentials from URLs in text.
+    """Redact embedded credentials from URLs and auth headers in text.
 
     Replaces ``https://user:token@host`` with ``https://[REDACTED]@host``
-    to prevent token exposure in logs or error messages.
+    and masks ``Authorization: Basic <base64>`` header tokens (including
+    ``AUTHORIZATION: Basic`` ``http.extraHeader`` values surfaced via
+    ``GIT_TRACE`` / ``GIT_CURL_VERBOSE`` stderr) with
+    ``Authorization: Basic [REDACTED]`` to prevent token exposure in logs
+    or error messages. ``Bearer <token>`` values are masked the same way.
+    Bare ``Basic`` prose without an ``Authorization:`` prefix is left
+    untouched to avoid English false positives.
 
     Args:
         text: Text potentially containing URLs with credentials.
@@ -19,4 +28,6 @@ def redact_credentials(text: str) -> str:
     Returns:
         Text with credentials redacted.
     """
-    return _CRED_REDACT_RE.sub(r"\1[REDACTED]@", text)
+    redacted = _CRED_REDACT_RE.sub(r"\1[REDACTED]@", text)
+    redacted = _BASIC_AUTH_HEADER_RE.sub(r"\1[REDACTED]", redacted)
+    return _BEARER_RE.sub(r"\1[REDACTED]", redacted)

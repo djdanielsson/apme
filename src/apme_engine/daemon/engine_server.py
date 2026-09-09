@@ -1512,6 +1512,15 @@ class EngineServicer(engine_pb2_grpc.EngineServicer):
         except Exception as e:
             logger.exception("FixSession failed (session=%s): %s", scan_id, e)
             raise
+        finally:
+            # Client cancellation raises CancelledError (a BaseException),
+            # which bypasses both the except chain and the explicit close
+            # path above — remove here so a cancelled stream never leaks
+            # its session until TTL (exhaustible: _MAX_SESSIONS=10).
+            # SessionStore.remove() is idempotent (pop-with-default), so a
+            # second remove after an explicit close is a harmless no-op.
+            if session:
+                store.remove(session.session_id)
 
     # ── FixSession helpers ─────────────────────────────────────────────
 

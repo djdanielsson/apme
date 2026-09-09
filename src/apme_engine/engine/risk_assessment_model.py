@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from dataclasses import dataclass, field
 from typing import cast
@@ -36,6 +37,8 @@ from .utils import (
     remove_lock_file,
     unlock_file,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _safe_str(v: YAMLValue, default: str = "") -> str:
@@ -757,6 +760,9 @@ class RAMClient:
                         matched = True
                 if matched:
                     parts = findings_json.split("/")
+                    if len(parts) < 6:
+                        logger.debug("Skipping module with short findings path: %r", findings_json)
+                        continue
 
                     matched_modules.append(
                         {
@@ -849,6 +855,9 @@ class RAMClient:
                         matched = True
                 if matched:
                     parts = findings_json.split("/")
+                    if len(parts) < 5:
+                        logger.debug("Skipping role with short findings path: %r", findings_json)
+                        continue
                     offspring_objects = []
                     for taskfile_key in r.taskfiles:
                         tf_key = taskfile_key.key if isinstance(taskfile_key, TaskFile) else str(taskfile_key)
@@ -996,6 +1005,9 @@ class RAMClient:
                 # TODO: support taskfile reference with variables
                 if matched:
                     parts = findings_json.split("/")
+                    if len(parts) < 5:
+                        logger.debug("Skipping taskfile with short findings path: %r", findings_json)
+                        continue
                     offspring_objects = []
                     for task_key in tf.tasks:
                         t_key = task_key.key if isinstance(task_key, Task) else str(task_key)
@@ -1102,7 +1114,13 @@ class RAMClient:
                             matched = True
                 if matched:
                     parts = findings_json.split("/")
+                    if len(parts) < 5:
+                        logger.debug("Skipping task with short findings path: %r", findings_json)
+                        continue
                     offspring_objects = []
+                    # Unknown executable types yield no offspring (a Task with
+                    # a missing/unrecognized type must not crash the search).
+                    _tmp_offspring_objects: list[YAMLDict] = []
                     if t.executable_type == ExecutableType.MODULE_TYPE:
                         _tmp_offspring_objects = self.search_module(t.executable, used_in=t.defined_in)
                     elif t.executable_type == ExecutableType.ROLE_TYPE:
@@ -1110,6 +1128,12 @@ class RAMClient:
                     elif t.executable_type == ExecutableType.TASKFILE_TYPE:
                         _tmp_offspring_objects = self.search_taskfile(
                             t.executable, from_path=t.defined_in, from_key=t.key, used_in=t.defined_in
+                        )
+                    else:
+                        logger.debug(
+                            "Task %r has unrecognized executable_type %r; no offspring collected",
+                            t.key,
+                            t.executable_type,
                         )
                     if len(_tmp_offspring_objects) > 0:
                         child = _tmp_offspring_objects[0]
@@ -1190,6 +1214,9 @@ class RAMClient:
             obj = objs.find_by_key(obj_key)
             if obj is not None:
                 parts = obj_json.split("/")
+                if len(parts) < 6:
+                    logger.debug("Skipping object with short JSON path: %r", obj_json)
+                    continue
                 matched_obj = {
                     "object": obj,
                     "defined_in": {
@@ -1243,12 +1270,15 @@ class RAMClient:
         found_path_list = []
         for findings_path in self._findings_json_list_cache:
             parts = findings_path.split("/")
+            if len(parts) < 5:
+                logger.debug("Skipping findings with short path: %r", findings_path)
+                continue
             _type = parts[-5][:-1]
             _name = parts[-4]
             _version = parts[-3]
             if _name != target_name:
                 continue
-            if target_version and target_version != "*" and _version != target_name:
+            if target_version and target_version != "*" and _version != target_version:
                 continue
             if target_type and target_type != "*" and _type != target_type:
                 continue

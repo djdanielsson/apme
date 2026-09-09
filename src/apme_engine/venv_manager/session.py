@@ -149,6 +149,20 @@ def _spec_to_pip(spec: str) -> str:
 
 _FAILED_BUILD_RE = re.compile(r"Failed to build `([^`]+)`")
 
+#: Wall-clock bound for a single pip/uv install invocation.  Without it a
+#: stalled index fetch hangs ``subprocess.run`` forever, pinning the
+#: ``run_in_executor`` worker until the session lifetime cap fires.
+_PIP_INSTALL_TIMEOUT_S = 600
+
+
+class PipInstallTimeout(TimeoutError):
+    """A pip/uv install exceeded its wall-clock bound.
+
+    Distinct from a build failure: retrying with excludes or ``--no-build``
+    cannot help a stalled index, so callers must fail fast instead of
+    walking the fallback chain.
+    """
+
 
 def _run_pip_install(
     pip_python: Path,
@@ -176,6 +190,13 @@ def _run_pip_install(
 
     Returns:
         CompletedProcess with stdout/stderr captured.
+
+    Raises:
+        PipInstallTimeout: If the install exceeds its wall-clock bound.
+            The message carries the stalled command argv (including the
+            specs) so the failure identifies what hung. Callers must fail
+            fast — the exclude/no-build fallback chain only helps build
+            failures, not stalled indexes.
     """
     if use_uv:
         cmd = [
@@ -206,7 +227,14 @@ def _run_pip_install(
         if no_build:
             cmd.extend(["--only-binary", ":all:"])
         cmd.extend(pip_specs)
-    return subprocess.run(cmd, capture_output=True, text=True)
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=_PIP_INSTALL_TIMEOUT_S)
+    except subprocess.TimeoutExpired as exc:
+        logger.warning(
+            "pip/uv install timed out after %ds, failing fast (no exclude/no-build retry)",
+            _PIP_INSTALL_TIMEOUT_S,
+        )
+        raise PipInstallTimeout(f"pip/uv install timed out after {_PIP_INSTALL_TIMEOUT_S}s: {' '.join(cmd)}") from exc
 
 
 def _is_build_failure(output: str) -> bool:
@@ -278,6 +306,10 @@ def _install_collections_via_proxy(
 
     Returns:
         List of collection specs that failed to install (empty on full success).
+
+    Note:
+        A stalled pip/uv install propagates ``PipInstallTimeout`` from the
+        install helpers — failing fast instead of walking the fallback chain.
     """
     simple_url = proxy_url.rstrip("/") + "/simple/"
     pip_specs = [_spec_to_pip(s) for s in collection_specs]
@@ -415,12 +447,44 @@ def _retry_without_native(
         shutil.rmtree(excludes_dir, ignore_errors=True)
 
 
+def _run_base_venv_cmd(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+    """Run one base-venv setup command with the shared wall-clock bound.
+
+    Mirrors :func:`_run_pip_install`: a stalled ``uv venv`` / ``venv`` /
+    ``ansible-core`` install must fail fast with :class:`PipInstallTimeout`
+    instead of pinning the ``run_in_executor`` worker forever.  Callers
+    (``VenvSessionManager.acquire``) already record timeout metrics and
+    release the session lock on ``PipInstallTimeout``.
+
+    Args:
+        cmd: Command argv to run.
+
+    Returns:
+        CompletedProcess with stdout/stderr captured.
+
+    Raises:
+        PipInstallTimeout: If the command exceeds its wall-clock bound.
+    """
+    try:
+        return subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=_PIP_INSTALL_TIMEOUT_S)
+    except subprocess.TimeoutExpired as exc:
+        logger.warning(
+            "base venv setup timed out after %ds, failing fast",
+            _PIP_INSTALL_TIMEOUT_S,
+        )
+        raise PipInstallTimeout(f"base venv setup timed out after {_PIP_INSTALL_TIMEOUT_S}s") from exc
+
+
 def create_base_venv(
     venv_dir: Path,
     ansible_core_version: str,
     python_exe: str | None = None,
 ) -> None:
     """Create a virtual environment and install ansible-core into it.
+
+    Each setup command shares the pip/uv wall-clock bound and fails fast
+    with ``PipInstallTimeout`` on stalls, so ``VenvSessionManager.acquire``
+    can record timeout metrics and release the session lock.
 
     Args:
         venv_dir: Exact directory for the virtualenv (created if absent).
@@ -432,27 +496,21 @@ def create_base_venv(
         cmd = ["uv", "venv", str(venv_dir)]
         if python_exe:
             cmd.extend(["--python", python_exe])
-        subprocess.run(cmd, check=True, capture_output=True, text=True)
+        _run_base_venv_cmd(cmd)
     else:
         cmd = [sys.executable, "-m", "venv", str(venv_dir)]
         if python_exe:
             cmd = [python_exe, "-m", "venv", str(venv_dir)]
-        subprocess.run(cmd, check=True, capture_output=True, text=True)
+        _run_base_venv_cmd(cmd)
 
     pip_python = get_venv_python(venv_dir)
     if use_uv:
-        subprocess.run(
+        _run_base_venv_cmd(
             ["uv", "pip", "install", "--python", str(pip_python), f"ansible-core=={ansible_core_version}"],
-            check=True,
-            capture_output=True,
-            text=True,
         )
     else:
-        subprocess.run(
+        _run_base_venv_cmd(
             [str(pip_python), "-m", "pip", "install", f"ansible-core=={ansible_core_version}"],
-            check=True,
-            capture_output=True,
-            text=True,
         )
 
 
@@ -816,6 +874,8 @@ class VenvSessionManager:
             A ``VenvSession`` with a ready-to-use venv.
 
         Raises:
+            PipInstallTimeout: If a pip/uv install stalls past its bound —
+                fails fast instead of walking the fallback chain.
             Exception: Re-raises unexpected acquire failures after recording
                 error metrics.
         """
@@ -941,6 +1001,17 @@ class VenvSessionManager:
                     return session
                 finally:
                     fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        except PipInstallTimeout:
+            # Fail fast: a stalled index must not serialize into the
+            # exclude/no-build and per-spec fallback chain under the lock.
+            self._record_acquire_metrics(
+                t0,
+                outcome="timeout",
+                ansible_version=pip_version,
+                collections_requested=len(specs),
+                status="error",
+            )
+            raise
         except Exception:
             self._record_acquire_metrics(
                 t0,

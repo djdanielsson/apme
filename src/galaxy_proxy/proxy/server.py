@@ -28,6 +28,7 @@ from fastapi.responses import HTMLResponse, Response
 from packaging.version import InvalidVersion, Version
 from pydantic import BaseModel
 
+from galaxy_proxy import MAX_VERSION_PAGES
 from galaxy_proxy.collection_downloader import (
     GalaxyServerConfig,
     download_collections,
@@ -666,8 +667,10 @@ async def _fetch_versions_from(
         token: Optional auth token for the server.
 
     Returns:
-        List of version strings on success, or ``None`` on failure so
-        the caller can fall through to the next server.
+        List of version strings on success, or ``None`` on failure — or
+        when the listing is truncated at ``MAX_VERSION_PAGES`` — so the
+        caller can fall through to the next server. A truncated listing is
+        not a complete answer and must never resolve as one.
     """
     versions: list[str] = []
     normalized = _normalize_galaxy_url(base_url)
@@ -685,15 +688,36 @@ async def _fetch_versions_from(
             follow_redirects=True,
             headers=headers,
         ) as client:
-            while True:
+            for _page in range(MAX_VERSION_PAGES):
                 resp = await client.get(url, params=params)
                 resp.raise_for_status()
                 payload = resp.json()
+                if not isinstance(payload, dict):
+                    # A non-dict JSON body (e.g. a list or string) has no
+                    # ``.get`` — treat it as a failure so the caller falls
+                    # through to the next server instead of raising
+                    # AttributeError.
+                    logger.debug(
+                        "Version fetch from %s returned non-dict payload (%s) for %s.%s",
+                        base_url,
+                        type(payload).__name__,
+                        namespace,
+                        name,
+                    )
+                    return None
                 for entry in payload.get("data", []):
                     versions.append(entry["version"])
                 if not payload.get("links", {}).get("next"):
                     break
                 params["offset"] = int(params["offset"]) + int(params["limit"])
+            else:
+                logger.warning(
+                    "Galaxy version pagination exceeded %d pages for %s.%s; treating as failure",
+                    MAX_VERSION_PAGES,
+                    namespace,
+                    name,
+                )
+                return None
         status = "ok"
         return versions
     except (httpx.HTTPError, KeyError, ValueError) as exc:

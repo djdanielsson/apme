@@ -32,6 +32,7 @@ from apme_gateway.db.models import (
     Suppression,
     Violation,
 )
+from apme_gateway.scm.repo_url import normalize_repo_url
 
 logger = logging.getLogger(__name__)
 
@@ -127,6 +128,7 @@ async def create_project(
         id=project_id,
         name=name,
         repo_url=repo_url,
+        normalized_repo_url=normalize_repo_url(repo_url),
         branch=branch,
         created_at=now,
         scm_token=scm_token or None,
@@ -182,17 +184,49 @@ async def find_project_by_repo_url(
     Returns:
         Matching project, or ``None`` when no normalized URL matches.
     """
-    from apme_gateway.scm.repo_url import normalize_repo_url
-
     target = normalize_repo_url(repo_url)
-    stmt = select(Project)
+    if not target:
+        return None
+    conditions = [Project.normalized_repo_url == target]
+    if branch is not None:
+        conditions.append(Project.branch == branch)
+    stmt = select(Project).where(*conditions).order_by(Project.id).limit(1)
     result = await db.execute(stmt)
-    for project in result.scalars().all():
-        if normalize_repo_url(project.repo_url) != target:
-            continue
-        if branch is not None and project.branch != branch:
-            continue
-        return cast(Project, project)
+    found = result.scalars().first()
+    if found is not None:
+        return cast(Project, found)
+    # Legacy fallback for rows written out-of-band without the startup
+    # backfill running (bounded batches; scheduled for removal once all
+    # writers go through create_project/update_project).
+    fallback = [Project.normalized_repo_url == ""]
+    if branch is not None:
+        fallback.append(Project.branch == branch)
+    batch_size = 500
+    last_seen_id = ""
+    while True:
+        result = await db.execute(
+            select(Project).where(*fallback, Project.id > last_seen_id).order_by(Project.id).limit(batch_size)
+        )
+        batch = list(result.scalars().all())
+        if not batch:
+            break
+        for project in batch:
+            if normalize_repo_url(project.repo_url) != target:
+                continue
+            # Heal legacy rows so the next lookup hits the primary path
+            # instead of re-scanning the fallback batches every time.
+            project.normalized_repo_url = target
+            try:
+                await db.commit()
+            except Exception:
+                # Roll back so the failed heal does not poison the session
+                # for the caller (PendingRollbackError on next use).
+                await db.rollback()
+                logger.debug("find_project_by_repo_url: failed to heal normalized_repo_url", exc_info=True)
+            return cast(Project, project)
+        if len(batch) < batch_size:
+            break
+        last_seen_id = batch[-1].id
     return None
 
 
@@ -234,6 +268,9 @@ async def resolve_project(db: AsyncSession, id_or_name: str) -> Project | None:
 async def update_project(db: AsyncSession, project_id: str, **fields: str | None) -> Project | None:
     """Partial-update a project.
 
+    Caller-supplied ``normalized_repo_url`` is ignored; the canonical URL is
+    always recomputed from ``repo_url`` when it changes.
+
     Args:
         db: Active async database session.
         project_id: UUID or name of the project.
@@ -241,13 +278,32 @@ async def update_project(db: AsyncSession, project_id: str, **fields: str | None
 
     Returns:
         Updated Project or None if not found.
+
+    Raises:
+        ValueError: If ``repo_url`` is explicitly ``None``, empty, or blank.
     """
+    if "normalized_repo_url" in fields:
+        logger.warning(
+            "update_project: ignoring caller-supplied normalized_repo_url %r",
+            fields.get("normalized_repo_url"),
+        )
+        fields.pop("normalized_repo_url", None)
+    if "repo_url" in fields:
+        repo_value = fields["repo_url"]
+        if repo_value is None:
+            msg = "repo_url cannot be None"
+            raise ValueError(msg)
+        if isinstance(repo_value, str) and not normalize_repo_url(repo_value):
+            msg = "repo_url cannot be empty or blank"
+            raise ValueError(msg)
     project = await resolve_project(db, project_id)
     if project is None:
         return None
     for key, value in fields.items():
         if hasattr(project, key):
             setattr(project, key, value)
+    if "repo_url" in fields and isinstance(fields["repo_url"], str):
+        project.normalized_repo_url = normalize_repo_url(fields["repo_url"])
     await db.commit()
     await db.refresh(project)
     return project
