@@ -299,10 +299,7 @@ async def update_project(db: AsyncSession, project_id: str, **fields: str | None
         ValueError: If ``repo_url`` is explicitly ``None``, empty, or blank.
     """
     if "normalized_repo_url" in fields:
-        logger.warning(
-            "update_project: ignoring caller-supplied normalized_repo_url %r",
-            fields.get("normalized_repo_url"),
-        )
+        logger.warning("update_project: ignoring caller-supplied normalized_repo_url")
         fields.pop("normalized_repo_url", None)
     if "repo_url" in fields:
         repo_value = fields["repo_url"]

@@ -407,7 +407,18 @@ async def replace_scan_proposals(
             getattr(prop, "line_start", 0),
             getattr(prop, "line_end", 0),
         )
-        bridge = prior.get(key, (None, 0, 0, "", "[]"))
+        bridge = prior.get(key)
+        if bridge is None:
+            bridge = prior.get(
+                _bridge_key(
+                    prop.file or "",
+                    prop.source,
+                    prop.rule_id or "",
+                    getattr(prop, "line_start", 0),
+                    0,
+                ),
+                (None, 0, 0, "", "[]"),
+            )
         engine_id = getattr(prop, "engine_proposal_id", None) or bridge[0]
         draft_flag = _to_int(getattr(prop, "draft", 0) or bridge[1] or 0)
         flushed = _to_int(bridge[2] or 0)
