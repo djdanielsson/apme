@@ -213,6 +213,13 @@ async def find_project_by_repo_url(
         for project in batch:
             if normalize_repo_url(project.repo_url) != target:
                 continue
+            # Heal legacy rows so the next lookup hits the primary path
+            # instead of re-scanning the fallback batches every time.
+            project.normalized_repo_url = target
+            try:
+                await db.commit()
+            except Exception:
+                logger.debug("find_project_by_repo_url: failed to heal normalized_repo_url", exc_info=True)
             return cast(Project, project)
         if len(batch) < batch_size:
             break

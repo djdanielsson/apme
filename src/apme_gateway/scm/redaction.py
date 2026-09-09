@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 _CRED_REDACT_RE = re.compile(r"(https?://)[^@]+@")
+# Floors ({8,}/{12,}) apply only to anchored `authorization:`/`bearer` patterns so short English prose is never mangled.
 _BASIC_AUTH_HEADER_RE = re.compile(r"(?i)(authorization:\s*basic\s+)[A-Za-z0-9+/=]{8,}")
 _BEARER_RE = re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._~+/-]{12,}")
 

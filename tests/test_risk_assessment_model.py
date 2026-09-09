@@ -3513,3 +3513,68 @@ def test_search_task_load_not_findings(tmp_path: Path) -> None:
         mock_exists.return_value = True
         mock_load.return_value = None
         assert client.search_task("whatever", is_key=True, content_info=info) == []
+
+
+def test_search_findings_version_filter_returns_match(tmp_path: Path) -> None:
+    """Version-filtered searches return the row with the matching version.
+
+    Guards the ``target_version`` comparison: the path version must be
+    compared against the requested version, not the target name, so a
+    filtered search finds its row while other versions are skipped.
+
+    Args:
+        tmp_path: Pytest temporary directory fixture.
+    """
+    client = _make_client(tmp_path)
+    path = os.path.join(str(tmp_path), "collections", "findings", "ns.coll", "1.0", "h", "findings.json")
+    other = os.path.join(str(tmp_path), "collections", "findings", "ns.coll", "2.0", "h2", "findings.json")
+    client._findings_json_list_cache = [path, other]
+    findings = _make_findings(version="1.0")
+    with (
+        patch("apme_engine.engine.risk_assessment_model.os.path.exists") as mock_exists,
+        patch("apme_engine.engine.risk_assessment_model.RAMClient._load_findings") as mock_load,
+    ):
+        mock_exists.side_effect = lambda p: bool(p)
+        mock_load.return_value = findings
+        result = client._search_findings("ns.coll", "1.0")
+    assert result is findings
+    assert mock_load.call_args[0][0] == path
+
+
+def test_search_findings_skips_short_path(tmp_path: Path) -> None:
+    """Findings paths too short to index into are skipped, not crashed on.
+
+    Args:
+        tmp_path: Pytest temporary directory fixture.
+    """
+    client = _make_client(tmp_path)
+    client._findings_json_list_cache = ["short.json"]
+    with (
+        patch("apme_engine.engine.risk_assessment_model.os.path.exists") as mock_exists,
+        patch("apme_engine.engine.risk_assessment_model.RAMClient._load_findings") as mock_load,
+    ):
+        mock_exists.side_effect = lambda p: bool(p)
+        mock_load.return_value = None
+        assert client._search_findings("ns.coll", "*") is None
+    assert mock_load.call_count == 0
+
+
+def test_get_object_by_key_skips_short_path(tmp_path: Path) -> None:
+    """Object JSON paths too short to index into are skipped, not crashed on.
+
+    Args:
+        tmp_path: Pytest temporary directory fixture.
+    """
+    client = _make_client(tmp_path)
+    mod = _make_module()
+    obj_list = ObjectList(items=[mod])
+    obj_list.update_dict()
+    with (
+        patch("apme_engine.engine.risk_assessment_model.safe_glob") as mock_glob,
+        patch("apme_engine.engine.risk_assessment_model.ObjectList.from_json") as mock_from,
+    ):
+        # Short enough (< 6 segments) to hit the guard, but shaped so the
+        # version sort key derivation does not crash first.
+        mock_glob.side_effect = lambda pattern: ["findings/n/1"] if "collections" in str(pattern) else []
+        mock_from.return_value = obj_list
+        assert client.get_object_by_key(mod.key) is None

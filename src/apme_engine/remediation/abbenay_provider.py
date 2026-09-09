@@ -34,7 +34,7 @@ from apme_engine.rule_catalog import _parse_ai_prompt_map
 
 logger = logging.getLogger(__name__)
 
-#: Base delay before the single chat reconnect retry (doubled per attempt).
+#: Base delay before the single chat reconnect retry (single retry, so no exponential growth).
 _CHAT_RETRY_BASE_S = 2.0
 #: Added jitter upper bound so concurrent AI nodes do not retry in lockstep.
 _CHAT_RETRY_JITTER_S = 1.0
@@ -784,7 +784,7 @@ class AbbenayProvider:
     ) -> str:
         """Call chat, reconnecting once on connection failure.
 
-        The single retry waits with exponential backoff plus jitter so an
+        The single retry waits out a base delay plus jitter so an
         Abbenay flap is not amplified by every AI node reconnecting at
         once, and each attempt is bounded by a client-side timeout so a
         hung chat stream cannot block the caller indefinitely.
@@ -815,8 +815,10 @@ class AbbenayProvider:
         """
         for attempt in range(2):
             if attempt > 0:
-                backoff = _CHAT_RETRY_BASE_S * (2 ** (attempt - 1))
-                await asyncio.sleep(backoff + random.uniform(0, _CHAT_RETRY_JITTER_S))
+                # Single retry, so the delay is constant (base + jitter) —
+                # no exponential factor: the loop runs at most twice, so an
+                # exponential term would always be 1 here.
+                await asyncio.sleep(_CHAT_RETRY_BASE_S + random.uniform(0, _CHAT_RETRY_JITTER_S))
             try:
                 return await asyncio.wait_for(
                     self._consume_chat(model, prompt, policy),

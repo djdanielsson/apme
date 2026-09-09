@@ -692,6 +692,19 @@ async def _fetch_versions_from(
                 resp = await client.get(url, params=params)
                 resp.raise_for_status()
                 payload = resp.json()
+                if not isinstance(payload, dict):
+                    # A non-dict JSON body (e.g. a list or string) has no
+                    # ``.get`` — treat it as a failure so the caller falls
+                    # through to the next server instead of raising
+                    # AttributeError.
+                    logger.debug(
+                        "Version fetch from %s returned non-dict payload (%s) for %s.%s",
+                        base_url,
+                        type(payload).__name__,
+                        namespace,
+                        name,
+                    )
+                    return None
                 for entry in payload.get("data", []):
                     versions.append(entry["version"])
                 if not payload.get("links", {}).get("next"):

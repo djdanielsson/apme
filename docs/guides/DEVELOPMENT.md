@@ -420,7 +420,7 @@ podman run --rm \
 
 ### Coverage target
 
-Coverage is configured at 80% (`fail_under = 80` in `pyproject.toml`). tox enforces `--cov-fail-under=80` as the gate; pyproject.toml sets the shared target. Rule files under `validators/*/rules/` are excluded from coverage measurement (they have colocated tests instead).
+Coverage is configured at 80% (`fail_under = 80` in `pyproject.toml`). tox enforces `--cov-fail-under=80` as the gate; pyproject.toml sets the shared target. The gate measures `src/apme_engine` only — gateway (`src/apme_gateway`) and galaxy-proxy coverage is untracked follow-up work. Rule files under `validators/*/rules/` are excluded from coverage measurement (they have colocated tests instead).
 
 ## Pod lifecycle
 

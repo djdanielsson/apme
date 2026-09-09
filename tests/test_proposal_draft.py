@@ -1083,3 +1083,52 @@ async def test_upsert_string_zero_confidence_is_explicit() -> None:
         )
         await db.commit()
         assert rows[0].confidence == 0.0
+
+
+@pytest.mark.asyncio  # type: ignore[untyped-decorator]
+async def test_gate_commit_rejects_bool_violation_ids() -> None:
+    """Bool violation ids never stamp the wrong row (True must not become 1)."""
+    project_id, scan_id = await _seed_project_scan(with_draft=True)
+    async with get_session() as db:
+        for _ in range(3):
+            db.add(
+                Violation(
+                    scan_id=scan_id,
+                    rule_id="L007",
+                    level="warning",
+                    message="x",
+                    file="a.yml",
+                    line=1,
+                    path="a.yml::t[0]",
+                    remediation_class=2,
+                    remediation_resolution=0,
+                    scope=0,
+                    fixed_yaml="",
+                )
+            )
+        await db.flush()
+        violations = list((await db.execute(select(Violation).where(Violation.scan_id == scan_id))).scalars().all())
+        assert [v.id for v in violations] == [1, 2, 3]
+        prop = (await db.execute(select(Proposal).where(Proposal.scan_id == scan_id))).scalar_one()
+        prop.violation_ids_json = '[true, "12.0", 3]'
+        prop.status = "pending"
+        await db.commit()
+
+    async with get_session() as db:
+        n = await commit_gate_decisions(
+            db,
+            scan_id=scan_id,
+            project_id=project_id,
+            approved_engine_ids=["ai-0001"],
+        )
+        await db.commit()
+        assert n == 1
+
+    async with get_session() as db:
+        by_id = {
+            v.id: v for v in (await db.execute(select(Violation).where(Violation.scan_id == scan_id))).scalars().all()
+        }
+        # True must not coerce to 1; "12.0" coerces to 12 (absent) — only 3 stamps.
+        assert by_id[1].review_status is None
+        assert by_id[2].review_status is None
+        assert by_id[3].review_status == "ai_approved"

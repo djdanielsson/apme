@@ -760,7 +760,7 @@ class RAMClient:
                         matched = True
                 if matched:
                     parts = findings_json.split("/")
-                    if len(parts) < 5:
+                    if len(parts) < 6:
                         logger.debug("Skipping module with short findings path: %r", findings_json)
                         continue
 
@@ -1214,6 +1214,9 @@ class RAMClient:
             obj = objs.find_by_key(obj_key)
             if obj is not None:
                 parts = obj_json.split("/")
+                if len(parts) < 6:
+                    logger.debug("Skipping object with short JSON path: %r", obj_json)
+                    continue
                 matched_obj = {
                     "object": obj,
                     "defined_in": {
@@ -1267,12 +1270,15 @@ class RAMClient:
         found_path_list = []
         for findings_path in self._findings_json_list_cache:
             parts = findings_path.split("/")
+            if len(parts) < 5:
+                logger.debug("Skipping findings with short path: %r", findings_path)
+                continue
             _type = parts[-5][:-1]
             _name = parts[-4]
             _version = parts[-3]
             if _name != target_name:
                 continue
-            if target_version and target_version != "*" and _version != target_name:
+            if target_version and target_version != "*" and _version != target_version:
                 continue
             if target_type and target_type != "*" and _type != target_type:
                 continue

@@ -276,10 +276,19 @@ class GalaxyClient:
 
         Returns:
             Raw tarball bytes.
-        """
-        resp = await self._download_client.get(download_url)
-        resp.raise_for_status()
-        return resp.content  # type: ignore[no-any-return]
+
+        Raises:
+            RuntimeError: When the download fails (the ``httpx`` failure
+                is chained via ``__cause__`` so callers never see a bare
+                transport error), symmetric with :meth:`list_versions`.
+        """  # noqa: DOC503
+        try:
+            resp = await self._download_client.get(download_url)
+            resp.raise_for_status()
+            return resp.content  # type: ignore[no-any-return]
+        except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+            msg = f"Galaxy tarball download failed for {download_url}: {exc}"
+            raise RuntimeError(msg) from exc
 
     async def get_version_and_download(
         self,
@@ -296,10 +305,22 @@ class GalaxyClient:
 
         Returns:
             Tuple of version metadata and tarball bytes.
-        """
-        detail = await self.get_version_detail(namespace, name, version)
-        tarball = await self.download_tarball(detail.download_url)
-        return detail, tarball
+
+        Raises:
+            RuntimeError: When metadata lookup or tarball download fails
+                (failures from the underlying calls are already
+                ``RuntimeError`` and propagate unchanged; any other
+                transport or malformed-payload failure is wrapped with the
+                original chained via ``__cause__``), symmetric with
+                :meth:`list_versions`.
+        """  # noqa: DOC503
+        try:
+            detail = await self.get_version_detail(namespace, name, version)
+            tarball = await self.download_tarball(detail.download_url)
+            return detail, tarball
+        except (httpx.HTTPStatusError, httpx.RequestError, ValueError, KeyError) as exc:
+            msg = f"Galaxy download failed for {namespace}.{name}:{version}: {exc}"
+            raise RuntimeError(msg) from exc
 
     # ── internal per-client helpers ──────────────────────────────────
 
@@ -322,7 +343,9 @@ class GalaxyClient:
             name: Collection name.
 
         Returns:
-            Version strings, or ``None`` when truncated at the page bound.
+            Version strings, or ``None`` when truncated at the page bound
+            or when a page body is not a JSON object (both are failure
+            signals the caller fails over on).
         """
         versions: list[str] = []
         url = f"{COLLECTIONS_PATH}/{namespace}/{name}/versions/"
@@ -331,6 +354,17 @@ class GalaxyClient:
             resp = await client.get(url, params=params)
             resp.raise_for_status()
             payload = resp.json()
+            if not isinstance(payload, dict):
+                # A non-dict JSON body (e.g. a list or string) has no
+                # ``.get`` — treat it as a failure so the caller fails
+                # over to the next server instead of raising AttributeError.
+                logger.debug(
+                    "Galaxy version listing for %s.%s returned non-dict payload (%s); treating as failure",
+                    namespace,
+                    name,
+                    type(payload).__name__,
+                )
+                return None
             for entry in payload.get("data", []):
                 versions.append(entry["version"])
             if not payload.get("links", {}).get("next"):
@@ -353,10 +387,35 @@ class GalaxyClient:
         name: str,
         version: str,
     ) -> CollectionVersion:
+        """Fetch and parse version metadata from a single Galaxy server.
+
+        Args:
+            client: Authenticated httpx client for one Galaxy server.
+            namespace: Collection namespace.
+            name: Collection name.
+            version: Collection version string.
+
+        Returns:
+            Parsed ``CollectionVersion``.
+
+        Raises:
+            ValueError: When the response body is not a JSON object (a
+                non-dict payload has no ``.get`` — surfacing
+                ``AttributeError`` would escape the caller's failover
+                handler, so this is a ``ValueError`` the caller fails
+                over on).
+            KeyError: When the payload lacks required fields.
+        """  # noqa: DOC503
         url = f"{COLLECTIONS_PATH}/{namespace}/{name}/versions/{version}/"
         resp = await client.get(url)
         resp.raise_for_status()
         data = resp.json()
+        if not isinstance(data, dict):
+            msg = (
+                f"Galaxy version detail for {namespace}.{name}:{version} "
+                f"returned non-dict payload ({type(data).__name__})"
+            )
+            raise ValueError(msg)
         meta = data.get("metadata", {})
         return CollectionVersion(
             namespace=namespace,

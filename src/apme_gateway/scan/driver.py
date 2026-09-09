@@ -189,6 +189,34 @@ def _git_origin(repo_url: str) -> str:
     return origin
 
 
+def _strip_url_userinfo(repo_url: str) -> str:
+    """Remove embedded ``user:pass@`` credentials from a clone URL.
+
+    Stored project URLs may contain userinfo; passing them verbatim into
+    ``git clone``/``ls-remote`` argv exposes the secret in process listings.
+    Token auth travels via the per-origin ``http.extraHeader`` env entry
+    instead, so the userinfo component is always safe to drop.
+
+    Args:
+        repo_url: Raw clone URL, possibly with embedded userinfo.
+
+    Returns:
+        URL with the userinfo component removed; unchanged when none present.
+    """
+    try:
+        parsed = urlparse(repo_url)
+    except ValueError:
+        return repo_url
+    netloc = parsed.netloc
+    if "@" not in netloc:
+        return repo_url
+    host = parsed.hostname or ""
+    if not host:
+        return repo_url
+    logger.warning("Stripping embedded credentials from repo URL for host %s", host)
+    return urlunparse(parsed._replace(netloc=netloc.rsplit("@", 1)[-1]))
+
+
 def _merge_git_config_env(base: dict[str, str], extra_pairs: list[tuple[str, str]]) -> dict[str, str]:
     """Merge ``GIT_CONFIG_KEY_n/VALUE_n`` pairs into a copy of *base*.
 
@@ -353,6 +381,7 @@ async def fetch_remote_head(
     Returns:
         40-char hex SHA, or ``None`` if the lookup fails.
     """
+    repo_url = _strip_url_userinfo(repo_url)
     if not any(repo_url.startswith(scheme) for scheme in _ALLOWED_SCHEMES):
         return None
     if not isinstance(branch, str):
@@ -474,6 +503,7 @@ async def clone_repo(
             not a valid git ref name.
         RuntimeError: If ``git clone`` fails or times out.
     """
+    repo_url = _strip_url_userinfo(repo_url)
     if not any(repo_url.startswith(scheme) for scheme in _ALLOWED_SCHEMES):
         msg = f"Only https:// clone URLs are allowed, got: {repo_url[:60]}"
         raise ValueError(msg)
@@ -486,9 +516,9 @@ async def clone_repo(
 
     try:
         validate_branch_name(branch)
-    except ValueError:
-        msg = f"Invalid branch name: {branch[:60]}"
-        raise ValueError(msg) from None
+    except ValueError as exc:
+        msg = f"Invalid branch name: {branch[:60]}: {exc}"
+        raise ValueError(msg) from exc
 
     # Pass the token via a per-origin http.extraHeader env entry so it never
     # appears in argv; pre-existing GIT_CONFIG_* entries are preserved.

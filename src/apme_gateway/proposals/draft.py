@@ -21,6 +21,7 @@ from apme_gateway.proposals.grouping import (
     SOURCE_AI,
     SOURCE_AI_CANDIDATE,
     SOURCE_DETERMINISTIC,
+    _coerce_violation_ids,
     analytics_increments,
     parse_json_list,
     review_status_for_proposal,
@@ -736,7 +737,7 @@ async def commit_gate_decisions(
             rule_ids_json=prop.rule_ids_json,
         )
         v_ids = parse_json_list(prop.violation_ids_json)
-        int_ids = [int(v) for v in v_ids if str(v).isdigit() or isinstance(v, int)]
+        int_ids = _coerce_violation_ids(v_ids)
         if not int_ids:
             continue
         for violation in await fetch_violations_by_ids(db, int_ids):

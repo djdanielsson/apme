@@ -76,6 +76,7 @@ omit = ["*/tests/*", "*/__pycache__/*", "*/rules/*"]
 branch = true
 
 [tool.coverage.report]
+# Enforced gate lives in tox.ini [testenv:unit] --cov-fail-under — keep this value in sync.
 exclude_lines = [
     "pragma: no cover",
     "def __repr__",

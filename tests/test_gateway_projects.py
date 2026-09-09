@@ -747,6 +747,37 @@ async def test_find_project_by_repo_url_paginates_legacy_fallback() -> None:
         assert found.id == "wanted-proj-1234567890abcdef1234567890ab"
 
 
+async def test_find_project_by_repo_url_heals_legacy_row() -> None:
+    """Fallback hits persist the canonical URL so the next lookup takes the primary path."""
+    target_url = "https://github.com/org/healed.git"
+    canonical = normalize_repo_url(target_url)
+    assert canonical
+    async with get_session() as db:
+        db.add(
+            Project(
+                id="healed-proj-1234567890abcdef1234567890ab",
+                name="Healed Project",
+                repo_url=target_url,
+                normalized_repo_url="",
+                branch="main",
+                created_at="2026-03-01T00:00:00Z",
+                health_score=100,
+            )
+        )
+        await db.commit()
+        found = await q.find_project_by_repo_url(db, target_url)
+        assert found is not None
+        assert found.id == "healed-proj-1234567890abcdef1234567890ab"
+
+    async with get_session() as db:
+        stored = await db.get(Project, "healed-proj-1234567890abcdef1234567890ab")
+        assert stored is not None
+        assert stored.normalized_repo_url == canonical
+        second = await q.find_project_by_repo_url(db, target_url)
+        assert second is not None
+        assert second.id == "healed-proj-1234567890abcdef1234567890ab"
+
+
 def test_project_branch_fields_expose_max_length() -> None:
     """Project branch fields document the 100-char boundary for OpenAPI."""
     create_schema = CreateProjectRequest.model_json_schema()["properties"]["branch"]

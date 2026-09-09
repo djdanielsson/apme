@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from dataclasses import replace
+from typing import cast
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -666,8 +667,9 @@ async def test_replace_tolerates_string_line_end() -> None:
             gate="tier1",
             status="pending",
         )
-        # Bypass the dataclass int contract the way JSON-ish callers do.
-        object.__setattr__(prop, "line_end", "12.0")
+        # GroupedProposal is frozen — rebuild (not plain assignment) the way
+        # JSON-ish callers do.
+        prop = replace(prop, line_end=cast(int, "12.0"))
         await replace_scan_proposals(db, scan_id="replace-str-line-end", proposals=[prop])
         await db.commit()
         row = (await db.execute(select(ProposalRow).where(ProposalRow.scan_id == "replace-str-line-end"))).scalar_one()
@@ -787,7 +789,9 @@ async def test_replace_tolerates_string_draft_in_store() -> None:
             gate="tier1",
             status="pending",
         )
-        # Bypass the dataclass contract the way JSON-ish callers do.
+        # GroupedProposal is frozen and has no draft field — bypass both the
+        # way JSON-ish callers do (plain assignment raises FrozenInstanceError
+        # and replace() rejects the unknown field).
         object.__setattr__(good, "draft", "1.0")
         await replace_scan_proposals(db, scan_id="replace-str-draft", proposals=[good])
         await db.commit()
@@ -822,6 +826,8 @@ async def test_replace_tolerates_string_draft_in_store() -> None:
             gate="tier1",
             status="pending",
         )
+        # Same frozen/no-field bypass as above — plain assignment cannot
+        # attach a non-field to a frozen dataclass.
         object.__setattr__(bad, "draft", "high")
         await replace_scan_proposals(db, scan_id="replace-bad-draft", proposals=[bad])
         await db.commit()

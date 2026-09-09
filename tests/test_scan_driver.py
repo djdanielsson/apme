@@ -690,6 +690,112 @@ async def test_clone_repo_timeout_maps_to_runtime_error() -> None:
             await clone_repo("https://github.com/o/r.git", "main", td + "/repo", scm_token="s3cret")
 
 
+@pytest.mark.asyncio  # type: ignore[untyped-decorator]
+async def test_clone_repo_branch_error_surfaces_rule_reason() -> None:
+    """Branch validation errors keep the ref-rule reason via message and cause."""
+    with tempfile.TemporaryDirectory() as td, pytest.raises(ValueError) as exc_info:
+        await clone_repo("https://github.com/o/r.git", "a/b/../../c", td + "/repo")
+    assert "Invalid branch name" in str(exc_info.value)
+    assert ".." in str(exc_info.value)
+    assert isinstance(exc_info.value.__cause__, ValueError)
+
+
+@pytest.mark.asyncio  # type: ignore[untyped-decorator]
+async def test_clone_repo_strips_embedded_userinfo(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Userinfo in the stored URL never reaches git argv; host is warned, secret is not.
+
+    Args:
+        caplog: Pytest log capture fixture.
+    """
+    secret_url = "https://deployer:s3cret-token@github.com/owner/repo.git"
+    with (
+        caplog.at_level("WARNING", logger="apme_gateway.scan.driver"),
+        patch("apme_gateway.scan.driver.asyncio.get_running_loop") as mock_loop,
+        patch("apme_gateway.scan.driver.subprocess.run") as mock_run,
+    ):
+        result = MagicMock()
+        result.returncode = 0
+        result.stderr = ""
+        mock_run.return_value = result
+        mock_loop.return_value.run_in_executor = AsyncMock(side_effect=lambda _exec, func: func())
+
+        with tempfile.TemporaryDirectory() as td:
+            await clone_repo(secret_url, "main", os.path.join(td, "repo"))
+
+    call_args = mock_run.call_args[0][0]
+    assert call_args[-2] == "https://github.com/owner/repo.git"
+    assert "s3cret-token" not in " ".join(call_args)
+    assert "github.com" in caplog.text
+    assert "s3cret-token" not in caplog.text
+
+
+@pytest.mark.asyncio  # type: ignore[untyped-decorator]
+async def test_clone_repo_userinfo_with_token_keeps_header_auth() -> None:
+    """Stripped userinfo URLs still authenticate via header env when scm_token is set."""
+    secret_url = "https://deployer:old-credential@github.com/owner/repo.git"
+    with patch("apme_gateway.scan.driver.asyncio.get_running_loop") as mock_loop:
+        result = MagicMock()
+        result.returncode = 0
+        result.stderr = ""
+        mock_loop.return_value.run_in_executor = AsyncMock(return_value=result)
+
+        with (
+            tempfile.TemporaryDirectory() as td,
+            patch("apme_gateway.scan.driver.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = result
+            mock_loop.return_value.run_in_executor = AsyncMock(side_effect=lambda _exec, func: func())
+
+            dest = os.path.join(td, "repo")
+            await clone_repo(secret_url, "main", dest, scm_token="ghp_test")
+
+        call_args = mock_run.call_args[0][0]
+        assert call_args[-2] == "https://github.com/owner/repo.git"
+        assert "old-credential" not in " ".join(call_args)
+        assert "ghp_test" not in " ".join(call_args)
+        env = mock_run.call_args.kwargs["env"]
+        assert _decode_auth_env(env) == "x-access-token:ghp_test"
+
+
+@pytest.mark.asyncio  # type: ignore[untyped-decorator]
+async def test_fetch_remote_head_strips_embedded_userinfo(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """ls-remote receives the stripped URL; header auth still sent when scm_token is set.
+
+    Args:
+        caplog: Pytest log capture fixture.
+    """
+    fake_sha = "f" * 40
+    _REMOTE_HEAD_CACHE.clear()
+    _REMOTE_HEAD_NEG_CACHE.clear()
+    secret_url = "https://deployer:s3cret-token@github.com/owner/repo.git"
+    with (
+        caplog.at_level("WARNING", logger="apme_gateway.scan.driver"),
+        patch("apme_gateway.scan.driver.asyncio.get_running_loop") as mock_loop,
+        patch("apme_gateway.scan.driver.subprocess.run") as mock_run,
+    ):
+        result = MagicMock()
+        result.returncode = 0
+        result.stdout = f"{fake_sha}\trefs/heads/main\n"
+        mock_run.return_value = result
+        mock_loop.return_value.run_in_executor = AsyncMock(side_effect=lambda _exec, func: func())
+
+        sha = await fetch_remote_head(secret_url, "main", scm_token="ghp_test")
+
+    assert sha == fake_sha
+    call_args = mock_run.call_args[0][0]
+    assert call_args[3] == "https://github.com/owner/repo.git"
+    assert "s3cret-token" not in " ".join(call_args)
+    assert "ghp_test" not in " ".join(call_args)
+    env = mock_run.call_args.kwargs["env"]
+    assert _decode_auth_env(env) == "x-access-token:ghp_test"
+    assert "github.com" in caplog.text
+    assert "s3cret-token" not in caplog.text
+
+
 class TestRedactTightenedPatterns:
     """Tightened Basic/Bearer patterns avoid prose while covering headers."""
 

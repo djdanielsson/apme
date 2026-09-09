@@ -54,7 +54,10 @@ def run_remediate(args: argparse.Namespace) -> None:
     jittered backoff; every attempt builds and tears down its own channel,
     producer thread, and command queue so no state leaks across retries.
     A background upload failure fails the run even when a server result
-    arrived first (a partial upload must never silently pass). The retry
+    arrived first (a partial upload must never silently pass). Patches are
+    written to disk only after the producer is verified clean, so a failed
+    upload never mutates the tree. A transport drop after a result arrived
+    keeps the buffered result instead of discarding success. The retry
     log carries the failed attempt's scan_id and attempt number so the
     two server-side scan rows for one invocation stay attributable.
 
@@ -138,7 +141,10 @@ def run_remediate(args: argparse.Namespace) -> None:
 
         Producer failures are recorded for the main thread — never
         ``sys.exit`` here, which would only kill this daemon thread and
-        hang the consumer on an empty queue. The ``None`` sentinel is only
+        hang the consumer on an empty queue. Abrupt thread death
+        (``SystemExit``/``KeyboardInterrupt``/``CancelledError``) still
+        enqueues the ``None`` sentinel for liveness, then re-raises to
+        preserve semantics. The ``None`` sentinel is only
         enqueued on the error path so the consumer terminates; on success
         the stream stays open for proposals/approvals and the outer
         attempt-teardown ``finally`` delivers the single terminating
@@ -153,6 +159,12 @@ def run_remediate(args: argparse.Namespace) -> None:
                 chunk's scan_id, recorded before enqueue so the main
                 thread can attribute a retry to the failed attempt's
                 server-side scan row.
+
+        Raises:
+            BaseException: Re-raised after enqueueing the ``None`` sentinel
+                when the producer dies abruptly (``SystemExit``,
+                ``KeyboardInterrupt``, ``CancelledError``) so the consumer
+                never blocks forever.
         """
         try:
             first = True
@@ -175,6 +187,12 @@ def run_remediate(args: argparse.Namespace) -> None:
         except Exception as exc:  # noqa: BLE001 — recorded, reported by main thread
             producer_errors.append(exc)
             cmd_queue.put(None)
+        except BaseException:
+            # SystemExit/KeyboardInterrupt/CancelledError would otherwise
+            # kill this thread with no sentinel and hang _drain_commands
+            # forever — enqueue it for liveness, then re-raise.
+            cmd_queue.put(None)
+            raise
 
     def _drain_commands(cmd_queue: queue.Queue[SessionCommand | None]) -> Iterator[SessionCommand]:
         """Yield commands from the queue (uploads + interactive commands).
@@ -281,7 +299,9 @@ def run_remediate(args: argparse.Namespace) -> None:
                     result_violations = [violation_proto_to_dict(v) for v in result.remaining_violations]
                     result_patches = list(result.patches)
                     got_result = True
-                    result_files_written = _write_patches(target, result.patches)
+                    # Patches stay buffered: _write_patches runs only after
+                    # the producer is verified clean (below), so a partial
+                    # upload never mutates disk.
                     cmd_queue.put(SessionCommand(close=CloseRequest()))
 
                 elif oneof == "expiring":
@@ -304,12 +324,22 @@ def run_remediate(args: argparse.Namespace) -> None:
             # retrying would re-run the whole scan and double load.
             transient = e.code() == grpc.StatusCode.UNAVAILABLE
             # Uploads re-stream deterministically from disk and patches are
-            # only written once a result arrives, so retrying before any
-            # result is safe. A retry starts a fresh server session with a
-            # fresh scan_id; the attempt-teardown channel.close() cancels
-            # the first session's stream, and interactive approvals are
-            # re-prompted on the new session.
-            if transient and not got_result and attempt == 0:
+            # only written once a result arrives and the producer is proven
+            # clean, so retrying before any result is safe. A retry starts
+            # a fresh server session with a fresh scan_id; the
+            # attempt-teardown channel.close() cancels the first session's
+            # stream, and interactive approvals are re-prompted on the new
+            # session.
+            if got_result:
+                # Transport drop after a result arrived: keep the buffered
+                # result and fall through to the producer check + deferred
+                # write below instead of discarding success.
+                sys.stderr.write(
+                    dim(
+                        f"  Connection {e.code().name} after result; using received result\n",
+                    )
+                )
+            elif transient and attempt == 0:
                 prior_scan = attempt_scan_ids[0] if attempt_scan_ids else "unknown"
                 sys.stderr.write(
                     dim(
@@ -331,6 +361,9 @@ def run_remediate(args: argparse.Namespace) -> None:
             sys.stderr.write(f"{producer_errors[0]}\n")
             sys.exit(EXIT_ERROR)
         if got_result:
+            # Deferred until the producer is proven clean above: a partial
+            # or synthetic result must never mutate disk on a failed run.
+            result_files_written = _write_patches(target, result_patches)
             break
         if retry:
             time.sleep(1.0 + random.uniform(0, 1.0))

@@ -778,6 +778,132 @@ describe("useSessionStream hardening", () => {
     return { hook, ws };
   }
 
+  it("clamps negative proposal numerics to 0 (hostile server)", async () => {
+    const { result, unmount } = await startSessionWithSocket();
+    try {
+      sendMsg(lastSocket(), {
+        type: "session_created",
+        session_id: "sess-1",
+        scan_id: "scan-1",
+      });
+      sendMsg(lastSocket(), validTier1());
+      sendMsg(lastSocket(), {
+        type: "proposals",
+        proposals: [
+          {
+            ...proposalBase(),
+            line_start: -5,
+            line_end: -1,
+            tier: -2,
+            confidence: -0.5,
+          },
+          {
+            ...proposalBase(),
+            id: "p2",
+            line_start: 3,
+            line_end: 7,
+            tier: 1,
+            confidence: 0.9,
+          },
+        ],
+      });
+
+      expect(result.current.error).toBeNull();
+      expect(result.current.status).toBe("awaiting_approval");
+      expect(result.current.proposals).toHaveLength(2);
+      expect(result.current.proposals[0]?.line_start).toBe(0);
+      expect(result.current.proposals[0]?.line_end).toBe(0);
+      expect(result.current.proposals[0]?.tier).toBe(0);
+      expect(result.current.proposals[0]?.confidence).toBe(0);
+      // Non-negative values pass through untouched.
+      expect(result.current.proposals[1]?.line_start).toBe(3);
+      expect(result.current.proposals[1]?.line_end).toBe(7);
+      expect(result.current.proposals[1]?.tier).toBe(1);
+      expect(result.current.proposals[1]?.confidence).toBe(0.9);
+    } finally {
+      unmount();
+    }
+  });
+
+  it("valid progress clears a transient JSON-parse error and untaints", async () => {
+    const { result, unmount } = await startSessionWithSocket();
+    try {
+      const ws = lastSocket();
+      sendMsg(ws, {
+        type: "session_created",
+        session_id: "sess-1",
+        scan_id: "scan-1",
+      });
+      sendMsg(ws, validTier1());
+
+      act(() => {
+        ws.onmessage?.({ data: "{not-json" });
+      });
+      expect(result.current.error).toBe(
+        "Received malformed message from server",
+      );
+
+      // Progress is the most frequent frame: it proves transport recovery
+      // and must drop the parse-failure taint even though progress has no
+      // typed validator.
+      sendMsg(ws, { type: "progress", phase: "scan", message: "working" });
+      expect(result.current.error).toBeNull();
+      expect(result.current.progress).toHaveLength(1);
+
+      // Taint was dropped: a repeat parse failure surfaces again instead of
+      // being ignored forever.
+      act(() => {
+        ws.onmessage?.({ data: "{not-json" });
+      });
+      expect(result.current.error).toBe(
+        "Received malformed message from server",
+      );
+    } finally {
+      unmount();
+    }
+  });
+
+  it("valid progress does not clear a typed proposals error", async () => {
+    const { result, unmount } = await startSessionWithSocket();
+    try {
+      const ws = lastSocket();
+      sendMsg(ws, {
+        type: "session_created",
+        session_id: "sess-1",
+        scan_id: "scan-1",
+      });
+      sendMsg(ws, validTier1());
+      sendMsg(ws, {
+        type: "proposals",
+        proposals: [{ ...proposalBase(), line_start: 1, line_end: 2 }],
+      });
+      expect(result.current.status).toBe("awaiting_approval");
+
+      sendMsg(ws, { type: "proposals", proposals: [{ id: 123 }] });
+      expect(result.current.error).toBe(
+        "Received malformed proposals from server",
+      );
+      expect(result.current.proposals).toHaveLength(0);
+
+      // Progress clears only the parse-failure taint: the typed proposals
+      // error and taint must survive.
+      sendMsg(ws, { type: "progress", phase: "scan", message: "working" });
+      expect(result.current.error).toBe(
+        "Received malformed proposals from server",
+      );
+      expect(result.current.proposals).toHaveLength(0);
+
+      // Taint survived: a repeat malformed proposals frame is still ignored.
+      sendMsg(ws, { type: "proposals", proposals: [{ id: 456 }] });
+      expect(result.current.error).toBe(
+        "Received malformed proposals from server",
+      );
+      expect(result.current.proposals).toHaveLength(0);
+    } finally {
+      unmount();
+    }
+  });
+
   it("resume socket error before session_created clears the persisted session", async () => {
     seedPersistedSession();
     const { hook, ws } = await resumeToChecking();

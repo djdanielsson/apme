@@ -1760,11 +1760,114 @@ def test_remediate_producer_error_wins_over_result(tmp_path: Path) -> None:
     assert exc.value.code == EXIT_ERROR
 
 
+def test_remediate_producer_error_writes_nothing(tmp_path: Path) -> None:
+    """A producer failure leaves disk untouched even with server patches.
+
+    Patches stay buffered until the producer is verified clean, so a
+    partial upload that still yields a result must not mutate files.
+
+    Args:
+        tmp_path: Temporary directory fixture.
+    """
+    from apme_engine.cli.remediate import run_remediate
+
+    target_file = tmp_path / "site.yml"
+    target_file.write_bytes(b"orig")
+
+    def _flaky_chunks(*a: object, **k: object) -> Iterator[ScanChunk]:
+        """Yield one chunk, then fail like a mid-upload disk error.
+
+        Args:
+            *a: Positional args ignored (mirrors yield_scan_chunks).
+            **k: Keyword args ignored (mirrors yield_scan_chunks).
+
+        Yields:
+            ScanChunk: A single upload chunk before failing.
+
+        Raises:
+            RuntimeError: Simulated mid-upload disk failure.
+        """
+        yield _scan_chunk("scan-flaky")
+        raise RuntimeError("mid-upload boom")
+
+    result = _mk_event("result")
+    result.result.remaining_violations = []
+    result.result.patches = [
+        FilePatch(path="site.yml", original=b"orig", patched=b"new", diff="d", applied_rules=["L001"]),
+    ]
+    channel = MagicMock()
+    stub = MagicMock()
+    stub.FixSession.return_value = [result, _mk_event("closed")]
+    with (
+        patch("apme_engine.cli.remediate.discover_project_root", return_value=tmp_path),
+        patch("apme_engine.cli.remediate.derive_session_id", return_value="s"),
+        patch("apme_engine.cli.remediate.discover_galaxy_servers", return_value=[]),
+        patch("apme_engine.cli.remediate.load_rule_configs_from_project", return_value=[]),
+        patch("apme_engine.cli.remediate.yield_scan_chunks", side_effect=_flaky_chunks),
+        patch("apme_engine.cli.remediate.resolve_engine", return_value=(channel, "addr")),
+        patch("apme_engine.cli.remediate.engine_pb2_grpc.EngineStub", return_value=stub),
+        pytest.raises(SystemExit) as exc,
+    ):
+        run_remediate(_rem_args(str(tmp_path), show_suppressed=True))
+    assert exc.value.code == EXIT_ERROR
+    assert target_file.read_bytes() == b"orig"
+
+
+def test_remediate_post_result_transport_drop_uses_result(tmp_path: Path) -> None:
+    """A transport drop after a result keeps the buffered result.
+
+    The run completes on the success path instead of discarding the
+    received result with an error exit.
+
+    Args:
+        tmp_path: Temporary directory fixture.
+    """
+    from apme_engine.cli.remediate import run_remediate
+
+    result = _mk_event("result")
+    result.result.remaining_violations = []
+    result.result.patches = []
+
+    def _drop_after_result(cmd_iter: Iterable[object], timeout: object = None) -> Iterator[MagicMock]:
+        """Yield a result, then fail like a post-result transport drop.
+
+        Args:
+            cmd_iter: Command iterator from run_remediate.
+            timeout: Stream timeout.
+
+        Yields:
+            MagicMock: The buffered result event before failing.
+
+        Raises:
+            _FakeRpcError: UNAVAILABLE transport drop after the result.
+        """
+        yield result
+        raise _FakeRpcError(grpc.StatusCode.UNAVAILABLE, "drop")
+
+    channel = MagicMock()
+    stub = MagicMock()
+    stub.FixSession.side_effect = _drop_after_result
+    with (
+        patch("apme_engine.cli.remediate.discover_project_root", return_value=tmp_path),
+        patch("apme_engine.cli.remediate.derive_session_id", return_value="s"),
+        patch("apme_engine.cli.remediate.discover_galaxy_servers", return_value=[]),
+        patch("apme_engine.cli.remediate.load_rule_configs_from_project", return_value=[]),
+        patch(
+            "apme_engine.cli.remediate.yield_scan_chunks",
+            side_effect=lambda *a, **k: iter([_scan_chunk()]),
+        ),
+        patch("apme_engine.cli.remediate.resolve_engine", return_value=(channel, "addr")),
+        patch("apme_engine.cli.remediate.engine_pb2_grpc.EngineStub", return_value=stub),
+    ):
+        run_remediate(_rem_args(str(tmp_path), show_suppressed=True))
+
+
 def test_remediate_retry_logs_prior_scan_id_and_attempt(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """Retry log carries the failed attempt's scan_id and attempt number.
 
     Two server-side scan rows result from one CLI invocation; the log
-    must attribute the retry to the prior row.
+    must attribute the retry to the prior row. Each attempt mints a fresh
+    scan_id, so the two attempts must differ.
 
     Args:
         tmp_path: Temporary directory fixture.
@@ -1773,6 +1876,21 @@ def test_remediate_retry_logs_prior_scan_id_and_attempt(tmp_path: Path, capsys: 
     from apme_engine.cli.remediate import run_remediate
 
     calls: list[int] = []
+    minted: list[str] = []
+
+    def _fresh_chunks(*a: object, **k: object) -> Iterator[ScanChunk]:
+        """Mint a fresh scan_id per attempt, mirroring yield_scan_chunks.
+
+        Args:
+            *a: Positional args ignored (mirrors yield_scan_chunks).
+            **k: Keyword args ignored (mirrors yield_scan_chunks).
+
+        Returns:
+            Iterator with a single chunk carrying the fresh scan_id.
+        """
+        sid = f"scan-prior-{len(minted) + 1}"
+        minted.append(sid)
+        return iter([_scan_chunk(sid)])
 
     def _blip(cmd_iter: Iterable[object], timeout: object = None) -> list[MagicMock]:
         """Drain one upload (pinning the attempt scan_id), then fail transiently.
@@ -1812,7 +1930,7 @@ def test_remediate_retry_logs_prior_scan_id_and_attempt(tmp_path: Path, capsys: 
         patch("apme_engine.cli.remediate.load_rule_configs_from_project", return_value=[]),
         patch(
             "apme_engine.cli.remediate.yield_scan_chunks",
-            side_effect=lambda *a, **k: iter([_scan_chunk("scan-prior-9")]),
+            side_effect=_fresh_chunks,
         ),
         patch(
             "apme_engine.cli.remediate.resolve_engine",
@@ -1823,8 +1941,10 @@ def test_remediate_retry_logs_prior_scan_id_and_attempt(tmp_path: Path, capsys: 
         patch("apme_engine.cli.remediate.random.uniform", return_value=0.0),
     ):
         run_remediate(_rem_args(str(tmp_path), show_suppressed=True))
+    assert minted == ["scan-prior-1", "scan-prior-2"]
+    assert minted[0] != minted[1]
     err = capsys.readouterr().err
-    assert "scan-prior-9" in err
+    assert minted[0] in err
     assert "attempt 1" in err
     assert "retrying session once" in err
 

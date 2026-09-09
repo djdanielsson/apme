@@ -414,7 +414,9 @@ export function useSessionStream() {
       // A valid frame proves the stream recovered for its type: drop that
       // type's taint so a later malformed frame surfaces again, and clear
       // the error if it came from this type. Parse-failure ("message") taint
-      // has no typed valid frame, so any valid typed frame clears it.
+      // has no typed valid frame, so any valid frame clears it — including
+      // progress (which has no typed validator and therefore never carries
+      // its own taint; see the progress case below).
       const noteValidFrame = (kind: string) => {
         malformedTaintRef.current.delete(kind);
         malformedTaintRef.current.delete("message");
@@ -486,6 +488,17 @@ export function useSessionStream() {
           }
 
           case "progress":
+            // Progress has no typed validator (fields degrade to ""/2), so
+            // it cannot prove recovery for a typed taint. Clearing via
+            // noteValidFrame("progress") is still safe: it drops only the
+            // "progress" (never-tainted, noop) and "message" parse-failure
+            // taints, and clears the surfaced error only when its source is
+            // "progress" (impossible) or "message". Typed taints/errors
+            // (proposals, tier1_complete, …) survive until their own valid
+            // frame arrives. Without this, a transient JSON-parse error
+            // would pin the error UI even while progress frames prove the
+            // stream recovered (progress is the most frequent frame).
+            noteValidFrame("progress");
             setProgress((prev) => [
               ...prev,
               {
@@ -516,25 +529,38 @@ export function useSessionStream() {
               setProposals(
                 msg.proposals.map((p) => ({
                   ...p,
-                  line_start:
+                  // Mirror backend _to_int clamping (>= 0): a hostile server
+                  // must not inject negative lines/tiers into state.
+                  // Validator still accepts finite negatives; clamp here so
+                  // mixed-version degradation (null → 0) and hardening share
+                  // one normalization path.
+                  line_start: Math.max(
+                    0,
                     typeof p.line_start === "number" &&
-                    Number.isFinite(p.line_start)
+                      Number.isFinite(p.line_start)
                       ? p.line_start
                       : 0,
-                  line_end:
+                  ),
+                  line_end: Math.max(
+                    0,
                     typeof p.line_end === "number" &&
-                    Number.isFinite(p.line_end)
+                      Number.isFinite(p.line_end)
                       ? p.line_end
                       : 0,
-                  tier:
+                  ),
+                  tier: Math.max(
+                    0,
                     typeof p.tier === "number" && Number.isFinite(p.tier)
                       ? p.tier
                       : 0,
-                  confidence:
+                  ),
+                  confidence: Math.max(
+                    0,
                     typeof p.confidence === "number" &&
-                    Number.isFinite(p.confidence)
+                      Number.isFinite(p.confidence)
                       ? p.confidence
                       : 0,
+                  ),
                   before_text:
                     typeof p.before_text === "string" ? p.before_text : "",
                   after_text:
