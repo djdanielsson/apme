@@ -555,12 +555,15 @@ export function useSessionStream() {
                       ? p.tier
                       : 0,
                   ),
-                  confidence: Math.max(
-                    0,
-                    typeof p.confidence === "number" &&
-                      Number.isFinite(p.confidence)
-                      ? p.confidence
-                      : 0,
+                  confidence: Math.min(
+                    1,
+                    Math.max(
+                      0,
+                      typeof p.confidence === "number" &&
+                        Number.isFinite(p.confidence)
+                        ? p.confidence
+                        : 0,
+                    ),
                   ),
                   before_text:
                     typeof p.before_text === "string" ? p.before_text : "",

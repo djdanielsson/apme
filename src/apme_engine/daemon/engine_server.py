@@ -1504,6 +1504,10 @@ class EngineServicer(engine_pb2_grpc.EngineServicer):
                 elif oneof == "close":
                     if session:
                         store.remove(session.session_id)
+                    if upload_created_session_id and (
+                        session is None or upload_created_session_id != session.session_id
+                    ):
+                        store.remove(upload_created_session_id)
                     upload_created_session_id = None
                     yield SessionEvent(closed=SessionClosed())
                     return

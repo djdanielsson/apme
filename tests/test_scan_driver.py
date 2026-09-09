@@ -660,6 +660,10 @@ async def test_fetch_remote_head_separates_distinct_tokens() -> None:
         assert await fetch_remote_head("https://github.com/o/r.git", "main", scm_token="tok-two") == "b" * 40
 
         assert mock_run.call_count == 2
+
+
+@pytest.mark.asyncio  # type: ignore[untyped-decorator]
+async def test_clone_repo_timeout_expired_surfaces_runtime_error() -> None:
     """clone_repo TimeoutExpired surfaces as RuntimeError, never raw."""
     with patch("apme_gateway.scan.driver.asyncio.get_running_loop") as mock_loop:
         mock_loop.return_value.run_in_executor = AsyncMock(
