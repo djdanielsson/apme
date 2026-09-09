@@ -33,12 +33,17 @@ def _decode_auth_env(env: dict[str, str]) -> str:
     """Decode the ``http.extraHeader`` basic credentials from a git env mapping.
 
     Args:
-        env: Git subprocess environment containing ``GIT_CONFIG_VALUE_0``.
+        env: Git subprocess environment containing ``GIT_CONFIG_*`` entries.
 
     Returns:
         Decoded ``username:password`` credential string.
     """
-    value = env["GIT_CONFIG_VALUE_0"]
+    count = int(env["GIT_CONFIG_COUNT"])
+    value = next(
+        env[f"GIT_CONFIG_VALUE_{i}"]
+        for i in range(count - 1, -1, -1)
+        if env.get(f"GIT_CONFIG_KEY_{i}", "").endswith(".extraHeader")
+    )
     scheme, _, encoded = value.partition("Basic ")
     assert scheme.strip().rstrip(":").upper() == "AUTHORIZATION"
     return base64.b64decode(encoded.strip()).decode("utf-8")

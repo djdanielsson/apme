@@ -698,14 +698,14 @@ class TestGalaxyClientTruncation:
                     "_list_versions_from",
                     AsyncMock(return_value=None),
                 ),
-                pytest.raises(RuntimeError, match="truncated") as excinfo,
+                pytest.raises(RuntimeError, match=f"truncated at {MAX_VERSION_PAGES} pages") as excinfo,
             ):
                 asyncio.run(client.list_versions("ansible", "posix"))
         finally:
             asyncio.run(client.close())
 
         assert MAX_VERSION_PAGES > 0
-        assert "truncated" in str(excinfo.value)
+        assert f"truncated at {MAX_VERSION_PAGES} pages" in str(excinfo.value)
         # Pure truncation has no chained per-server failure to report.
         assert excinfo.value.__cause__ is None
 
