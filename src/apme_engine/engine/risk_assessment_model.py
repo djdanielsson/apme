@@ -1103,6 +1103,9 @@ class RAMClient:
                 if matched:
                     parts = findings_json.split("/")
                     offspring_objects = []
+                    # Unknown executable types yield no offspring (a Task with
+                    # a missing/unrecognized type must not crash the search).
+                    _tmp_offspring_objects: list[YAMLDict] = []
                     if t.executable_type == ExecutableType.MODULE_TYPE:
                         _tmp_offspring_objects = self.search_module(t.executable, used_in=t.defined_in)
                     elif t.executable_type == ExecutableType.ROLE_TYPE:
