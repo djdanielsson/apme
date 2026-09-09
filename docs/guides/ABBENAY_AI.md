@@ -27,8 +27,15 @@ The Gateway reverse-proxies an
 | `GET /api/v1/ai/providers` | `/api/providers` |
 | `POST /api/v1/ai/provider/{id}/configure` | `/api/provider/{id}/configure` |
 | `DELETE /api/v1/ai/provider/{id}` | `/api/provider/{id}` |
-| `GET/POST /api/v1/ai/secrets` | `/api/secrets` |
-| `DELETE /api/v1/ai/secrets/{key}` | `/api/secrets/{key}` |
+
+The Abbenay secret store is **not** proxied: `GET/POST
+/api/v1/ai/secrets` and `DELETE /api/v1/ai/secrets/{key}` are denied with
+404 at the Gateway allowlist. The Gateway has no caller authentication yet
+(#1), so unauthenticated secret-store reads *and writes* are rejected —
+writes were denied alongside reads because an unauthenticated client able
+to overwrite or delete secrets is the more severe exposure. Manage secrets
+directly against Abbenay (same host/port as `APME_ABBENAY_HTTP_URL`)
+until Gateway caller auth lands.
 
 `GET /api/v1/ai/models` remains Engine → Abbenay gRPC (`ListAIModels`). Chat
 is **not** proxied. Set `APME_ABBENAY_HTTP_URL` (default
@@ -41,36 +48,42 @@ Gateway proxy keeps TLS certificate validation enabled.
 ### Memory secret store (Abbenay >= v2026.8.5)
 
 Abbenay supports a process-lifetime in-memory secret store for containerized
-environments where a system keychain is unavailable. Secrets (API keys) can be
-injected at runtime via the Gateway proxy instead of requiring env vars or Helm
-Secrets at deploy time.
+environments where a system keychain is unavailable. Secrets (API keys) are
+injected at runtime directly against Abbenay — not via the Gateway proxy,
+which denies the whole secret-store surface (see above).
 
-**Inject a secret at runtime:**
+**Inject a secret at runtime (Abbenay directly):**
+
+> **Token hygiene:** the examples below pass the Abbenay Bearer token and
+> raw API keys on the command line. Command lines are saved in shell
+> history (`~/.bash_history`, `~/.zsh_history`) and visible in `ps`
+> output — prefer `read -s ABBEBAY_API_TOKEN` / `read -s API_KEY` or an
+> env-var file, redact pasted output before sharing, and clear history
+> entries that contain secrets. `:8787` must remain loopback-bound
+> (`127.0.0.1`); never expose Abbenay HTTP beyond localhost without its
+> Bearer auth in front.
 
 ```bash
-curl -X POST http://gateway:8080/api/v1/ai/secrets \
+curl -X POST http://127.0.0.1:8787/api/secrets \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $ABBENAY_API_TOKEN" \
   -d '{"key": "OPENROUTER_API_KEY", "value": "sk-or-...", "secretStore": "memory"}'
 ```
 
-**List stored secret names:**
+**Secret listing is not proxied:**
 
-```bash
-curl http://gateway:8080/api/v1/ai/secrets
-```
-
-The response lists engine API-key slots (name, engine, `hasValue`, and
-`secretStore` when a registry backend holds the value). It does **not**
-return secret values. Helm env-injected keys typically show
-`hasValue: false` here because env is not a registry backend. Custom keys
-that are not an engine's default env var name are not listed.
+`GET /api/v1/ai/secrets` is denied with 404 at the Gateway allowlist
+(no unauthenticated secret-store reads). Inject via Abbenay directly as
+above; inspect stored secret names via Abbenay directly when listing is
+required.
 
 **Remove a secret:** Abbenay defaults omitted `secretStore` to **keychain**.
 Always pass the store you used when injecting, or the delete will no-op
 against the wrong backend (and still return success):
 
 ```bash
-curl -X DELETE 'http://gateway:8080/api/v1/ai/secrets/OPENROUTER_API_KEY?secretStore=memory'
+curl -X DELETE 'http://127.0.0.1:8787/api/secrets/OPENROUTER_API_KEY?secretStore=memory' \
+  -H "Authorization: Bearer $ABBENAY_API_TOKEN"
 ```
 
 After injecting a secret, configure a provider to use it via
@@ -98,11 +111,12 @@ Gateway reverse-proxies the JSON body unchanged and does **not** store keys
 | **Podman (Linux)** | RW cache `${XDG_CACHE_HOME:-$HOME/.cache}/apme/abbenay/config/` | `tox -e down` / container restart. `tox -e wipe` deletes `secrets.json`. |
 | **Podman (macOS)** | Same hostPath; virtiofs | File store unsupported until [#562](https://github.com/ansible/apme/issues/562). Use env or memory. |
 
-**Inject a secret into the file store:**
+**Inject a secret into the file store (Abbenay directly):**
 
 ```bash
-curl -X POST http://gateway:8080/api/v1/ai/secrets \
+curl -X POST http://127.0.0.1:8787/api/secrets \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $ABBENAY_API_TOKEN" \
   -d '{"key": "OPENROUTER_API_KEY", "value": "sk-or-...", "secretStore": "file"}'
 ```
 
@@ -112,22 +126,25 @@ keys (`secret_store: env` in the seed ConfigMap) are **separate** backends:
 injecting `secretStore: file` does not override an env-backed provider until
 you reconfigure `secretStore`. Deploy-time Helm Secrets / env are unchanged.
 
-**Remove a file-store secret:**
+**Remove a file-store secret (Abbenay directly):**
 
 ```bash
-curl -X DELETE 'http://gateway:8080/api/v1/ai/secrets/OPENROUTER_API_KEY?secretStore=file'
+curl -X DELETE 'http://127.0.0.1:8787/api/secrets/OPENROUTER_API_KEY?secretStore=file' \
+  -H "Authorization: Bearer $ABBENAY_API_TOKEN"
 ```
 
 If `secrets.json` exists but is not valid JSON, Abbenay treats reads as empty
 and **refuses writes** (it will not overwrite a corrupt file). Fix or remove
 the file on the config volume, then re-inject.
 
-> **Security note:** `GET /api/v1/ai/secrets` returns engine key **names**
-> and store metadata (not values) to any client that can reach Gateway
-> `:8080`. The Gateway REST API relies on network-isolation auth (ADR-048)
-> — operators must ensure an outer auth layer (Ingress, Route, reverse
-> proxy) before exposing `:8080` outside the cluster. Treat the Abbenay
-> config volume as secret material (`secrets.json`).
+> **Security note:** the whole Gateway secret-store surface (`GET/POST
+> /api/v1/ai/secrets`, `DELETE /api/v1/ai/secrets/{key}`) is denied with
+> 404 — manage secrets directly against Abbenay with its Bearer token
+> until Gateway caller auth (#1) lands. The Gateway REST API otherwise
+> relies on network-isolation auth (ADR-048) — operators must
+> ensure an outer auth layer (Ingress, Route, reverse proxy) before
+> exposing `:8080` outside the cluster. Treat the Abbenay config volume
+> as secret material (`secrets.json`).
 
 ### Writable config volume (#498)
 
