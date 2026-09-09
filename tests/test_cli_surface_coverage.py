@@ -2125,7 +2125,7 @@ def test_render_tier1_full(capsys: pytest.CaptureFixture[str]) -> None:
 
 
 def test_render_tier1_empty(capsys: pytest.CaptureFixture[str]) -> None:
-    """Default summary writes a zero remediation line without extras.
+    """Unset report field produces no remediation line.
 
     Args:
         capsys: Pytest capture fixture.
@@ -2134,7 +2134,7 @@ def test_render_tier1_empty(capsys: pytest.CaptureFixture[str]) -> None:
 
     _render_tier1(Tier1Summary(idempotency_ok=True))
     err = capsys.readouterr().err
-    assert "Remediation:" in err
+    assert "Remediation:" not in err
     assert "Formatted" not in err
     assert "idempotent" not in err
     assert "Applied" not in err
