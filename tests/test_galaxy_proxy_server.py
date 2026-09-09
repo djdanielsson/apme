@@ -1215,6 +1215,54 @@ class TestGalaxyNonDictPayload:
 
         assert result is None
 
+    def test_get_detail_from_null_metadata_uses_empty_defaults(self) -> None:
+        """A null metadata field is treated as empty object fields."""
+        import asyncio
+        from typing import cast
+
+        import httpx
+
+        from galaxy_proxy.galaxy_client import GalaxyClient
+
+        mock_resp = unittest.mock.MagicMock()
+        mock_resp.raise_for_status.return_value = None
+        mock_resp.json.return_value = {
+            "download_url": "https://cdn.example.com/coll.tar.gz",
+            "metadata": None,
+        }
+        fake_client = unittest.mock.MagicMock()
+        fake_client.get = AsyncMock(return_value=mock_resp)
+
+        detail = asyncio.run(
+            GalaxyClient._get_detail_from(cast(httpx.AsyncClient, fake_client), "ansible", "posix", "1.0.0"),
+        )
+
+        assert detail.dependencies == {}
+        assert detail.description == ""
+
+    def test_get_detail_from_non_object_metadata_raises_value_error(self) -> None:
+        """Non-object metadata raises ValueError, which fails over."""
+        import asyncio
+        from typing import cast
+
+        import httpx
+
+        from galaxy_proxy.galaxy_client import GalaxyClient
+
+        mock_resp = unittest.mock.MagicMock()
+        mock_resp.raise_for_status.return_value = None
+        mock_resp.json.return_value = {
+            "download_url": "https://cdn.example.com/coll.tar.gz",
+            "metadata": ["bad"],
+        }
+        fake_client = unittest.mock.MagicMock()
+        fake_client.get = AsyncMock(return_value=mock_resp)
+
+        with pytest.raises(ValueError, match="non-object metadata"):
+            asyncio.run(
+                GalaxyClient._get_detail_from(cast(httpx.AsyncClient, fake_client), "ansible", "posix", "1.0.0"),
+            )
+
     @pytest.mark.parametrize("payload", [[{"version": "1.0.0"}], "ok"])  # type: ignore[untyped-decorator]
     def test_get_detail_from_non_dict_raises_value_error(self, payload: object) -> None:
         """A non-dict detail body raises ValueError, which fails over.

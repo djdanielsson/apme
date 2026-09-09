@@ -847,6 +847,10 @@ async def test_fetch_remote_head_cache_normalizes_repo_url() -> None:
         sha2 = await fetch_remote_head("https://GitHub.com/org/repo", "main")
         assert sha2 == fake_sha
         assert mock_run.call_count == 1
+
+
+@pytest.mark.asyncio  # type: ignore[untyped-decorator]
+async def test_clone_repo_redacts_tokens_straddling_stderr_truncation() -> None:
     """Tokens straddling the 500-char cut are masked (redact before truncate)."""
     secret = "ghp_straddlingsecret123456"
     filler = "E" * 470

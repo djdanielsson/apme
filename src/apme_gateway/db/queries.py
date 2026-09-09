@@ -210,10 +210,11 @@ async def find_project_by_repo_url(
     conditions = [Project.normalized_repo_url == target]
     if branch is not None:
         conditions.append(Project.branch == branch)
-    stmt = select(Project).where(*conditions).order_by(Project.id).limit(1)
+    stmt = select(Project).where(*conditions).order_by(Project.id)
     result = await db.execute(stmt)
-    found = result.scalars().first()
-    if found is not None and normalize_repo_url(found.repo_url) == target:
+    for found in result.scalars():
+        if normalize_repo_url(found.repo_url) != target:
+            continue
         if found.normalized_repo_url != target:
             await _heal_project_normalized_url(found.id, target)
         return cast(Project, found)

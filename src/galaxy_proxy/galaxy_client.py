@@ -442,7 +442,14 @@ class GalaxyClient:
                 f"returned non-dict payload ({type(data).__name__})"
             )
             raise ValueError(msg)
-        meta = data.get("metadata", {})
+        raw_meta = data.get("metadata")
+        if raw_meta is not None and not isinstance(raw_meta, dict):
+            msg = (
+                f"Galaxy version detail for {namespace}.{name}:{version} "
+                f"returned non-object metadata ({type(raw_meta).__name__})"
+            )
+            raise ValueError(msg)
+        meta = raw_meta or {}
         return CollectionVersion(
             namespace=namespace,
             name=name,

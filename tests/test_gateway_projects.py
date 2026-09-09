@@ -898,6 +898,38 @@ async def test_update_project_rejects_blank_repo_url() -> None:
             await q.update_project(db, "proj-blank", repo_url="   ")
 
 
+async def test_find_project_by_repo_url_skips_stale_indexed_duplicate() -> None:
+    """Indexed lookup skips stale rows and returns the first raw-URL match."""
+    target = normalize_repo_url("https://github.com/org/wanted.git")
+    async with get_session() as db:
+        db.add(
+            Project(
+                id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                name="Stale Indexed",
+                repo_url="https://github.com/org/other.git",
+                normalized_repo_url=target,
+                branch="main",
+                created_at="2026-03-01T00:00:00Z",
+                health_score=100,
+            )
+        )
+        db.add(
+            Project(
+                id="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                name="Valid Indexed",
+                repo_url="https://github.com/org/wanted.git",
+                normalized_repo_url=target,
+                branch="main",
+                created_at="2026-03-01T00:00:00Z",
+                health_score=100,
+            )
+        )
+        await db.commit()
+        found = await q.find_project_by_repo_url(db, "https://github.com/org/wanted.git")
+        assert found is not None
+        assert found.id == "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+
+
 async def test_find_project_by_repo_url_deterministic_order() -> None:
     """Duplicate normalized URLs resolve to the smallest id deterministically."""
     async with get_session() as db:
