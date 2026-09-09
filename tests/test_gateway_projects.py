@@ -381,6 +381,24 @@ async def test_update_project_no_fields(client: AsyncClient) -> None:
     assert resp.status_code == 400
 
 
+async def test_update_project_partial_without_repo_url(client: AsyncClient) -> None:
+    """PATCH without repo_url strips unset fields instead of 500ing.
+
+    The router builds ``updates`` only from explicitly set fields, so a
+    partial update that omits ``repo_url`` must never reach
+    ``q.update_project`` with ``repo_url=None`` (which raises ValueError).
+
+    Args:
+        client: Async HTTPX test client.
+    """
+    await _seed_project()
+    resp = await client.patch("/api/v1/projects/proj-1", json={"branch": "main"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["branch"] == "main"
+    assert body["repo_url"] == "https://github.com/test/repo.git"
+
+
 async def test_update_project_not_found(client: AsyncClient) -> None:
     """PATCH on missing project returns 404.
 

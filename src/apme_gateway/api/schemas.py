@@ -125,7 +125,7 @@ class ProposalDetail(BaseModel):  # type: ignore[misc]
         file: File the proposal targets.
         tier: Proposal tier (1 deterministic, 2+ AI).
         confidence: AI confidence score.
-        status: approved, rejected, declined, or pending.
+        status: proposed, approved, rejected, declined, or pending.
         path: Node identity path (optional additive).
         node_type: ContentGraph NodeType value (task, block, play, …).
         source: deterministic, ai, ai-candidate, or outcome (optional additive).
@@ -154,8 +154,8 @@ class ProposalDetail(BaseModel):  # type: ignore[misc]
     gate: str = ""
     rule_ids: list[str] = Field(default_factory=list)
     violation_ids: list[int] = Field(default_factory=list)
-    line_start: int = 0
-    line_end: int = 0
+    line_start: int = Field(default=0, ge=0)
+    line_end: int = Field(default=0, ge=0)
     diff_hunk: str = ""
     explanation: str = ""
     suggestion: str = ""

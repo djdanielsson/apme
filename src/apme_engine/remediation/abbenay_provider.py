@@ -20,7 +20,6 @@ from pathlib import Path
 
 import grpc
 import grpc.aio
-import httpx
 import yaml
 
 from apme_engine.fingerprint import canonicalize_rule_id
@@ -43,15 +42,21 @@ _CHAT_RETRY_JITTER_S = 1.0
 _CHAT_ATTEMPT_TIMEOUT_S = 300.0
 
 #: gRPC codes that may heal on reconnect and are safe to retry once.
-#: Permanent codes (UNAUTHENTICATED, PERMISSION_DENIED, NOT_FOUND,
-#: INVALID_ARGUMENT, and all other non-transient codes) fail fast
-#: without reconnect.
+#: INTERNAL covers the most common blip (an HTTP/2 RST_STREAM surfacing
+#: as INTERNAL). DEADLINE_EXCEEDED stays retryable because each chat
+#: attempt carries its own client-side 300s bound
+#: (``_CHAT_ATTEMPT_TIMEOUT_S``): one slow call deserves one retry, unlike
+#: whole-scan retries where DEADLINE_EXCEEDED means the server budget
+#: expired and retrying would double load. RESOURCE_EXHAUSTED (quota)
+#: must fail fast — a retry cannot free quota. All other non-transient
+#: codes (UNAUTHENTICATED, PERMISSION_DENIED, NOT_FOUND,
+#: INVALID_ARGUMENT, ...) fail fast without reconnect.
 _CHAT_TRANSIENT_CODES: frozenset[grpc.StatusCode] = frozenset(
     {
         grpc.StatusCode.UNAVAILABLE,
-        grpc.StatusCode.DEADLINE_EXCEEDED,
-        grpc.StatusCode.RESOURCE_EXHAUSTED,
+        grpc.StatusCode.INTERNAL,
         grpc.StatusCode.UNKNOWN,
+        grpc.StatusCode.DEADLINE_EXCEEDED,
     }
 )
 
@@ -797,19 +802,16 @@ class AbbenayProvider:
                 (a slow stream, not a disconnect — never retried).
             OSError: If the reconnect retry also fails with a transport
                 error (covers builtin ``ConnectionError``).
-            httpx.ConnectError: If the retry attempt fails to connect.
-            httpx.TimeoutException: If the retry attempt transport times out
-                (distinct from the attempt bound above).
             grpc.aio.AioRpcError: If the retry attempt RPC fails with a
                 transient code, or immediately on the first attempt with a
-                permanent code (UNAUTHENTICATED, PERMISSION_DENIED,
-                NOT_FOUND, INVALID_ARGUMENT, and all other non-transient
-                codes fail fast without reconnect).
+                permanent code (RESOURCE_EXHAUSTED, UNAUTHENTICATED,
+                PERMISSION_DENIED, NOT_FOUND, INVALID_ARGUMENT, and all
+                other non-transient codes fail fast without reconnect).
             AssertionError: If the retry loop exhausts without returning
                 (unreachable defense-in-depth).
             Exception: If the chat call fails for permanent
-                (non-connection) errors — auth, not-found, validation —
-                which fail fast without retry.
+                (non-connection) errors — auth, quota, not-found,
+                validation — which fail fast without retry.
         """
         for attempt in range(2):
             if attempt > 0:
@@ -840,7 +842,13 @@ class AbbenayProvider:
                 # chat anyway.
                 with contextlib.suppress(Exception):
                     await self.reconnect()
-            except (OSError, httpx.ConnectError, httpx.TimeoutException):
+            # This path is purely gRPC: _consume_chat streams
+            # AbbenayClient.chat (abbenay_grpc, unix-socket or TCP) and
+            # reconnect rebuilds that same client — no httpx client exists
+            # here (the only HTTP/httpx Abbenay usage is the Gateway's
+            # admin proxy, a different service and path). Socket-level
+            # dial failures surface as OSError and may heal on reconnect.
+            except OSError:
                 if attempt > 0:
                     raise
                 logger.debug("Chat connection failed, reconnecting to Abbenay and retrying")

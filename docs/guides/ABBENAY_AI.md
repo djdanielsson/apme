@@ -54,6 +54,15 @@ which denies the whole secret-store surface (see above).
 
 **Inject a secret at runtime (Abbenay directly):**
 
+> **Token hygiene:** the examples below pass the Abbenay Bearer token and
+> raw API keys on the command line. Command lines are saved in shell
+> history (`~/.bash_history`, `~/.zsh_history`) and visible in `ps`
+> output — prefer `read -s ABBEBAY_API_TOKEN` / `read -s API_KEY` or an
+> env-var file, redact pasted output before sharing, and clear history
+> entries that contain secrets. `:8787` must remain loopback-bound
+> (`127.0.0.1`); never expose Abbenay HTTP beyond localhost without its
+> Bearer auth in front.
+
 ```bash
 curl -X POST http://127.0.0.1:8787/api/secrets \
   -H "Content-Type: application/json" \

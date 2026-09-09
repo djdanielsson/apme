@@ -2101,3 +2101,61 @@ class TestFixSessionRPC:
         with pytest.raises(_AbortSignal):
             async for _event in servicer.FixSession(stream, ctx):  # type: ignore[arg-type]
                 pass
+
+    async def test_client_cancel_removes_session(self) -> None:
+        """Client cancellation does not leak the session until TTL.
+
+        A CancelledError from the request stream bypasses the explicit
+        close path; the FixSession finally must still remove the session
+        so repeated client retries cannot exhaust _MAX_SESSIONS.
+        """
+        from apme_engine.daemon.engine_server import EngineServicer
+
+        servicer = EngineServicer()
+        store = servicer._get_session_store()
+        before = store.count
+
+        class _CancellingStream:
+            """Yield one upload, then raise CancelledError like a dead client."""
+
+            def __init__(self) -> None:
+                """Initialize with the first command not yet delivered."""
+                self._sent_first = False
+
+            def __aiter__(self) -> _CancellingStream:
+                """Return self as async iterator.
+
+                Returns:
+                    Self.
+                """
+                return self
+
+            async def __anext__(self) -> SessionCommand:
+                """Deliver the upload once, then simulate client cancel.
+
+                Returns:
+                    The initial upload command.
+
+                Raises:
+                    asyncio.CancelledError: On every call after the first.
+                """
+                if not self._sent_first:
+                    self._sent_first = True
+                    return SessionCommand(
+                        upload=ScanChunk(scan_id="test-cancel", last=False),
+                    )
+                raise asyncio.CancelledError
+
+        ctx = FakeGrpcContext()
+        with (
+            patch.object(
+                EngineServicer,
+                "_session_process",
+                _mock_session_process_complete,
+            ),
+            pytest.raises(asyncio.CancelledError),
+        ):
+            async for _event in servicer.FixSession(_CancellingStream(), ctx):  # type: ignore[arg-type]
+                pass
+
+        assert store.count == before

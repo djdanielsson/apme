@@ -279,16 +279,18 @@ async def test_post_secrets_not_proxied(app_client: AsyncClient, secret_store: s
     client.request.assert_not_awaited()
 
 
+@pytest.mark.parametrize("query", ["", "?secretStore=memory", "?secretStore=file"])  # type: ignore[untyped-decorator]
 @pytest.mark.asyncio  # type: ignore[untyped-decorator]
-async def test_delete_secret_by_key_not_proxied(app_client: AsyncClient) -> None:
-    """DELETE /api/v1/ai/secrets/{key} is denied (no unauthenticated deletes).
+async def test_delete_secret_by_key_not_proxied(app_client: AsyncClient, query: str) -> None:
+    """DELETE /api/v1/ai/secrets/{key} is denied for all query shapes.
 
     Args:
         app_client: Async HTTP test client.
+        query: Query string suffix (``""``, ``"?secretStore=memory"``, or ``"?secretStore=file"``).
     """
     client = _mock_upstream(content=b'{"deleted":true}')
     with patch("apme_gateway.api.abbenay_proxy.httpx.AsyncClient", return_value=client):
-        resp = await app_client.delete("/api/v1/ai/secrets/OPENROUTER_API_KEY?secretStore=memory")
+        resp = await app_client.delete(f"/api/v1/ai/secrets/OPENROUTER_API_KEY{query}")
 
     assert resp.status_code == 404
     client.request.assert_not_awaited()

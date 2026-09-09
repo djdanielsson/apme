@@ -719,6 +719,38 @@ class TestGalaxyClientTruncation:
         assert isinstance(excinfo.value.__cause__, type(payload_error))
         assert str(excinfo.value.__cause__) == str(payload_error)
 
+    @pytest.mark.parametrize("payload_error", [ValueError("bad json"), KeyError("download_url")])  # type: ignore[untyped-decorator]
+    def test_get_version_detail_exhaustion_wraps_errors_with_cause(self, payload_error: Exception) -> None:
+        """Exhausted detail fetches surface as RuntimeError chained from the last failure.
+
+        Symmetric with ``list_versions``: callers must never see a bare
+        ``httpx``/payload error from a malformed Galaxy response; the last
+        failure is chained via ``__cause__``.
+
+        Args:
+            payload_error: Malformed-payload error raised by the fake server.
+        """
+        import asyncio
+
+        from galaxy_proxy.galaxy_client import GalaxyClient, GalaxyServer
+
+        client = GalaxyClient(servers=[GalaxyServer(url="https://galaxy.example.com")])
+        try:
+            with (
+                patch.object(
+                    GalaxyClient,
+                    "_get_detail_from",
+                    AsyncMock(side_effect=payload_error),
+                ),
+                pytest.raises(RuntimeError, match="failed") as excinfo,
+            ):
+                asyncio.run(client.get_version_detail("ansible", "posix", "1.0.0"))
+        finally:
+            asyncio.run(client.close())
+
+        assert isinstance(excinfo.value.__cause__, type(payload_error))
+        assert str(excinfo.value.__cause__) == str(payload_error)
+
     @pytest.mark.parametrize(  # type: ignore[untyped-decorator]
         ("raw_url", "expected"),
         [

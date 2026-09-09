@@ -53,6 +53,10 @@ def run_remediate(args: argparse.Namespace) -> None:
     A transient transport failure before any result is retried once with
     jittered backoff; every attempt builds and tears down its own channel,
     producer thread, and command queue so no state leaks across retries.
+    A background upload failure fails the run even when a server result
+    arrived first (a partial upload must never silently pass). The retry
+    log carries the failed attempt's scan_id and attempt number so the
+    two server-side scan rows for one invocation stay attributable.
 
     Args:
         args: Parsed CLI arguments.
@@ -127,7 +131,8 @@ def run_remediate(args: argparse.Namespace) -> None:
 
     def _run_uploads(
         cmd_queue: queue.Queue[SessionCommand | None],
-        producer_errors: list[BaseException],
+        producer_errors: list[Exception],
+        attempt_scan_ids: list[str],
     ) -> None:
         """Stream upload chunks into the command queue in a background thread.
 
@@ -144,10 +149,16 @@ def run_remediate(args: argparse.Namespace) -> None:
         Args:
             cmd_queue: Per-attempt command queue feeding the stream.
             producer_errors: Per-attempt holder for background failures.
+            attempt_scan_ids: Per-attempt holder for the first upload
+                chunk's scan_id, recorded before enqueue so the main
+                thread can attribute a retry to the failed attempt's
+                server-side scan row.
         """
         try:
             first = True
             for chunk in _make_chunks():
+                if not attempt_scan_ids and chunk.scan_id:
+                    attempt_scan_ids.append(chunk.scan_id)
                 if first:
                     cmd_chunk = ScanChunk(
                         scan_id=chunk.scan_id,
@@ -161,7 +172,7 @@ def run_remediate(args: argparse.Namespace) -> None:
                 else:
                     cmd_chunk = chunk
                 cmd_queue.put(SessionCommand(upload=cmd_chunk))
-        except BaseException as exc:  # noqa: BLE001 — recorded, reported by main thread
+        except Exception as exc:  # noqa: BLE001 — recorded, reported by main thread
             producer_errors.append(exc)
             cmd_queue.put(None)
 
@@ -189,9 +200,12 @@ def run_remediate(args: argparse.Namespace) -> None:
         result_patches = []
         result_files_written = 0
         cmd_queue: queue.Queue[SessionCommand | None] = queue.Queue()
-        producer_errors: list[BaseException] = []
+        producer_errors: list[Exception] = []
+        attempt_scan_ids: list[str] = []
 
-        upload_thread = threading.Thread(target=_run_uploads, args=(cmd_queue, producer_errors), daemon=True)
+        upload_thread = threading.Thread(
+            target=_run_uploads, args=(cmd_queue, producer_errors, attempt_scan_ids), daemon=True
+        )
         upload_thread.start()
 
         channel, _ = resolve_engine(args)
@@ -296,7 +310,13 @@ def run_remediate(args: argparse.Namespace) -> None:
             # the first session's stream, and interactive approvals are
             # re-prompted on the new session.
             if transient and not got_result and attempt == 0:
-                sys.stderr.write(f"  Connection {e.code().name} before result; retrying session once...\n")
+                prior_scan = attempt_scan_ids[0] if attempt_scan_ids else "unknown"
+                sys.stderr.write(
+                    dim(
+                        f"  Connection {e.code().name} before result "
+                        f"(attempt {attempt + 1}, scan_id={prior_scan}); retrying session once...\n"
+                    )
+                )
                 retry = True
             else:
                 sys.stderr.write(f"Engine error: {e.details()}\n")
@@ -307,11 +327,11 @@ def run_remediate(args: argparse.Namespace) -> None:
             upload_thread.join(timeout=30)
             channel.close()
 
-        if got_result:
-            break
         if producer_errors:
             sys.stderr.write(f"{producer_errors[0]}\n")
             sys.exit(EXIT_ERROR)
+        if got_result:
+            break
         if retry:
             time.sleep(1.0 + random.uniform(0, 1.0))
             continue

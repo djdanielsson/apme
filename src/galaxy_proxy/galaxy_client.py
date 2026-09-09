@@ -232,9 +232,11 @@ class GalaxyClient:
             Parsed ``CollectionVersion`` from the first successful upstream.
 
         Raises:
-            httpx.HTTPStatusError: When the last attempted server returns an error status.
-            httpx.RequestError: When the last attempted server's request fails.
-            RuntimeError: When no Galaxy servers are configured.
+            RuntimeError: When no Galaxy servers are configured, or when
+                every server failed (the last failure is chained via
+                ``__cause__`` so callers never see a bare
+                ``httpx.HTTPStatusError``/``httpx.RequestError`` or
+                ``ValueError``/``KeyError`` from malformed payloads).
         """  # noqa: DOC503
         last_exc: Exception | None = None
         for srv, client in zip(self._servers, self._clients, strict=True):
@@ -258,7 +260,10 @@ class GalaxyClient:
                     exc,
                 )
                 last_exc = exc
-        raise last_exc or RuntimeError("No Galaxy servers configured")
+        if last_exc is not None:
+            msg = f"Galaxy version detail failed for {namespace}.{name}:{version}: {last_exc}"
+            raise RuntimeError(msg) from last_exc
+        raise RuntimeError("No Galaxy servers configured")
 
     async def download_tarball(self, download_url: str) -> bytes:
         """Download a collection tarball by its absolute URL.

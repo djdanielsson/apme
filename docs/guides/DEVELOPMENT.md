@@ -379,6 +379,12 @@ tox -e ui                            # Playwright UI tests
 tox                                  # run all default environments
 ```
 
+> **Filtered runs trip the coverage gate:** `tox -e unit` enforces
+> `--cov-fail-under=80`, so a subset selection such as
+> `tox -e unit -- -k test_sbom` measures only the selected tests and fails
+> the 80% gate even when the code is fine. For filtered runs, append
+> `--no-cov` (e.g. `tox -e unit -- -k test_sbom --no-cov`).
+
 ### Test structure
 
 ```

@@ -202,10 +202,10 @@ async def find_project_by_repo_url(
     if branch is not None:
         fallback.append(Project.branch == branch)
     batch_size = 500
-    offset = 0
+    last_seen_id = ""
     while True:
         result = await db.execute(
-            select(Project).where(*fallback).order_by(Project.id).limit(batch_size).offset(offset)
+            select(Project).where(*fallback, Project.id > last_seen_id).order_by(Project.id).limit(batch_size)
         )
         batch = list(result.scalars().all())
         if not batch:
@@ -216,7 +216,7 @@ async def find_project_by_repo_url(
             return cast(Project, project)
         if len(batch) < batch_size:
             break
-        offset += batch_size
+        last_seen_id = batch[-1].id
     return None
 
 

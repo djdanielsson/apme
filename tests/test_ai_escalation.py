@@ -13,7 +13,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import grpc
 import grpc.aio
-import httpx
 import pytest
 
 from apme.v1.engine_pb2 import FixOptions
@@ -566,8 +565,6 @@ class TestChatWithReconnectTransient:
         transients: list[BaseException] = [
             ConnectionError("refused"),
             OSError("socket down"),
-            httpx.ConnectError("connect failed"),
-            httpx.TimeoutException("transport timeout"),
             grpc.aio.AioRpcError(
                 grpc.StatusCode.UNAVAILABLE,
                 grpc.aio.Metadata(),
@@ -652,9 +649,9 @@ class TestChatWithReconnectGrpcCodes:
         "code",
         [
             grpc.StatusCode.UNAVAILABLE,
-            grpc.StatusCode.DEADLINE_EXCEEDED,
-            grpc.StatusCode.RESOURCE_EXHAUSTED,
+            grpc.StatusCode.INTERNAL,
             grpc.StatusCode.UNKNOWN,
+            grpc.StatusCode.DEADLINE_EXCEEDED,
         ],
     )
     async def test_transient_grpc_codes_retry_once(self, code: grpc.StatusCode) -> None:
@@ -685,10 +682,14 @@ class TestChatWithReconnectGrpcCodes:
             grpc.StatusCode.PERMISSION_DENIED,
             grpc.StatusCode.NOT_FOUND,
             grpc.StatusCode.INVALID_ARGUMENT,
+            grpc.StatusCode.RESOURCE_EXHAUSTED,
         ],
     )
     async def test_permanent_grpc_codes_fail_fast(self, code: grpc.StatusCode) -> None:
         """Each permanent gRPC code raises immediately without reconnect.
+
+        Quota exhaustion (RESOURCE_EXHAUSTED) must fail fast: a reconnect
+        cannot free quota.
 
         Args:
             code: Permanent status code under test.

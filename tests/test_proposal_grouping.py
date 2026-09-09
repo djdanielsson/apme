@@ -612,3 +612,139 @@ def test_grouping_coercers_clamp() -> None:
     assert _safe_float(-0.5) == 0.0
     assert _safe_float("2.0") == 1.0
     assert _safe_float("abc", 0.7) == 0.7
+
+
+def test_group_violations_tolerates_string_remediation_class() -> None:
+    """String remediation_class payloads coerce instead of raising."""
+    ai_like = group_violations(
+        [
+            {
+                "id": 1,
+                "rule_id": "L007",
+                "file": "a.yml",
+                "path": "a.yml::t[0]",
+                "remediation_class": "2.0",
+            }
+        ]
+    )
+    assert ai_like[0].source == SOURCE_AI_CANDIDATE
+    assert ai_like[0].tier == 2
+
+    garbage = group_violations(
+        [
+            {
+                "id": 2,
+                "rule_id": "L007",
+                "file": "a.yml",
+                "path": "",
+                "remediation_class": "high",
+            }
+        ]
+    )
+    assert garbage[0].source == "outcome"
+    assert garbage[0].tier == 0
+
+
+def test_as_mapping_coerces_object_remediation_class() -> None:
+    """Attribute objects with string remediation_class do not crash lanes."""
+
+    class _Violation:
+        id = 7
+        rule_id = "L007"
+        file = "a.yml"
+        path = "a.yml::t[0]"
+        line = 5
+        remediation_class = "2.0"
+        fixed_yaml = ""
+
+    props = group_violations([_Violation()])
+    assert len(props) == 1
+    assert props[0].source == SOURCE_AI_CANDIDATE
+    assert props[0].tier == 2
+
+
+def test_analytics_increments_tolerates_string_tier() -> None:
+    """String tier payloads coerce instead of raising."""
+    rows = analytics_increments(
+        {
+            "status": "approved",
+            "rule_id": "L001",
+            "rule_ids": ["L001"],
+            "source": "outcome",
+            "tier": "2.0",
+            "gate": "ai",
+            "coupled": False,
+        }
+    )
+    assert rows
+    assert rows[0]["tier"] == 2
+    assert rows[0]["source"] == "ai"
+
+    garbage = analytics_increments(
+        {
+            "status": "approved",
+            "rule_id": "L001",
+            "rule_ids": ["L001"],
+            "source": "outcome",
+            "tier": "high",
+            "gate": "",
+            "coupled": False,
+        }
+    )
+    assert garbage
+    assert garbage[0]["tier"] == 0
+    assert garbage[0]["source"] == "deterministic"
+
+
+def test_parse_violation_id_rejects_bool_and_non_integral() -> None:
+    """Violation id parsing mirrors _to_int validation without a default."""
+    from apme_gateway.proposals.grouping import _coerce_violation_ids, _parse_violation_id
+
+    assert _parse_violation_id(7) == 7
+    assert _parse_violation_id("7") == 7
+    assert _parse_violation_id(" 7 ") == 7
+    assert _parse_violation_id(12.0) == 12
+    assert _parse_violation_id("12.0") == 12
+    assert _parse_violation_id(True) is None
+    assert _parse_violation_id(False) is None
+    assert _parse_violation_id(12.9) is None
+    assert _parse_violation_id("12.5") is None
+    assert _parse_violation_id("abc") is None
+    assert _parse_violation_id(None) is None
+    assert _parse_violation_id(0) is None
+    assert _parse_violation_id(-3) is None
+    assert _coerce_violation_ids(["abc", 1, "2", True, 3.5]) == [1, 2]
+
+
+def test_group_violations_rejects_bool_and_truncated_ids() -> None:
+    """Bool and non-integral ids are skipped instead of admitted/truncated."""
+    raws = [True, 12.9, "12.5", "abc", None, -3, 0, 5, "7", 12.0]
+    violations = [
+        {
+            "id": raw,
+            "rule_id": "L007",
+            "file": "a.yml",
+            "path": "a.yml::t[0]",
+            "remediation_class": 1,
+            "fixed_yaml": "x\n",
+        }
+        for raw in raws
+    ]
+    props = group_violations(violations)
+    assert len(props) == 1
+    assert props[0].violation_ids == (5, 7, 12)
+
+
+def test_violation_accepts_review_status_tolerates_string_rem_class() -> None:
+    """String remediation_class coerces instead of raising on stamp checks."""
+    from types import SimpleNamespace
+
+    from apme_gateway.proposals.grouping import violation_accepts_review_status
+
+    ai_str = SimpleNamespace(fixed_yaml="", remediation_class="2.0")
+    assert violation_accepts_review_status("ai", ai_str) is True
+    garbage = SimpleNamespace(fixed_yaml="", remediation_class="high")
+    assert violation_accepts_review_status("ai", garbage) is False
+    assert violation_accepts_review_status("deterministic", garbage) is False
+    mapping_ai = {"fixed_yaml": "", "remediation_class": "2"}
+    assert violation_accepts_review_status("ai", mapping_ai) is True

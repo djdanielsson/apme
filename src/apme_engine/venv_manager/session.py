@@ -193,8 +193,10 @@ def _run_pip_install(
 
     Raises:
         PipInstallTimeout: If the install exceeds its wall-clock bound.
-            Callers must fail fast — the exclude/no-build fallback chain
-            only helps build failures, not stalled indexes.
+            The message carries the stalled command argv (including the
+            specs) so the failure identifies what hung. Callers must fail
+            fast — the exclude/no-build fallback chain only helps build
+            failures, not stalled indexes.
     """
     if use_uv:
         cmd = [
@@ -232,7 +234,7 @@ def _run_pip_install(
             "pip/uv install timed out after %ds, failing fast (no exclude/no-build retry)",
             _PIP_INSTALL_TIMEOUT_S,
         )
-        raise PipInstallTimeout(f"pip/uv install timed out after {_PIP_INSTALL_TIMEOUT_S}s") from exc
+        raise PipInstallTimeout(f"pip/uv install timed out after {_PIP_INSTALL_TIMEOUT_S}s: {' '.join(cmd)}") from exc
 
 
 def _is_build_failure(output: str) -> bool:

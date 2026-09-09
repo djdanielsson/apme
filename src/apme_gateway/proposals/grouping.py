@@ -166,6 +166,36 @@ def _to_int(value: object, default: int = 0) -> int:
     return fallback
 
 
+def _parse_violation_id(value: object) -> int | None:
+    """Parse a violation primary key, rejecting bools and non-integral values.
+
+    Reuses :func:`_to_int` validation so ``True`` maps to invalid (not 1)
+    and ``12.9``/``"12.5"`` map to invalid (not truncated to 12), unlike
+    raw ``int()``. Failures return ``None`` instead of a default so callers
+    skip invalid ids rather than inventing id 0.
+
+    Args:
+        value: Raw id value (int, float, numeric string, bool, None, …).
+
+    Returns:
+        Positive integer id, or ``None`` when invalid or non-positive.
+    """
+    coerced = _to_int(value)
+    return coerced if coerced > 0 else None
+
+
+def _coerce_violation_ids(values: Sequence[object]) -> list[int]:
+    """Filter raw violation id values down to valid positive PKs.
+
+    Args:
+        values: Raw id values from JSON columns or duck-typed objects.
+
+    Returns:
+        Sorted list of valid positive integer ids.
+    """
+    return sorted(parsed for v in values if (parsed := _parse_violation_id(v)) is not None)
+
+
 def _safe_float(value: object, default: float = 0.0) -> float:
     """Coerce JSON-ish confidence values to float, clamped to 0..1.
 
@@ -235,7 +265,7 @@ def _as_mapping(v: object) -> Mapping[str, Any]:
     """
     if isinstance(v, Mapping):
         coerced = dict(v)
-        for field in ("line", "node_line_start", "line_end", "node_line_end"):
+        for field in ("line", "node_line_start", "line_end", "node_line_end", "remediation_class"):
             if field in coerced:
                 coerced[field] = _to_int(coerced[field])
         return coerced
@@ -248,7 +278,7 @@ def _as_mapping(v: object) -> Mapping[str, Any]:
         "node_line_start": _to_int(getattr(v, "node_line_start", 0)),
         "line_end": _to_int(getattr(v, "line_end", 0)),
         "node_line_end": _to_int(getattr(v, "node_line_end", 0)),
-        "remediation_class": getattr(v, "remediation_class", 0) or 0,
+        "remediation_class": _to_int(getattr(v, "remediation_class", 0)),
         "original_yaml": getattr(v, "original_yaml", "") or "",
         "fixed_yaml": getattr(v, "fixed_yaml", "") or "",
         "node_type": getattr(v, "node_type", "") or "",
@@ -265,7 +295,7 @@ def _class_lane(item: Mapping[str, Any]) -> str:
     Returns:
         ``tier1``, ``ai``, or ``other``.
     """
-    rem_class = int(item.get("remediation_class") or 0)
+    rem_class = _to_int(item.get("remediation_class"))
     if rem_class == _RC_AI_CANDIDATE:
         return "ai"
     if rem_class == _RC_AUTO_FIXABLE or str(item.get("fixed_yaml") or "").strip():
@@ -305,7 +335,7 @@ def _classify(items: Sequence[Mapping[str, Any]]) -> tuple[str, str, int]:
     Returns:
         ``(source, gate, tier)``.
     """
-    classes = {int(i.get("remediation_class") or 0) for i in items}
+    classes = {_to_int(i.get("remediation_class")) for i in items}
     has_fixed = any(str(i.get("fixed_yaml") or "").strip() for i in items)
     # Prefer remediation_class over fixed_yaml so an AI-candidate row with
     # leftover fixed text is not mislabeled as Tier 1 deterministic.
@@ -406,21 +436,7 @@ def group_violations(
         rule_ids = tuple(sorted({str(i.get("rule_id") or "") for i in items if i.get("rule_id")}))
         if not rule_ids:
             rule_ids = ("",)
-        violation_ids = tuple(
-            sorted(int(i["id"]) for i in items if isinstance(i.get("id"), int) or str(i.get("id", "")).isdigit())
-        )
-        # Re-parse ids that came as numeric strings from JSON-ish sources.
-        if not violation_ids:
-            parsed: list[int] = []
-            for i in items:
-                raw_id = i.get("id")
-                if raw_id is None:
-                    continue
-                try:
-                    parsed.append(int(raw_id))
-                except (TypeError, ValueError):
-                    continue
-            violation_ids = tuple(sorted(parsed))
+        violation_ids = tuple(_coerce_violation_ids([i.get("id") for i in items]))
 
         source, gate, tier = _classify(items)
         # Keys are path:{path}:lane:{lane} or singleton:…
@@ -670,7 +686,7 @@ def analytics_increments(proposal: GroupedProposal | Mapping[str, Any]) -> list[
             rule_ids = [str(proposal["rule_id"])]
         source = str(proposal.get("source") or SOURCE_OUTCOME)
         gate = str(proposal.get("gate") or "")
-        tier = int(proposal.get("tier") or 0)
+        tier = _to_int(proposal.get("tier"))
         coupled = bool(proposal.get("coupled")) or len(rule_ids) > 1
 
     # Normalize analytics source to deterministic|ai for both input shapes.
@@ -761,8 +777,12 @@ def violation_accepts_review_status(
     Returns:
         Whether this violation is compatible with the proposal source.
     """
-    fixed = str(getattr(violation, "fixed_yaml", "") or "").strip()
-    rem_class = int(getattr(violation, "remediation_class", 0) or 0)
+    if isinstance(violation, Mapping):
+        fixed = str(violation.get("fixed_yaml", "") or "").strip()
+        rem_class = _to_int(violation.get("remediation_class"))
+    else:
+        fixed = str(getattr(violation, "fixed_yaml", "") or "").strip()
+        rem_class = _to_int(getattr(violation, "remediation_class", 0))
     is_ai_source = source in {SOURCE_AI, SOURCE_AI_CANDIDATE}
     accepted, declined = decision_delta(decision or "")
     if is_ai_source:

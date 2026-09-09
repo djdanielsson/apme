@@ -166,7 +166,7 @@ describe("useSessionStream hardening", () => {
     }
   });
 
-  it("malformed tier1_complete preserves the persisted session without tearing down", async () => {
+  it("malformed tier1_complete closes the socket but preserves the persisted session", async () => {
     const { result, unmount } = await startSessionWithSocket();
     try {
       const ws = lastSocket();
@@ -188,8 +188,12 @@ describe("useSessionStream hardening", () => {
         "Received malformed tier1 result from server",
       );
       expect(result.current.tier1).toBeNull();
+      // Non-reconnectable ("checking"): the socket must close so a later
+      // valid frame cannot flip error→complete behind a dead UI.
+      expect(ws.close).toHaveBeenCalledWith(1000);
+      // The server session is still alive: resume material must survive
+      // (unlike the terminal teardown).
       expect(sessionStorage.getItem(STORAGE_KEY)).not.toBeNull();
-      expect(ws.close).not.toHaveBeenCalled();
       // "checking" is not reconnectable → error without reconnect.
       expect(result.current.canReconnect).toBe(false);
       expect(result.current.status).toBe("error");
@@ -253,9 +257,10 @@ describe("useSessionStream hardening", () => {
       expect(result.current.error).toBe(
         "Received malformed tier1 result from server",
       );
-      // Non-terminal: resume material survives.
+      // Non-terminal: resume material survives, but the non-reconnectable
+      // socket still closes so the dead UI cannot flip to complete later.
       expect(sessionStorage.getItem(STORAGE_KEY)).not.toBeNull();
-      expect(ws.close).not.toHaveBeenCalled();
+      expect(ws.close).toHaveBeenCalledWith(1000);
     } finally {
       unmount();
     }
@@ -432,7 +437,7 @@ describe("useSessionStream hardening", () => {
     }
   });
 
-  it("ignores a second same-type malformed frame after taint (no re-error)", async () => {
+  it("ignores a consecutive same-type malformed frame after taint (no re-error)", async () => {
     const { result, unmount } = await startSessionWithSocket();
     try {
       const ws = lastSocket();
@@ -454,22 +459,14 @@ describe("useSessionStream hardening", () => {
       );
       expect(result.current.proposals).toHaveLength(0);
 
-      // Server recovers with a valid set.
-      sendMsg(ws, {
-        type: "proposals",
-        proposals: [{ ...proposalBase(), line_start: 1, line_end: 2 }],
-      });
-      expect(result.current.status).toBe("awaiting_approval");
-      expect(result.current.proposals).toHaveLength(1);
-
-      // Second same-type malformed frame is tainted: fully ignored — no
-      // re-error, valid set intact, socket kept open.
+      // A consecutive same-type malformed frame is tainted: fully ignored —
+      // no re-error, no extra close, socket kept open.
       sendMsg(ws, { type: "proposals", proposals: [{ id: 456 }] });
       expect(result.current.error).toBe(
         "Received malformed proposals from server",
       );
-      expect(result.current.proposals).toHaveLength(1);
-      expect(result.current.status).toBe("awaiting_approval");
+      expect(result.current.proposals).toHaveLength(0);
+      expect(result.current.status).toBe("disconnected");
       expect(ws.close).not.toHaveBeenCalled();
     } finally {
       unmount();
@@ -522,7 +519,11 @@ describe("useSessionStream hardening", () => {
       expect(result.current.error).toBe(
         "Received malformed message from server",
       );
-      expect(ws.close).not.toHaveBeenCalled();
+      // Non-reconnectable ("checking"): the socket closes so a later valid
+      // frame cannot flip error→complete, but resume material survives.
+      expect(sessionStorage.getItem(STORAGE_KEY)).not.toBeNull();
+      expect(ws.close).toHaveBeenCalledWith(1000);
+      expect(result.current.status).toBe("error");
     } finally {
       unmount();
     }
@@ -550,6 +551,202 @@ describe("useSessionStream hardening", () => {
       expect(result.current.error).toBe(
         "Received malformed proposals from server",
       );
+    } finally {
+      unmount();
+    }
+  });
+
+  it("valid proposals after taint clears the error and untaints", async () => {
+    const { result, unmount } = await startSessionWithSocket();
+    try {
+      const ws = lastSocket();
+      sendMsg(ws, {
+        type: "session_created",
+        session_id: "sess-1",
+        scan_id: "scan-1",
+      });
+      sendMsg(ws, validTier1());
+      sendMsg(ws, {
+        type: "proposals",
+        proposals: [{ ...proposalBase(), line_start: 1, line_end: 2 }],
+      });
+      expect(result.current.status).toBe("awaiting_approval");
+
+      // Malformed frame: surfaces, taints, clears the stale set.
+      sendMsg(ws, { type: "proposals", proposals: [{ id: 123 }] });
+      expect(result.current.error).toBe(
+        "Received malformed proposals from server",
+      );
+      expect(result.current.proposals).toHaveLength(0);
+
+      // Valid recovery: clears the error and drops the taint.
+      sendMsg(ws, {
+        type: "proposals",
+        proposals: [{ ...proposalBase(), line_start: 1, line_end: 2 }],
+      });
+      expect(result.current.error).toBeNull();
+      expect(result.current.status).toBe("awaiting_approval");
+      expect(result.current.proposals).toHaveLength(1);
+
+      // Taint was dropped: a repeat malformed frame surfaces again and
+      // clears the recovered set instead of being ignored forever.
+      sendMsg(ws, { type: "proposals", proposals: [{ id: 456 }] });
+      expect(result.current.error).toBe(
+        "Received malformed proposals from server",
+      );
+      expect(result.current.proposals).toHaveLength(0);
+      expect(result.current.status).toBe("disconnected");
+    } finally {
+      unmount();
+    }
+  });
+
+  it("normalizes explicit-null text fields (Python None) to empty strings", async () => {
+    const { result, unmount } = await startSessionWithSocket();
+    try {
+      sendMsg(lastSocket(), {
+        type: "session_created",
+        session_id: "sess-1",
+        scan_id: "scan-1",
+      });
+      sendMsg(lastSocket(), validTier1());
+      sendMsg(lastSocket(), {
+        type: "proposals",
+        proposals: [
+          {
+            ...proposalBase(),
+            before_text: null,
+            after_text: null,
+            diff_hunk: null,
+          },
+        ],
+      });
+
+      expect(result.current.error).toBeNull();
+      expect(result.current.status).toBe("awaiting_approval");
+      expect(result.current.proposals).toHaveLength(1);
+      expect(result.current.proposals[0]?.before_text).toBe("");
+      expect(result.current.proposals[0]?.after_text).toBe("");
+      expect(result.current.proposals[0]?.diff_hunk).toBe("");
+    } finally {
+      unmount();
+    }
+  });
+
+  it("normalizes explicit-null tier/confidence to 0", async () => {
+    const { result, unmount } = await startSessionWithSocket();
+    try {
+      sendMsg(lastSocket(), {
+        type: "session_created",
+        session_id: "sess-1",
+        scan_id: "scan-1",
+      });
+      sendMsg(lastSocket(), validTier1());
+      sendMsg(lastSocket(), {
+        type: "proposals",
+        proposals: [{ ...proposalBase(), tier: null, confidence: null }],
+      });
+
+      expect(result.current.error).toBeNull();
+      expect(result.current.status).toBe("awaiting_approval");
+      expect(result.current.proposals).toHaveLength(1);
+      expect(result.current.proposals[0]?.tier).toBe(0);
+      expect(result.current.proposals[0]?.confidence).toBe(0);
+    } finally {
+      unmount();
+    }
+  });
+
+  it("rejects NaN line_start as malformed", async () => {
+    const { result, unmount } = await startSessionWithSocket();
+    try {
+      const ws = lastSocket();
+      sendMsg(ws, {
+        type: "session_created",
+        session_id: "sess-1",
+        scan_id: "scan-1",
+      });
+      sendMsg(ws, validTier1());
+      // JSON cannot encode NaN, so bypass the stringify helper: the guard
+      // is defense-in-depth for non-JSON producers reaching the validator.
+      const spy = vi.spyOn(JSON, "parse").mockReturnValueOnce({
+        type: "proposals",
+        proposals: [{ ...proposalBase(), line_start: NaN, line_end: 2 }],
+      });
+      try {
+        act(() => {
+          ws.onmessage?.({ data: "ignored" });
+        });
+      } finally {
+        spy.mockRestore();
+      }
+
+      expect(result.current.error).toBe(
+        "Received malformed proposals from server",
+      );
+      expect(result.current.proposals).toHaveLength(0);
+      // tier1_done is reconnectable → reconnect affordance, socket open.
+      expect(result.current.status).toBe("disconnected");
+      expect(ws.close).not.toHaveBeenCalled();
+    } finally {
+      unmount();
+    }
+  });
+
+  it("rejects NaN tier as malformed", async () => {
+    const { result, unmount } = await startSessionWithSocket();
+    try {
+      const ws = lastSocket();
+      sendMsg(ws, {
+        type: "session_created",
+        session_id: "sess-1",
+        scan_id: "scan-1",
+      });
+      sendMsg(ws, validTier1());
+      const spy = vi.spyOn(JSON, "parse").mockReturnValueOnce({
+        type: "proposals",
+        proposals: [{ ...proposalBase(), tier: NaN }],
+      });
+      try {
+        act(() => {
+          ws.onmessage?.({ data: "ignored" });
+        });
+      } finally {
+        spy.mockRestore();
+      }
+
+      expect(result.current.error).toBe(
+        "Received malformed proposals from server",
+      );
+      expect(result.current.proposals).toHaveLength(0);
+      expect(result.current.status).toBe("disconnected");
+      expect(ws.close).not.toHaveBeenCalled();
+    } finally {
+      unmount();
+    }
+  });
+
+  it("non-reconnectable malformed proposals closes the socket but preserves the session", async () => {
+    const { result, unmount } = await startSessionWithSocket();
+    try {
+      const ws = lastSocket();
+      sendMsg(ws, {
+        type: "session_created",
+        session_id: "sess-1",
+        scan_id: "scan-1",
+      });
+      // Still "checking" (non-reconnectable): no tier1_complete yet.
+      sendMsg(ws, { type: "proposals", proposals: [{ id: 123 }] });
+
+      expect(result.current.error).toBe(
+        "Received malformed proposals from server",
+      );
+      expect(result.current.status).toBe("error");
+      expect(result.current.canReconnect).toBe(false);
+      expect(ws.close).toHaveBeenCalledWith(1000);
+      // The server session is still alive: resume material must survive
+      // (unlike the terminal teardown).
+      expect(sessionStorage.getItem(STORAGE_KEY)).not.toBeNull();
     } finally {
       unmount();
     }

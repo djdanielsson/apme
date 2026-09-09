@@ -672,3 +672,158 @@ async def test_replace_tolerates_string_line_end() -> None:
         await db.commit()
         row = (await db.execute(select(ProposalRow).where(ProposalRow.scan_id == "replace-str-line-end"))).scalar_one()
         assert row.line_end == 12
+
+
+def test_proposal_detail_dict_filters_invalid_violation_ids() -> None:
+    """Duck-typed violation_ids with garbage filter instead of raising."""
+    from types import SimpleNamespace
+
+    from apme_gateway.proposals.flush import proposal_to_detail_dict
+
+    obj = SimpleNamespace(
+        proposal_id="p-1",
+        rule_id="L007",
+        file="a.yml",
+        tier=1,
+        confidence=0.9,
+        status="pending",
+        path="",
+        node_type="",
+        source="deterministic",
+        gate="tier1",
+        rule_ids=("L007",),
+        violation_ids=("abc", True, 12.9, 3, "4"),
+        line_start=1,
+        line_end=2,
+        diff_hunk="",
+        explanation="",
+        suggestion="",
+        engine_proposal_id=None,
+        draft=False,
+    )
+    payload = proposal_to_detail_dict(obj)
+    assert payload["violation_ids"] == [3, 4]
+
+
+def test_proposal_detail_dict_orm_branch_filters_invalid_violation_ids() -> None:
+    """ORM violation_ids_json with garbage filters instead of raising."""
+    from apme_gateway.db.models import Proposal
+    from apme_gateway.proposals.flush import proposal_to_detail_dict
+
+    row = Proposal(
+        id=1,
+        scan_id="scan-x",
+        proposal_id="prop-tier1-abc",
+        rule_id="L007",
+        file="a.yml",
+        tier=1,
+        confidence=0.9,
+        status="pending",
+        path="a.yml::t[0]",
+        source="deterministic",
+        gate="tier1",
+        rule_ids_json='["L007"]',
+        violation_ids_json='["abc", true, 12.9, 3, "4"]',
+        line_start=1,
+        line_end=2,
+        diff_hunk="",
+        explanation="",
+        suggestion="",
+        engine_proposal_id=None,
+        draft=0,
+    )
+    payload = proposal_to_detail_dict(row)
+    assert payload["violation_ids"] == [3, 4]
+
+
+def test_replace_tolerates_string_draft_flag() -> None:
+    """String draft flags coerce to bool instead of crashing detail render."""
+    from types import SimpleNamespace
+
+    from apme_gateway.proposals.flush import proposal_to_detail_dict
+
+    obj = SimpleNamespace(
+        proposal_id="p-3",
+        rule_id="L007",
+        file="a.yml",
+        tier="1",
+        confidence="0.9",
+        status="pending",
+        path="",
+        node_type="",
+        source="deterministic",
+        gate="tier1",
+        rule_ids=("L007",),
+        violation_ids=(1,),
+        line_start=1,
+        line_end=2,
+        diff_hunk="",
+        explanation="",
+        suggestion="",
+        engine_proposal_id=None,
+        draft="1",
+    )
+    payload = proposal_to_detail_dict(obj)
+    assert payload["draft"] is True
+    assert payload["violation_ids"] == [1]
+
+
+async def test_replace_tolerates_string_draft_in_store() -> None:
+    """String draft/bridge flags coerce instead of crashing replace."""
+    from apme_gateway.db.models import Proposal as ProposalRow
+
+    await _seed_project_scan(scan_id="replace-str-draft")
+    async with get_session() as db:
+        good = GroupedProposal(
+            proposal_id="prop-draft-str",
+            rule_id="L001",
+            rule_ids=("L001",),
+            violation_ids=(),
+            file="a.yml",
+            path="",
+            line_start=1,
+            tier=1,
+            source="deterministic",
+            gate="tier1",
+            status="pending",
+        )
+        # Bypass the dataclass contract the way JSON-ish callers do.
+        object.__setattr__(good, "draft", "1.0")
+        await replace_scan_proposals(db, scan_id="replace-str-draft", proposals=[good])
+        await db.commit()
+        row = (await db.execute(select(ProposalRow).where(ProposalRow.scan_id == "replace-str-draft"))).scalar_one()
+        assert row.draft == 1
+
+    async with get_session() as db:
+        from apme_gateway.db.models import Scan as ScanRow
+
+        db.add(
+            ScanRow(
+                scan_id="replace-bad-draft",
+                session_id="sess-1",
+                project_id="proj-1",
+                project_path="/proj",
+                source="cli",
+                created_at="2026-01-01T00:00:00Z",
+                scan_type="remediate",
+                total_violations=0,
+            )
+        )
+        bad = GroupedProposal(
+            proposal_id="prop-draft-bad",
+            rule_id="L001",
+            rule_ids=("L001",),
+            violation_ids=(),
+            file="a.yml",
+            path="",
+            line_start=1,
+            tier=1,
+            source="deterministic",
+            gate="tier1",
+            status="pending",
+        )
+        object.__setattr__(bad, "draft", "high")
+        await replace_scan_proposals(db, scan_id="replace-bad-draft", proposals=[bad])
+        await db.commit()
+        row = (await db.execute(select(ProposalRow).where(ProposalRow.scan_id == "replace-bad-draft"))).scalar_one()
+        assert row.draft == 0

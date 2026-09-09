@@ -760,6 +760,9 @@ class RAMClient:
                         matched = True
                 if matched:
                     parts = findings_json.split("/")
+                    if len(parts) < 5:
+                        logger.debug("Skipping module with short findings path: %r", findings_json)
+                        continue
 
                     matched_modules.append(
                         {
@@ -852,6 +855,9 @@ class RAMClient:
                         matched = True
                 if matched:
                     parts = findings_json.split("/")
+                    if len(parts) < 5:
+                        logger.debug("Skipping role with short findings path: %r", findings_json)
+                        continue
                     offspring_objects = []
                     for taskfile_key in r.taskfiles:
                         tf_key = taskfile_key.key if isinstance(taskfile_key, TaskFile) else str(taskfile_key)
@@ -999,6 +1005,9 @@ class RAMClient:
                 # TODO: support taskfile reference with variables
                 if matched:
                     parts = findings_json.split("/")
+                    if len(parts) < 5:
+                        logger.debug("Skipping taskfile with short findings path: %r", findings_json)
+                        continue
                     offspring_objects = []
                     for task_key in tf.tasks:
                         t_key = task_key.key if isinstance(task_key, Task) else str(task_key)

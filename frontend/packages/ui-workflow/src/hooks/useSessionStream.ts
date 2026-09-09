@@ -42,10 +42,15 @@ export interface Proposal {
   file: string;
   rule_id: string;
   // Additive: old servers and third-party producers may omit these (or send
-  // JSON null for Python None). State always holds numbers post-normalization
-  // (see the proposals handler), so readers can treat 0 as unknown.
+  // JSON null for Python None). State always holds finite numbers
+  // post-normalization (see the proposals handler), so readers can treat 0
+  // as unknown.
   line_start?: number;
   line_end?: number;
+  // Same additive contract as the line fields: missing/null tier/confidence
+  // normalize to 0 and missing/null text normalizes to "". State always
+  // holds a finite number / string post-normalization, so readers can treat
+  // 0 as unknown and "" as absent without null checks.
   before_text: string;
   after_text: string;
   diff_hunk: string;
@@ -141,6 +146,20 @@ function isTier1Result(v: unknown): v is Tier1Result {
   );
 }
 
+/** Finite number or an additive missing marker (undefined / JSON null). */
+function isFiniteOrNullish(v: unknown): boolean {
+  return (
+    typeof v === "undefined" ||
+    v === null ||
+    (typeof v === "number" && Number.isFinite(v))
+  );
+}
+
+/** String or an additive missing marker (undefined / JSON null). */
+function isStringOrNullish(v: unknown): boolean {
+  return typeof v === "undefined" || v === null || typeof v === "string";
+}
+
 /** Validate a proposals payload before it reaches state. */
 function isProposalArray(v: unknown): v is Proposal[] {
   return (
@@ -151,17 +170,22 @@ function isProposalArray(v: unknown): v is Proposal[] {
         typeof p.id === "string" &&
         typeof p.file === "string" &&
         typeof p.rule_id === "string" &&
-        // line_start/line_end are additive: old servers and third-party
-        // producers may omit them, and Python None serializes as JSON null
-        // (not omission). Accept undefined/null here and normalize to 0
-        // at setProposals so mixed-version rollouts degrade instead of
-        // tearing down.
-        (typeof p.line_start === "number" ||
-          typeof p.line_start === "undefined" ||
-          p.line_start === null) &&
-        (typeof p.line_end === "number" ||
-          typeof p.line_end === "undefined" ||
-          p.line_end === null),
+        // line_start/line_end/tier/confidence are additive: old servers and
+        // third-party producers may omit them, and Python None serializes as
+        // JSON null (not omission). Accept undefined/null here and normalize
+        // to 0 at setProposals so mixed-version rollouts degrade instead of
+        // tearing down. Numbers must be finite: NaN/Infinity would poison
+        // downstream math (confidence %) and gate comparisons (tier).
+        isFiniteOrNullish(p.line_start) &&
+        isFiniteOrNullish(p.line_end) &&
+        isFiniteOrNullish(p.tier) &&
+        isFiniteOrNullish(p.confidence) &&
+        // Text fields follow the same additive pattern: JSON null (Python
+        // None) normalizes to "" at setProposals so state typed `string`
+        // never holds null into downstream string ops.
+        isStringOrNullish(p.before_text) &&
+        isStringOrNullish(p.after_text) &&
+        isStringOrNullish(p.diff_hunk),
     )
   );
 }
@@ -292,6 +316,10 @@ export function useSessionStream() {
   // a given type surfaces via setError; repeats are ignored so a looping
   // server cannot spam errors while the socket stays open.
   const malformedTaintRef = useRef<Set<string>>(new Set());
+  // Which tainted frame type produced the currently surfaced malformed-frame
+  // error (null when the error came from elsewhere or was cleared). The next
+  // valid frame of that type clears both the taint and the error.
+  const errorSourceRef = useRef<string | null>(null);
 
   const updateStatus = useCallback((s: SessionStatus) => {
     statusRef.current = s;
@@ -315,6 +343,7 @@ export function useSessionStream() {
     sessionIdRef.current = null;
     sessionEstablishedRef.current = false;
     malformedTaintRef.current = new Set();
+    errorSourceRef.current = null;
     clearPersistedSession();
   }, [updateStatus]);
 
@@ -326,6 +355,7 @@ export function useSessionStream() {
       // the UI on a non-terminal spinner with no recovery path.
       const failMalformedTerminal = (message: string) => {
         setError(message);
+        errorSourceRef.current = null;
         setCanReconnect(false);
         clearPersistedSession();
         updateStatus("error");
@@ -351,6 +381,7 @@ export function useSessionStream() {
           return;
         }
         malformedTaintRef.current.add(kind);
+        errorSourceRef.current = kind;
         if (kind === "proposals") {
           // Drop any previously accepted set: approving a stale set after a
           // malformed frame must be impossible.
@@ -364,7 +395,35 @@ export function useSessionStream() {
           setCanReconnect(true);
           updateStatus("disconnected");
         } else {
+          // Non-reconnectable: an open socket behind an "error" UI is dead
+          // (a later valid frame would flip error→complete). Close like the
+          // terminal path, but keep the persisted session: the server
+          // session is still alive, unlike a malformed terminal result.
+          setCanReconnect(false);
           updateStatus("error");
+          try {
+            ws.close(1000);
+          } catch {
+            // ignore close errors
+          }
+          if (wsRef.current === ws) {
+            wsRef.current = null;
+          }
+        }
+      };
+      // A valid frame proves the stream recovered for its type: drop that
+      // type's taint so a later malformed frame surfaces again, and clear
+      // the error if it came from this type. Parse-failure ("message") taint
+      // has no typed valid frame, so any valid typed frame clears it.
+      const noteValidFrame = (kind: string) => {
+        malformedTaintRef.current.delete(kind);
+        malformedTaintRef.current.delete("message");
+        if (
+          errorSourceRef.current === kind ||
+          errorSourceRef.current === "message"
+        ) {
+          errorSourceRef.current = null;
+          setError(null);
         }
       };
       // True while the current socket never delivered session_created: a
@@ -413,6 +472,7 @@ export function useSessionStream() {
             setSessionId(sid);
             sessionIdRef.current = sid;
             sessionEstablishedRef.current = true;
+            noteValidFrame("session_created");
             setScanId(scid);
             persistSession(
               sid,
@@ -439,6 +499,7 @@ export function useSessionStream() {
 
           case "tier1_complete":
             if (isTier1Result(msg)) {
+              noteValidFrame("tier1_complete");
               setTier1({ ...msg, patches: normalizePatches(msg.patches) });
               updateStatus("tier1_done");
             } else {
@@ -451,13 +512,35 @@ export function useSessionStream() {
 
           case "proposals":
             if (isProposalArray(msg.proposals)) {
+              noteValidFrame("proposals");
               setProposals(
                 msg.proposals.map((p) => ({
                   ...p,
                   line_start:
-                    typeof p.line_start === "number" ? p.line_start : 0,
+                    typeof p.line_start === "number" &&
+                    Number.isFinite(p.line_start)
+                      ? p.line_start
+                      : 0,
                   line_end:
-                    typeof p.line_end === "number" ? p.line_end : 0,
+                    typeof p.line_end === "number" &&
+                    Number.isFinite(p.line_end)
+                      ? p.line_end
+                      : 0,
+                  tier:
+                    typeof p.tier === "number" && Number.isFinite(p.tier)
+                      ? p.tier
+                      : 0,
+                  confidence:
+                    typeof p.confidence === "number" &&
+                    Number.isFinite(p.confidence)
+                      ? p.confidence
+                      : 0,
+                  before_text:
+                    typeof p.before_text === "string" ? p.before_text : "",
+                  after_text:
+                    typeof p.after_text === "string" ? p.after_text : "",
+                  diff_hunk:
+                    typeof p.diff_hunk === "string" ? p.diff_hunk : "",
                 })),
               );
               updateStatus("awaiting_approval");
@@ -483,6 +566,7 @@ export function useSessionStream() {
               break;
             }
             setResult({ ...msg, patches: normalizePatches(msg.patches) });
+            noteValidFrame("result");
             setCanReconnect(false);
             clearPersistedSession();
             updateStatus("complete");
@@ -504,6 +588,10 @@ export function useSessionStream() {
 
           case "error":
             setError((msg.message as string) || "Unknown error");
+            // Transport/server errors are not taint-tracked: neutralize any
+            // stale malformed source so a later valid tainted-type frame
+            // cannot clear an unrelated error.
+            errorSourceRef.current = null;
             if (RECONNECTABLE_PHASES.has(statusRef.current) && sessionIdRef.current) {
               setCanReconnect(true);
               updateStatus("disconnected");
@@ -530,6 +618,7 @@ export function useSessionStream() {
       };
 
       ws.onerror = () => {
+        errorSourceRef.current = null;
         if (RECONNECTABLE_PHASES.has(statusRef.current) && sessionIdRef.current) {
           setError("Connection lost. Your session is still active on the server.");
           setCanReconnect(true);
@@ -565,6 +654,7 @@ export function useSessionStream() {
             updateStatus("disconnected");
           } else {
             setError("Connection closed unexpectedly");
+            errorSourceRef.current = null;
             updateStatus("error");
           }
         } else if (event.code === 1000 && preSession) {
@@ -572,6 +662,7 @@ export function useSessionStream() {
           // resume the server rejected): surface it instead of hanging on a
           // spinner with resume material already dropped.
           setError("Connection closed unexpectedly");
+          errorSourceRef.current = null;
           updateStatus("error");
         }
       };
@@ -624,6 +715,7 @@ export function useSessionStream() {
         wsRef.current = null;
       }
       setError(null);
+      errorSourceRef.current = null;
       setCanReconnect(false);
       updateStatus("connecting");
       // New socket: nothing established on it yet. Taint intentionally
@@ -657,6 +749,7 @@ export function useSessionStream() {
         setError(
           "Connection lost — cannot send approval. Try reconnecting.",
         );
+        errorSourceRef.current = null;
         if (sessionIdRef.current) {
           setCanReconnect(true);
           updateStatus("disconnected");
