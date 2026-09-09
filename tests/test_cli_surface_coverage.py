@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
-from collections.abc import Iterable
+import threading
+import time
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -2077,7 +2080,11 @@ def test_remediate_two_chunks_and_draining_stub(tmp_path: Path) -> None:
     stub = MagicMock()
 
     def _drain_and_result(cmd_iter: Iterable[object], timeout: object = None) -> list[MagicMock]:
-        """Drain commands then emit an empty result.
+        """Drain uploads then emit an empty result.
+
+        Only the two upload chunks are consumed: the producer no longer
+        emits a terminating None on success, so a full ``list(cmd_iter)``
+        would block forever waiting for the teardown sentinel.
 
         Args:
             cmd_iter: Command iterator from run_remediate.
@@ -2087,7 +2094,7 @@ def test_remediate_two_chunks_and_draining_stub(tmp_path: Path) -> None:
             Event list with result and close.
 
         """
-        drained = list(cmd_iter)
+        drained = list(itertools.islice(cmd_iter, 2))
         assert len(drained) >= 2
         result = _mk_event("result")
         result.result.remaining_violations = []
@@ -2157,3 +2164,299 @@ def test_check_json_no_violations_returns_zero(tmp_path: Path, capsys: pytest.Ca
     ):
         run_check(_check_args_ns(str(target), json=True, show_suppressed=True))
     assert json.loads(capsys.readouterr().out)["count"] == 0
+
+
+def test_remediate_producer_success_leaves_stream_open(tmp_path: Path) -> None:
+    """Producer success leaves the FixSession stream open for approvals.
+
+    Drains the two upload chunks then probes the request generator from a
+    background thread: it must stay blocked (stream open) instead of
+    raising StopIteration (premature half-close).
+
+    Args:
+        tmp_path: Temporary directory fixture.
+    """
+    from apme_engine.cli.remediate import run_remediate
+
+    c1 = _scan_chunk("s1")
+    c2 = _scan_chunk("s2")
+    channel = MagicMock()
+    stub = MagicMock()
+    probe_outcome: list[str] = []
+    probe_thread_holder: list[threading.Thread] = []
+
+    def _capture_and_probe(cmd_iter: Iterable[object], timeout: object = None) -> list[MagicMock]:
+        """Drain uploads, probe openness, then emit an empty result.
+
+        Args:
+            cmd_iter: Command iterator from run_remediate.
+            timeout: Stream timeout.
+
+        Returns:
+            Event list with result and close.
+        """
+        it: Iterator[object] = iter(cmd_iter)
+        first = next(it)
+        second = next(it)
+        assert first is not None
+        assert second is not None
+        # Give a buggy producer time to enqueue its premature None sentinel;
+        # with the fix no sentinel ever arrives on success.
+        time.sleep(0.5)
+
+        def _probe() -> None:
+            """Attempt one more next; blocked means open, StopIteration means closed.
+
+            Returns:
+                None.
+            """
+            try:
+                next(it)
+            except StopIteration:
+                probe_outcome.append("stopped")
+            else:
+                probe_outcome.append("value")
+
+        probe = threading.Thread(target=_probe, daemon=True)
+        probe_thread_holder.append(probe)
+        probe.start()
+        probe.join(timeout=0.5)
+        assert probe.is_alive(), "request stream closed before approvals (premature None)"
+        assert probe_outcome == []
+        result = _mk_event("result")
+        result.result.remaining_violations = []
+        result.result.patches = []
+        return [result, _mk_event("closed")]
+
+    def _chunks(*args: object, **kwargs: object) -> Iterator[ScanChunk]:
+        """Return two upload chunks.
+
+        Args:
+            *args: Positional chunk args.
+            **kwargs: Chunk keyword args.
+
+        Returns:
+            Iterator of two ScanChunk protos.
+        """
+        return iter([c1, c2])
+
+    stub.FixSession.side_effect = _capture_and_probe
+    with (
+        patch("apme_engine.cli.remediate.discover_project_root", return_value=tmp_path),
+        patch("apme_engine.cli.remediate.derive_session_id", return_value="s"),
+        patch("apme_engine.cli.remediate.discover_galaxy_servers", return_value=[]),
+        patch("apme_engine.cli.remediate.load_rule_configs_from_project", return_value=[]),
+        patch("apme_engine.cli.remediate.yield_scan_chunks", side_effect=_chunks),
+        patch("apme_engine.cli.remediate.resolve_engine", return_value=(channel, "addr")),
+        patch("apme_engine.cli.remediate.engine_pb2_grpc.EngineStub", return_value=stub),
+    ):
+        run_remediate(_rem_args(str(tmp_path), show_suppressed=True))
+    for probe in probe_thread_holder:
+        probe.join(timeout=5.0)
+
+
+def test_remediate_producer_error_terminates_stream(tmp_path: Path) -> None:
+    """Producer error terminates the request stream with a sentinel.
+
+    Args:
+        tmp_path: Temporary directory fixture.
+
+    Raises:
+        AssertionError: If remediate does not exit as expected.
+    """
+    from apme_engine.cli.remediate import run_remediate
+
+    channel = MagicMock()
+    stub = MagicMock()
+
+    def _capture_terminating(cmd_iter: Iterable[object], timeout: object = None) -> list[MagicMock]:
+        """Drain the error-path stream; it must terminate via sentinel.
+
+        Args:
+            cmd_iter: Command iterator from run_remediate.
+            timeout: Stream timeout.
+
+        Returns:
+            Empty event list (triggers no-result exit).
+        """
+        drained = list(cmd_iter)
+        assert drained == []
+        return []
+
+    stub.FixSession.side_effect = _capture_terminating
+    with (
+        patch("apme_engine.cli.remediate.discover_project_root", return_value=tmp_path),
+        patch("apme_engine.cli.remediate.derive_session_id", return_value="s"),
+        patch("apme_engine.cli.remediate.discover_galaxy_servers", return_value=[]),
+        patch("apme_engine.cli.remediate.load_rule_configs_from_project", return_value=[]),
+        patch("apme_engine.cli.remediate.yield_scan_chunks", side_effect=RuntimeError("disk-gone")),
+        patch("apme_engine.cli.remediate.resolve_engine", return_value=(channel, "addr")),
+        patch("apme_engine.cli.remediate.engine_pb2_grpc.EngineStub", return_value=stub),
+        patch("apme_engine.cli.remediate.time.sleep", return_value=None),
+    ):
+        try:
+            run_remediate(_rem_args(str(tmp_path), show_suppressed=True))
+        except SystemExit as exc:
+            assert exc.code == EXIT_ERROR
+        else:
+            raise AssertionError("expected SystemExit")
+
+
+def test_remediate_retry_resets_state_and_reuses_scan_id(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """Retry resets per-attempt state and reuses one scan_id.
+
+    First attempt reports tier1 fixed=99 then a transient UNAVAILABLE;
+    second attempt reports a result with no tier1. JSON must show
+    auto_fixable 0 (not stale 99) and both attempts must share scan_id.
+
+    Args:
+        tmp_path: Temporary directory fixture.
+        capsys: Pytest capture fixture.
+    """
+    from apme_engine.cli.remediate import run_remediate
+
+    tier1_ev = _mk_event("tier1_complete")
+    tier1_ev.tier1_complete.report = FixReport(fixed=99, remaining_ai=0, remaining_manual=0)
+
+    def _first_attempt() -> Iterator[MagicMock]:
+        """Yield stale tier1 then raise transient UNAVAILABLE.
+
+        Yields:
+            MagicMock: Tier1 event from the failed first attempt.
+
+        Raises:
+            _FakeRpcError: Transient UNAVAILABLE to trigger retry.
+        """
+        yield tier1_ev
+        raise _FakeRpcError(grpc.StatusCode.UNAVAILABLE, "blip")
+
+    result = _mk_event("result")
+    result.result.remaining_violations = []
+    result.result.patches = []
+    events2 = [result, _mk_event("closed")]
+    channel1 = MagicMock()
+    channel2 = MagicMock()
+    stub = MagicMock()
+    stub.FixSession.side_effect = [_first_attempt(), events2]
+    seen_scan_ids: list[str] = []
+
+    def _chunks(*args: object, **kwargs: object) -> Iterator[ScanChunk]:
+        """Record scan_id and return one chunk.
+
+        Args:
+            *args: Positional chunk args.
+            **kwargs: Chunk keyword args.
+
+        Returns:
+            Iterator with a single ScanChunk.
+        """
+        raw = kwargs.get("scan_id", "")
+        seen_scan_ids.append(str(raw) if raw is not None else "")
+        return iter([_scan_chunk()])
+
+    with (
+        patch("apme_engine.cli.remediate.discover_project_root", return_value=tmp_path),
+        patch("apme_engine.cli.remediate.derive_session_id", return_value="s"),
+        patch("apme_engine.cli.remediate.discover_galaxy_servers", return_value=[]),
+        patch("apme_engine.cli.remediate.load_rule_configs_from_project", return_value=[]),
+        patch("apme_engine.cli.remediate.yield_scan_chunks", side_effect=_chunks),
+        patch(
+            "apme_engine.cli.remediate.resolve_engine",
+            side_effect=[(channel1, "a1"), (channel2, "a2")],
+        ),
+        patch("apme_engine.cli.remediate.engine_pb2_grpc.EngineStub", return_value=stub),
+        patch("apme_engine.cli.remediate.time.sleep", return_value=None),
+        patch("apme_engine.cli.remediate.random.uniform", return_value=0.0),
+    ):
+        run_remediate(_rem_args(str(tmp_path), json=True, show_suppressed=True))
+    doc = json.loads(capsys.readouterr().out)
+    assert doc["remediation_summary"]["auto_fixable"] == 0
+    assert len(seen_scan_ids) == 2
+    assert seen_scan_ids[0] != ""
+    assert seen_scan_ids[0] == seen_scan_ids[1]
+
+
+def test_write_patches_returns_written_count(tmp_path: Path) -> None:
+    """_write_patches returns files actually written, skipping OSError.
+
+    Args:
+        tmp_path: Temporary directory fixture.
+    """
+    from apme_engine.cli.remediate import _write_patches
+
+    patches = [
+        FilePatch(path="a.yml", original=b"o", patched=b"n", diff="D1"),
+        FilePatch(path="b.yml", original=b"o", patched=b"n", diff="D2"),
+    ]
+    with patch(
+        "apme_engine.cli.remediate._safe_write",
+        side_effect=[None, OSError("denied")],
+    ):
+        written = _write_patches(tmp_path, patches)
+    assert written == 1
+
+
+def test_emit_json_uses_written_count(capsys: pytest.CaptureFixture[str]) -> None:
+    """_emit_json prefers explicit written count over patch length.
+
+    Args:
+        capsys: Pytest capture fixture.
+    """
+    from apme_engine.cli.remediate import _emit_json
+
+    patches = [
+        FilePatch(path="a.yml", original=b"o", patched=b"n", diff="D1"),
+        FilePatch(path="b.yml", original=b"o", patched=b"n", diff="D2"),
+    ]
+    _emit_json([], patches, None, 1)
+    assert json.loads(capsys.readouterr().out)["files_updated"] == 1
+    _emit_json([], patches, None)
+    assert json.loads(capsys.readouterr().out)["files_updated"] == 2
+
+
+def test_remediate_json_files_updated_reflects_written(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """End-to-end JSON files_updated reflects actually written files.
+
+    Args:
+        tmp_path: Temporary directory fixture.
+        capsys: Pytest capture fixture.
+    """
+    from apme_engine.cli.remediate import run_remediate
+
+    result = _mk_event("result")
+    result.result.remaining_violations = []
+    result.result.patches = [
+        FilePatch(path="a.yml", original=b"o", patched=b"n", diff="D1"),
+        FilePatch(path="b.yml", original=b"o", patched=b"n", diff="D2"),
+    ]
+    channel = MagicMock()
+    stub = MagicMock()
+    stub.FixSession.return_value = [result, _mk_event("closed")]
+
+    def _chunks(*args: object, **kwargs: object) -> Iterator[ScanChunk]:
+        """Return one upload chunk.
+
+        Args:
+            *args: Positional chunk args.
+            **kwargs: Chunk keyword args.
+
+        Returns:
+            Iterator with a single ScanChunk.
+        """
+        return iter([_scan_chunk()])
+
+    with (
+        patch("apme_engine.cli.remediate.discover_project_root", return_value=tmp_path),
+        patch("apme_engine.cli.remediate.derive_session_id", return_value="s"),
+        patch("apme_engine.cli.remediate.discover_galaxy_servers", return_value=[]),
+        patch("apme_engine.cli.remediate.load_rule_configs_from_project", return_value=[]),
+        patch("apme_engine.cli.remediate.yield_scan_chunks", side_effect=_chunks),
+        patch("apme_engine.cli.remediate.resolve_engine", return_value=(channel, "addr")),
+        patch("apme_engine.cli.remediate.engine_pb2_grpc.EngineStub", return_value=stub),
+        patch(
+            "apme_engine.cli.remediate._safe_write",
+            side_effect=[None, OSError("denied")],
+        ),
+    ):
+        run_remediate(_rem_args(str(tmp_path), json=True, show_suppressed=True))
+    assert json.loads(capsys.readouterr().out)["files_updated"] == 1

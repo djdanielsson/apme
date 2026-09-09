@@ -33,6 +33,7 @@ from apme_gateway.operation_types import (
     OperationStatus,
     ProgressEntry,
     Proposal,
+    is_terminal,
 )
 
 logger = logging.getLogger(__name__)
@@ -817,26 +818,27 @@ async def operation_events(project_id: str, request: Request) -> StreamingRespon
             yield _sse_format("snapshot", snapshot)
 
             if state.status in TERMINAL_STATUSES:
-                # A terminal broadcast may already sit in this subscriber's
-                # queue (published between subscribe and the snapshot read).
-                # Drain it so the client observes exactly one terminal close
-                # instead of a snapshot with a dropped delta.
-                buffered: list[dict[str, Any]] = []
-                terminal_msg: dict[str, Any] | None = None
+                # The snapshot already reflects the full current state, so
+                # buffered pre-snapshot deltas are stale: discard non-terminal
+                # ones and forward only terminal messages (last terminal wins
+                # when several are queued, e.g. status_changed plus a trailing
+                # result carrying patches/violations).
+                terminal_msg: dict[str, object] | None = None
                 with contextlib.suppress(asyncio.QueueEmpty):
                     while True:
                         pending = queue.get_nowait()
                         if pending.get("_close"):
                             break
-                        pending_data = pending.get("data", {})
-                        if pending_data.get("status") in {s.value for s in TERMINAL_STATUSES}:
+                        if is_terminal(pending):
                             terminal_msg = pending
-                            break
-                        buffered.append(pending)
-                for pending in buffered:
-                    yield _sse_format(pending.get("event", "message"), pending.get("data", {}))
                 if terminal_msg is not None:
-                    yield _sse_format(terminal_msg.get("event", "message"), terminal_msg.get("data", {}))
+                    terminal_event = terminal_msg.get("event", "message")
+                    if not isinstance(terminal_event, str):
+                        terminal_event = "message"
+                    terminal_data = terminal_msg.get("data") or {}
+                    if not isinstance(terminal_data, dict):
+                        terminal_data = {}
+                    yield _sse_format(terminal_event, terminal_data)
                 return
 
             while True:
@@ -852,10 +854,32 @@ async def operation_events(project_id: str, request: Request) -> StreamingRespon
                     break
 
                 event_type = msg.get("event", "message")
-                data = msg.get("data", {})
+                if not isinstance(event_type, str):
+                    event_type = "message"
+                data = msg.get("data") or {}
+                if not isinstance(data, dict):
+                    data = {}
                 yield _sse_format(event_type, data)
 
-                if data.get("status") in {s.value for s in TERMINAL_STATUSES}:
+                if is_terminal(msg):
+                    # A terminal status_changed may already have a trailing
+                    # result/pr_created queued behind it (e.g. set_pr_url
+                    # transitions before broadcasting). Drain and forward
+                    # trailing terminals so patches/violations are not lost;
+                    # stale non-terminal deltas are discarded.
+                    with contextlib.suppress(asyncio.QueueEmpty):
+                        while True:
+                            trailing = queue.get_nowait()
+                            if trailing.get("_close"):
+                                break
+                            if is_terminal(trailing):
+                                trailing_event = trailing.get("event", "message")
+                                if not isinstance(trailing_event, str):
+                                    trailing_event = "message"
+                                trailing_data = trailing.get("data") or {}
+                                if not isinstance(trailing_data, dict):
+                                    trailing_data = {}
+                                yield _sse_format(trailing_event, trailing_data)
                     break
         finally:
             registry.unsubscribe(state.operation_id, queue)

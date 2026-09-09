@@ -7,10 +7,12 @@ from collections.abc import AsyncIterator
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from apme_gateway.api.schemas import CreateProjectRequest, UpdateProjectRequest
 from apme_gateway.app import create_app
 from apme_gateway.db import get_session
 from apme_gateway.db import queries as q
 from apme_gateway.db.models import Project, Scan, Session, Violation
+from apme_gateway.scm.repo_url import normalize_repo_url
 
 pytestmark = pytest.mark.usefixtures("gateway_db")
 
@@ -600,3 +602,137 @@ async def test_create_duplicate_name_rejected(client: AsyncClient) -> None:
     resp2 = await client.post("/api/v1/projects", json=payload)
     assert resp2.status_code == 409
     assert "already exists" in resp2.json()["detail"]
+
+
+def test_normalize_repo_url_strips_default_ports() -> None:
+    """Explicit default ports collapse to the implicit identity."""
+    assert normalize_repo_url("https://host.example.com:443/org/repo.git") == "https://host.example.com/org/repo"
+    assert normalize_repo_url("http://host.example.com:80/org/repo") == "http://host.example.com/org/repo"
+    assert normalize_repo_url("https://host.example.com:8443/org/repo") == "https://host.example.com:8443/org/repo"
+    assert normalize_repo_url("http://host.example.com:443/org/repo") == "http://host.example.com:443/org/repo"
+    assert normalize_repo_url("https://host.example.com/org/repo") != ("http://host.example.com/org/repo")
+
+
+def test_normalize_repo_url_strips_userinfo() -> None:
+    """Userinfo never participates in project identity."""
+    assert normalize_repo_url("https://user:token@host.example.com/org/repo.git") == "https://host.example.com/org/repo"
+
+
+async def test_lookup_collapses_default_port_variants(client: AsyncClient) -> None:
+    """Lookup resolves explicit-default-port spellings to one project.
+
+    Args:
+        client: Async HTTPX test client.
+    """
+    created = await client.post(
+        "/api/v1/projects",
+        json={
+            "name": "Default Port Project",
+            "repo_url": "https://default-port.example.com:443/org/repo.git",
+            "branch": "main",
+            "scm_provider": "github",
+        },
+    )
+    assert created.status_code == 201
+    resp = await client.get(
+        "/api/v1/projects/lookup",
+        params={"repo_url": "https://default-port.example.com/org/repo"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["id"] == created.json()["id"]
+
+
+async def test_update_project_ignores_caller_normalized_url() -> None:
+    """Caller-supplied normalized URL never bypasses canonical recompute."""
+    async with get_session() as db:
+        await q.create_project(
+            db,
+            project_id="proj-spoof",
+            name="Spoof Project",
+            repo_url="https://github.com/org/old.git",
+        )
+        updated = await q.update_project(
+            db,
+            "proj-spoof",
+            repo_url="https://github.com/org/new.git",
+            normalized_repo_url="https://evil.example.com/spoof",
+        )
+        assert updated is not None
+        assert updated.repo_url == "https://github.com/org/new.git"
+        assert updated.normalized_repo_url == normalize_repo_url("https://github.com/org/new.git")
+
+
+async def test_update_project_rejects_none_repo_url() -> None:
+    """None repo_url is rejected before a NULL write."""
+    async with get_session() as db:
+        await q.create_project(
+            db,
+            project_id="proj-null",
+            name="Null Project",
+            repo_url="https://github.com/org/repo.git",
+        )
+        with pytest.raises(ValueError, match="repo_url"):
+            await q.update_project(db, "proj-null", repo_url=None)
+
+
+async def test_find_project_by_repo_url_rejects_blank_target() -> None:
+    """Whitespace-only URLs never match a legacy row."""
+    async with get_session() as db:
+        db.add(
+            Project(
+                id="proj-legacy",
+                name="Legacy Project",
+                repo_url="https://github.com/org/real.git",
+                normalized_repo_url="",
+                branch="main",
+                created_at="2026-03-01T00:00:00Z",
+                health_score=100,
+            )
+        )
+        await db.commit()
+        found = await q.find_project_by_repo_url(db, "   ")
+        assert found is None
+
+
+async def test_find_project_by_repo_url_paginates_legacy_fallback() -> None:
+    """Legacy fallback scans past the first bounded batch."""
+    target_url = "https://github.com/org/wanted.git"
+    async with get_session() as db:
+        for idx in range(505):
+            db.add(
+                Project(
+                    id=f"filler-{idx:04d}-abcd1234abcd1234abcd1234abcd12",
+                    name=f"Filler {idx}",
+                    repo_url=f"https://github.com/org/filler-{idx}.git",
+                    normalized_repo_url="",
+                    branch="main",
+                    created_at="2026-03-01T00:00:00Z",
+                    health_score=100,
+                )
+            )
+        db.add(
+            Project(
+                id="wanted-proj-1234567890abcdef1234567890ab",
+                name="Wanted Project",
+                repo_url=target_url,
+                normalized_repo_url="",
+                branch="main",
+                created_at="2026-03-01T00:00:00Z",
+                health_score=100,
+            )
+        )
+        await db.commit()
+        found = await q.find_project_by_repo_url(db, target_url)
+        assert found is not None
+        assert found.id == "wanted-proj-1234567890abcdef1234567890ab"
+
+
+def test_project_branch_fields_expose_max_length() -> None:
+    """Project branch fields document the 100-char boundary for OpenAPI."""
+    create_schema = CreateProjectRequest.model_json_schema()["properties"]["branch"]
+    update_schema = UpdateProjectRequest.model_json_schema()["properties"]["branch"]
+    assert create_schema.get("maxLength") == 100
+    assert "1-100 chars" in (create_schema.get("description") or "")
+    branch_anyof = update_schema.get("anyOf", [])
+    assert any(option.get("maxLength") == 100 for option in branch_anyof)
+    assert "1-100 chars" in (update_schema.get("description") or "")

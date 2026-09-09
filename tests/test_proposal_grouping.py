@@ -428,3 +428,99 @@ def test_group_object_input_preserves_node_line_end() -> None:
     assert len(props) == 1
     assert props[0].line_start == 5
     assert props[0].line_end == 14
+
+
+def test_group_violations_selects_span_from_same_item() -> None:
+    """line_start/line_end come from the same grouped item."""
+    violations = [
+        {
+            "id": 1,
+            "rule_id": "L007",
+            "file": "a.yml",
+            "path": "a.yml::t[0]",
+            "line": 5,
+            "node_line_start": 10,
+            "node_line_end": 0,
+            "line_end": 0,
+            "remediation_class": 1,
+            "fixed_yaml": "x\n",
+        },
+        {
+            "id": 2,
+            "rule_id": "L013",
+            "file": "a.yml",
+            "path": "a.yml::t[0]",
+            "line": 99,
+            "node_line_start": 0,
+            "node_line_end": 50,
+            "line_end": 50,
+            "remediation_class": 1,
+            "fixed_yaml": "x\n",
+        },
+    ]
+    props = group_violations(violations)
+    assert len(props) == 1
+    assert props[0].line_start == 10
+    assert props[0].line_end == 0
+
+
+def test_to_int_coercion() -> None:
+    """_to_int coerces integral floats/numeric strings; bool/others map to 0."""
+    from apme_gateway.proposals.grouping import _to_int
+
+    assert _to_int(12) == 12
+    assert _to_int("12") == 12
+    assert _to_int(" 12 ") == 12
+    assert _to_int(12.0) == 12
+    assert _to_int("12.0") == 12
+    assert _to_int(12.5) == 0
+    assert _to_int("12.5") == 0
+    assert _to_int("high") == 0
+    assert _to_int(True) == 0
+    assert _to_int(False) == 0
+    assert _to_int(None) == 0
+    assert _to_int("") == 0
+
+
+def test_group_violations_coerces_numeric_string_lines() -> None:
+    """JSON-ish numeric strings do not collapse to 0."""
+    violations = [
+        {
+            "id": "7",
+            "rule_id": "L007",
+            "file": "a.yml",
+            "path": "a.yml::t[0]",
+            "line": "12",
+            "node_line_start": "12",
+            "node_line_end": "18",
+            "line_end": "18",
+            "remediation_class": 1,
+            "fixed_yaml": "x\n",
+        }
+    ]
+    props = group_violations(violations)
+    assert len(props) == 1
+    assert props[0].line_start == 12
+    assert props[0].line_end == 18
+    assert props[0].violation_ids == (7,)
+
+
+def test_group_violations_bool_lines_map_to_zero() -> None:
+    """Bool line values map to 0 instead of 1."""
+    violations = [
+        {
+            "id": 1,
+            "rule_id": "L007",
+            "file": "a.yml",
+            "path": "a.yml::t[0]",
+            "line": True,
+            "node_line_start": True,
+            "node_line_end": True,
+            "line_end": True,
+            "remediation_class": 1,
+            "fixed_yaml": "x\n",
+        }
+    ]
+    props = group_violations(violations)
+    assert props[0].line_start == 0
+    assert props[0].line_end == 0

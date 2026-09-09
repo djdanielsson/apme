@@ -27,7 +27,7 @@ The Gateway reverse-proxies an
 | `GET /api/v1/ai/providers` | `/api/providers` |
 | `POST /api/v1/ai/provider/{id}/configure` | `/api/provider/{id}/configure` |
 | `DELETE /api/v1/ai/provider/{id}` | `/api/provider/{id}` |
-| `GET/POST /api/v1/ai/secrets` | `/api/secrets` |
+| `POST /api/v1/ai/secrets` | `/api/secrets` |
 | `DELETE /api/v1/ai/secrets/{key}` | `/api/secrets/{key}` |
 
 `GET /api/v1/ai/models` remains Engine → Abbenay gRPC (`ListAIModels`). Chat
@@ -53,17 +53,11 @@ curl -X POST http://gateway:8080/api/v1/ai/secrets \
   -d '{"key": "OPENROUTER_API_KEY", "value": "sk-or-...", "secretStore": "memory"}'
 ```
 
-**List stored secret names:**
+**Secret listing is not proxied:**
 
-```bash
-curl http://gateway:8080/api/v1/ai/secrets
-```
-
-The response lists engine API-key slots (name, engine, `hasValue`, and
-`secretStore` when a registry backend holds the value). It does **not**
-return secret values. Helm env-injected keys typically show
-`hasValue: false` here because env is not a registry backend. Custom keys
-that are not an engine's default env var name are not listed.
+`GET /api/v1/ai/secrets` is denied with 404 at the Gateway allowlist
+(no unauthenticated secret-store reads). Inject via `POST` above; inspect
+stored secret names via Abbenay directly when listing is required.
 
 **Remove a secret:** Abbenay defaults omitted `secretStore` to **keychain**.
 Always pass the store you used when injecting, or the delete will no-op
@@ -122,12 +116,13 @@ If `secrets.json` exists but is not valid JSON, Abbenay treats reads as empty
 and **refuses writes** (it will not overwrite a corrupt file). Fix or remove
 the file on the config volume, then re-inject.
 
-> **Security note:** `GET /api/v1/ai/secrets` returns engine key **names**
-> and store metadata (not values) to any client that can reach Gateway
-> `:8080`. The Gateway REST API relies on network-isolation auth (ADR-048)
-> — operators must ensure an outer auth layer (Ingress, Route, reverse
-> proxy) before exposing `:8080` outside the cluster. Treat the Abbenay
-> config volume as secret material (`secrets.json`).
+> **Security note:** `POST /api/v1/ai/secrets` accepts secret **values**
+> and `DELETE /api/v1/ai/secrets/{key}` removes them for any client that
+> can reach Gateway `:8080` (`GET` listing is denied with 404). The Gateway
+> REST API relies on network-isolation auth (ADR-048) — operators must
+> ensure an outer auth layer (Ingress, Route, reverse proxy) before
+> exposing `:8080` outside the cluster. Treat the Abbenay config volume
+> as secret material (`secrets.json`).
 
 ### Writable config volume (#498)
 

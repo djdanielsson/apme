@@ -401,6 +401,31 @@ class TestRedactCredentials:
         result = redact_credentials(text)
         assert result == text
 
+    def test_redacts_basic_auth_header(self) -> None:
+        """AUTHORIZATION Basic header tokens are masked."""
+        token = base64.b64encode(b"x-access-token:ghp_secret123").decode("ascii")
+        text = f"http.https://github.com.extraHeader: AUTHORIZATION: Basic {token}"
+        result = redact_credentials(text)
+        assert token not in result
+        assert "Basic [REDACTED]" in result
+
+    def test_redacts_curl_verbose_authorization(self) -> None:
+        """Curl-verbose Authorization headers are masked case-insensitively."""
+        token = base64.b64encode(b"oauth2:glpat-secret").decode("ascii")
+        text = f"> Authorization: Basic {token}\r\n< HTTP/1.1 401"
+        result = redact_credentials(text)
+        assert token not in result
+        assert "[REDACTED]" in result
+
+    def test_redacts_url_and_basic_header_together(self) -> None:
+        """URL credentials and header tokens are both masked."""
+        token = base64.b64encode(b"git:s3cret-token").decode("ascii")
+        text = f"fatal: https://x-access-token:s3cret-token@github.com/repo not found (AUTHORIZATION: Basic {token})"
+        result = redact_credentials(text)
+        assert "s3cret-token" not in result
+        assert token not in result
+        assert result.count("[REDACTED]") >= 2
+
 
 @pytest.mark.asyncio  # type: ignore[untyped-decorator]
 async def test_clone_repo_with_scm_token() -> None:
@@ -448,6 +473,31 @@ async def test_clone_repo_redacts_error_messages() -> None:
                 )
 
         assert "ghp_secret" not in str(exc_info.value)
+        assert "[REDACTED]" in str(exc_info.value)
+
+
+@pytest.mark.asyncio  # type: ignore[untyped-decorator]
+async def test_clone_repo_redacts_basic_header_in_error() -> None:
+    """Verify clone_repo masks AUTHORIZATION Basic material from git stderr."""
+    token = base64.b64encode(b"x-access-token:ghp_secret123").decode("ascii")
+    with patch("apme_gateway.scan.driver.asyncio.get_running_loop") as mock_loop:
+        result = MagicMock()
+        result.returncode = 128
+        result.stderr = f"trace: http.extraHeader: AUTHORIZATION: Basic {token}\nfatal: auth failed"
+        mock_loop.return_value.run_in_executor = AsyncMock(return_value=result)
+
+        with tempfile.TemporaryDirectory() as td:
+            dest = os.path.join(td, "repo")
+            with pytest.raises(RuntimeError) as exc_info:
+                await clone_repo(
+                    "https://github.com/bad/repo.git",
+                    "main",
+                    dest,
+                    scm_token="ghp_secret123",
+                )
+
+        assert token not in str(exc_info.value)
+        assert "ghp_secret123" not in str(exc_info.value)
         assert "[REDACTED]" in str(exc_info.value)
 
 

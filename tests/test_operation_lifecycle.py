@@ -13,7 +13,13 @@ from starlette.requests import Request
 from apme_gateway.api.operation_router import operation_events
 from apme_gateway.app import create_app
 from apme_gateway.operation_registry import get_operation_registry
-from apme_gateway.operation_types import OperationState, OperationStatus, Proposal
+from apme_gateway.operation_types import (
+    OperationState,
+    OperationStatus,
+    ProgressEntry,
+    Proposal,
+    is_terminal,
+)
 
 pytestmark = pytest.mark.usefixtures("gateway_db")
 
@@ -215,6 +221,145 @@ def _canned_request() -> Request:
         "client": ("test", 50000),
     }
     return Request(scope, _receive)
+
+
+def test_is_terminal_predicate() -> None:
+    """Result/pr_created events and terminal statuses are terminal; all else is not."""
+    assert is_terminal({"event": "result", "data": {}})
+    assert is_terminal({"event": "pr_created", "data": {}})
+    assert is_terminal({"event": "result", "data": None})
+    assert is_terminal({"event": "status_changed", "data": {"status": "completed"}})
+    assert is_terminal({"event": "status_changed", "data": {"status": "pr_submitted"}})
+    assert not is_terminal({"event": "status_changed", "data": {"status": "scanning"}})
+    assert not is_terminal({"event": "progress", "data": {}})
+    assert not is_terminal({"event": "message", "data": {}})
+    assert not is_terminal({"event": "status_changed", "data": None})
+    assert not is_terminal({"event": "status_changed", "data": {"status": None}})
+    assert not is_terminal({"event": "status_changed", "data": {"status": 123}})
+
+
+async def test_events_terminal_result_without_status_drained() -> None:
+    """A stateless result delta is terminal: the drain forwards it and closes."""
+    project_id = "proj-lifecycle-events-result-no-status"
+    registry = get_operation_registry()
+    state = registry.create(
+        operation_id="op-lifecycle-events-result-no-status",
+        project_id=project_id,
+        scan_id="scan-lifecycle-events-result-no-status",
+        scan_type="remediate",
+    )
+    registry.transition(state.operation_id, OperationStatus.COMPLETED)
+
+    resp = await operation_events(project_id, _canned_request())
+    stream = resp.body_iterator
+    first = await anext(stream)
+    first_text = first if isinstance(first, str) else bytes(first).decode()
+    assert "event: snapshot" in first_text
+
+    state.sse_subscribers[0].put_nowait(
+        {
+            "event": "result",
+            "data": {"total_violations": 2, "patches": [{"file": "a.yml", "diff": "--- fix"}]},
+        }
+    )
+    rest: list[str] = []
+    async with asyncio.timeout(10):
+        async for chunk in stream:
+            rest.append(chunk if isinstance(chunk, str) else bytes(chunk).decode())
+
+    text = "".join(rest)
+    assert "event: result" in text
+    assert "a.yml" in text
+
+
+async def test_events_snapshot_drain_discards_stale_deltas() -> None:
+    """Buffered pre-snapshot deltas are discarded; only the terminal is forwarded."""
+    project_id = "proj-lifecycle-events-stale"
+    registry = get_operation_registry()
+    state = registry.create(
+        operation_id="op-lifecycle-events-stale",
+        project_id=project_id,
+        scan_id="scan-lifecycle-events-stale",
+        scan_type="remediate",
+    )
+    registry.add_progress(
+        state.operation_id,
+        ProgressEntry(phase="scanning", message="fresh-progress-marker", timestamp="2026-01-01T00:00:00+00:00"),
+    )
+    registry.transition(state.operation_id, OperationStatus.COMPLETED)
+
+    resp = await operation_events(project_id, _canned_request())
+    stream = resp.body_iterator
+    first = await anext(stream)
+    first_text = first if isinstance(first, str) else bytes(first).decode()
+    assert "event: snapshot" in first_text
+    assert "fresh-progress-marker" in first_text
+
+    state.sse_subscribers[0].put_nowait(
+        {
+            "event": "progress",
+            "data": {"phase": "scanning", "message": "stale-progress-marker"},
+        }
+    )
+    state.sse_subscribers[0].put_nowait(
+        {
+            "event": "result",
+            "data": {"total_violations": 1, "patches": [{"file": "b.yml", "diff": "--- trailing"}]},
+        }
+    )
+    rest: list[str] = []
+    async with asyncio.timeout(10):
+        async for chunk in stream:
+            rest.append(chunk if isinstance(chunk, str) else bytes(chunk).decode())
+
+    text = "".join(rest)
+    assert "stale-progress-marker" not in text
+    assert "event: result" in text
+    assert "trailing" in text
+
+
+async def test_events_live_trailing_result_after_terminal_status() -> None:
+    """A result queued behind a terminal status_changed is still delivered before close."""
+    project_id = "proj-lifecycle-events-trailing"
+    registry = get_operation_registry()
+    state = registry.create(
+        operation_id="op-lifecycle-events-trailing",
+        project_id=project_id,
+        scan_id="scan-lifecycle-events-trailing",
+        scan_type="remediate",
+    )
+    registry.transition(state.operation_id, OperationStatus.SCANNING)
+
+    resp = await operation_events(project_id, _canned_request())
+    stream = resp.body_iterator
+    first = await anext(stream)
+    first_text = first if isinstance(first, str) else bytes(first).decode()
+    assert "event: snapshot" in first_text
+
+    state.sse_subscribers[0].put_nowait(
+        {
+            "event": "status_changed",
+            "data": {"status": OperationStatus.COMPLETED.value, "previous": "scanning"},
+        }
+    )
+    state.sse_subscribers[0].put_nowait(
+        {
+            "event": "result",
+            "data": {"total_violations": 1, "patches": [{"file": "c.yml", "diff": "--- trailing-patch"}]},
+        }
+    )
+    rest: list[str] = []
+    async with asyncio.timeout(10):
+        async for chunk in stream:
+            rest.append(chunk if isinstance(chunk, str) else bytes(chunk).decode())
+
+    text = "".join(rest)
+    assert "status_changed" in text
+    assert OperationStatus.COMPLETED.value in text
+    assert "event: result" in text
+    assert "trailing-patch" in text
+    assert registry.get(state.operation_id) is not None
+    assert registry.get(state.operation_id).sse_subscribers == []  # type: ignore[union-attr]
 
 
 async def test_events_live_delta_then_terminal_close() -> None:

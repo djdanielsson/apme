@@ -185,6 +185,8 @@ async def find_project_by_repo_url(
         Matching project, or ``None`` when no normalized URL matches.
     """
     target = normalize_repo_url(repo_url)
+    if not target:
+        return None
     conditions = [Project.normalized_repo_url == target]
     if branch is not None:
         conditions.append(Project.branch == branch)
@@ -194,16 +196,25 @@ async def find_project_by_repo_url(
     if found is not None:
         return cast(Project, found)
     # Legacy fallback for rows written out-of-band without the startup
-    # backfill running (bounded; scheduled for removal once all writers go
-    # through create_project/update_project).
+    # backfill running (bounded batches; scheduled for removal once all
+    # writers go through create_project/update_project).
     fallback = [Project.normalized_repo_url == ""]
     if branch is not None:
         fallback.append(Project.branch == branch)
-    result = await db.execute(select(Project).where(*fallback).limit(500))
-    for project in result.scalars().all():
-        if normalize_repo_url(project.repo_url) != target:
-            continue
-        return cast(Project, project)
+    batch_size = 500
+    offset = 0
+    while True:
+        result = await db.execute(select(Project).where(*fallback).limit(batch_size).offset(offset))
+        batch = list(result.scalars().all())
+        if not batch:
+            break
+        for project in batch:
+            if normalize_repo_url(project.repo_url) != target:
+                continue
+            return cast(Project, project)
+        if len(batch) < batch_size:
+            break
+        offset += batch_size
     return None
 
 
@@ -245,6 +256,9 @@ async def resolve_project(db: AsyncSession, id_or_name: str) -> Project | None:
 async def update_project(db: AsyncSession, project_id: str, **fields: str | None) -> Project | None:
     """Partial-update a project.
 
+    Caller-supplied ``normalized_repo_url`` is ignored; the canonical URL is
+    always recomputed from ``repo_url`` when it changes.
+
     Args:
         db: Active async database session.
         project_id: UUID or name of the project.
@@ -252,7 +266,14 @@ async def update_project(db: AsyncSession, project_id: str, **fields: str | None
 
     Returns:
         Updated Project or None if not found.
+
+    Raises:
+        ValueError: If ``repo_url`` is explicitly ``None``.
     """
+    fields.pop("normalized_repo_url", None)
+    if "repo_url" in fields and fields["repo_url"] is None:
+        msg = "repo_url cannot be None"
+        raise ValueError(msg)
     project = await resolve_project(db, project_id)
     if project is None:
         return None

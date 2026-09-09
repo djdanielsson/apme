@@ -466,3 +466,38 @@ class TestLineEndMapping:
         proposal = OperationProposal(id="p-1", rule_id="L007", file="a.yml")
         assert proposal.line_start == 0
         assert proposal.line_end == 0
+
+    def test_orm_branch_includes_line_end(self) -> None:
+        """DB-backed rows serialize line_end like the duck-typed branch."""
+        from apme_gateway.api.schemas import ProposalDetail
+        from apme_gateway.db.models import Proposal
+        from apme_gateway.proposals.flush import proposal_to_detail_dict
+
+        row = Proposal(
+            id=1,
+            scan_id="scan-x",
+            proposal_id="prop-tier1-abc",
+            rule_id="L007",
+            file="a.yml",
+            tier=1,
+            confidence=0.9,
+            status="pending",
+            path="a.yml::t[0]",
+            source="deterministic",
+            gate="tier1",
+            rule_ids_json='["L007"]',
+            violation_ids_json="[1]",
+            line_start=10,
+            line_end=14,
+            diff_hunk="",
+            explanation="",
+            suggestion="",
+            engine_proposal_id=None,
+            draft=0,
+        )
+        payload = proposal_to_detail_dict(row)
+        assert payload["line_start"] == 10
+        assert payload["line_end"] == 14
+        detail = ProposalDetail.model_validate(payload)
+        assert detail.line_start == 10
+        assert detail.line_end == 14

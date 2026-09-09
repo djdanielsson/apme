@@ -14,6 +14,7 @@ import random
 import sys
 import threading
 import time
+import uuid
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 
@@ -72,6 +73,10 @@ def run_remediate(args: argparse.Namespace) -> None:
     galaxy_servers = discover_galaxy_servers(project_root) or None
     rule_cfgs = load_rule_configs_from_project(project_root)
 
+    # Single scan_id shared across retry attempts so the server correlates
+    # the reconnected FixSession with the original scan.
+    scan_id = str(uuid.uuid4())
+
     def _make_chunks() -> Iterator[ScanChunk]:
         """Build a fresh upload-chunk stream (re-runnable for reconnect retry).
 
@@ -84,6 +89,7 @@ def run_remediate(args: argparse.Namespace) -> None:
         """
         yield from yield_scan_chunks(
             str(target),
+            scan_id=scan_id,
             project_root_name="project",
             ansible_core_version=getattr(args, "ansible_version", None),
             collection_specs=getattr(args, "collections", None),
@@ -114,6 +120,7 @@ def run_remediate(args: argparse.Namespace) -> None:
     tier1_report: FixReport | None = None
     result_violations: list[ViolationDict] = []
     result_patches: list[FilePatch] = []
+    result_files_written = 0
     got_result = False
 
     def _run_uploads(
@@ -124,8 +131,13 @@ def run_remediate(args: argparse.Namespace) -> None:
 
         Producer failures are recorded for the main thread — never
         ``sys.exit`` here, which would only kill this daemon thread and
-        hang the consumer on an empty queue. The ``None`` sentinel is
-        always delivered so the consumer terminates.
+        hang the consumer on an empty queue. The ``None`` sentinel is only
+        enqueued on the error path so the consumer terminates; on success
+        the stream stays open for proposals/approvals and the outer
+        attempt-teardown ``finally`` delivers the single terminating
+        ``None``. On the error path the teardown ``finally`` enqueues a
+        second ``None`` that is left over in the discarded per-attempt
+        queue — harmless because each attempt owns a fresh queue.
 
         Args:
             cmd_queue: Per-attempt command queue feeding the stream.
@@ -149,7 +161,6 @@ def run_remediate(args: argparse.Namespace) -> None:
                 cmd_queue.put(SessionCommand(upload=cmd_chunk))
         except BaseException as exc:  # noqa: BLE001 — recorded, reported by main thread
             producer_errors.append(exc)
-        finally:
             cmd_queue.put(None)
 
     def _drain_commands(cmd_queue: queue.Queue[SessionCommand | None]) -> Iterator[SessionCommand]:
@@ -169,6 +180,12 @@ def run_remediate(args: argparse.Namespace) -> None:
 
     for attempt in range(2):
         retry = False
+        # Reset per-attempt state so a stale attempt-1 report does not pair
+        # with attempt-2 violations/patches after a reconnect retry.
+        tier1_report = None
+        result_violations = []
+        result_patches = []
+        result_files_written = 0
         cmd_queue: queue.Queue[SessionCommand | None] = queue.Queue()
         producer_errors: list[BaseException] = []
 
@@ -248,7 +265,7 @@ def run_remediate(args: argparse.Namespace) -> None:
                     result_violations = [violation_proto_to_dict(v) for v in result.remaining_violations]
                     result_patches = list(result.patches)
                     got_result = True
-                    _write_patches(target, result.patches)
+                    result_files_written = _write_patches(target, result.patches)
                     cmd_queue.put(SessionCommand(close=CloseRequest()))
 
                 elif oneof == "expiring":
@@ -314,7 +331,7 @@ def run_remediate(args: argparse.Namespace) -> None:
         result_violations = suppression_result.active
 
     if use_json:
-        _emit_json(result_violations, result_patches, tier1_report)
+        _emit_json(result_violations, result_patches, tier1_report, result_files_written)
     elif result_violations:
         ai_count = sum(1 for v in result_violations if v.get("remediation_class") == "ai-candidate")
         manual_count = len(result_violations) - ai_count
@@ -334,6 +351,7 @@ def _emit_json(
     violations: list[ViolationDict],
     patches: list[FilePatch],
     report: FixReport | None,
+    files_updated: int | None = None,
 ) -> None:
     """Write structured JSON to stdout.
 
@@ -341,6 +359,9 @@ def _emit_json(
         violations: Remaining violations as dicts.
         patches: Applied patches (FilePatch protos).
         report: Tier 1 remediation report.
+        files_updated: Files actually written to disk. Defaults to the
+            patch count when not provided (callers that did not go through
+            ``_write_patches``).
     """
     from apme_engine.cli.output import deduplicate_violations, sort_violations
     from apme_engine.remediation.partition import count_by_remediation_class, count_by_resolution
@@ -350,6 +371,7 @@ def _emit_json(
     res_counts = count_by_resolution(violations)
     diffs = [{"path": p.path, "diff": p.diff} for p in patches if p.diff]
     fixable = int(report.fixed) if report else 0
+    written = files_updated if files_updated is not None else sum(1 for _ in patches)
     out: dict[str, object] = {
         "violations": violations,
         "count": len(violations),
@@ -360,7 +382,7 @@ def _emit_json(
         },
         "resolution_summary": dict(res_counts),
         "diffs": diffs,
-        "files_updated": sum(1 for _ in patches),
+        "files_updated": written,
     }
     print(json.dumps(out, indent=2))
 
@@ -462,7 +484,16 @@ def _prompt_ynasq() -> str:
         sys.stderr.write("  Please enter y, n, a, s, or q\n")
 
 
-def _write_patches(target: Path, patches: Iterable[FilePatch]) -> None:
+def _write_patches(target: Path, patches: Iterable[FilePatch]) -> int:
+    """Write patched files to disk, skipping failures.
+
+    Args:
+        target: Scan target directory or single file.
+        patches: Patches to apply.
+
+    Returns:
+        Number of files actually written (OSError skips excluded).
+    """
     count = 0
     for p in patches:
         out_path = target / p.path if target.is_dir() else target
@@ -475,6 +506,7 @@ def _write_patches(target: Path, patches: Iterable[FilePatch]) -> None:
         sys.stderr.write(f"  Fixed: {p.path} [{rules}]\n")
         count += 1
     sys.stderr.write(f"\n{count} file(s) updated.\n")
+    return count
 
 
 def _render_remaining(result: SessionResult) -> None:

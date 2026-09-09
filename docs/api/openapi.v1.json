@@ -654,6 +654,8 @@
         "properties": {
           "branch": {
             "default": "main",
+            "description": "Branch to clone (default main). 1-100 chars; letters, digits, '.', '_', '/', '-'; must satisfy git check-ref-format component rules. Invalid names fail with 422.",
+            "maxLength": 100,
             "title": "Branch",
             "type": "string"
           },
@@ -2491,12 +2493,14 @@
           "branch": {
             "anyOf": [
               {
+                "maxLength": 100,
                 "type": "string"
               },
               {
                 "type": "null"
               }
             ],
+            "description": "New branch to clone. 1-100 chars; letters, digits, '.', '_', '/', '-'; must satisfy git check-ref-format component rules. Invalid names fail with 422.",
             "title": "Branch"
           },
           "name": {

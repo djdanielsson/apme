@@ -2,6 +2,7 @@
 
 import json
 import os
+import subprocess
 import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -1050,3 +1051,71 @@ class TestListInstalledCollections:
 
         fqcns = [c[0] for c in colls]
         assert fqcns == ["ansible.posix", "community.general"]
+
+
+class TestCreateBaseVenvTimeout:
+    """Bounded venv creation maps stalls to PipInstallTimeout."""
+
+    def test_venv_creation_timeout_raises(self, tmp_path: Path) -> None:
+        """TimeoutExpired during venv creation raises PipInstallTimeout.
+
+        Args:
+            tmp_path: Pytest-provided temporary directory.
+        """
+        from apme_engine.venv_manager.session import (
+            _PIP_INSTALL_TIMEOUT_S,
+            PipInstallTimeout,
+            create_base_venv,
+        )
+
+        venv_dir = tmp_path / "venv"
+        with (
+            patch(
+                "apme_engine.venv_manager.session.subprocess.run",
+                side_effect=subprocess.TimeoutExpired(cmd="uv venv", timeout=_PIP_INSTALL_TIMEOUT_S),
+            ) as mock_run,
+            pytest.raises(PipInstallTimeout),
+        ):
+            create_base_venv(venv_dir, "2.17.0")
+
+        assert mock_run.call_args is not None
+        assert mock_run.call_args[1].get("timeout") == _PIP_INSTALL_TIMEOUT_S
+
+    def test_ansible_core_install_timeout_raises(self, tmp_path: Path) -> None:
+        """TimeoutExpired during ansible-core install raises PipInstallTimeout.
+
+        Args:
+            tmp_path: Pytest-provided temporary directory.
+        """
+        from apme_engine.venv_manager.session import (
+            _PIP_INSTALL_TIMEOUT_S,
+            PipInstallTimeout,
+            create_base_venv,
+        )
+
+        venv_dir = tmp_path / "venv"
+        ok_result = MagicMock()
+        ok_result.returncode = 0
+        with (
+            patch(
+                "apme_engine.venv_manager.session._uv_available",
+                return_value=False,
+            ),
+            patch(
+                "apme_engine.venv_manager.session.subprocess.run",
+                side_effect=[
+                    ok_result,
+                    subprocess.TimeoutExpired(cmd="pip install", timeout=_PIP_INSTALL_TIMEOUT_S),
+                ],
+            ) as mock_run,
+            patch(
+                "apme_engine.venv_manager.session.get_venv_python",
+                return_value=tmp_path / "venv" / "bin" / "python",
+            ),
+            pytest.raises(PipInstallTimeout),
+        ):
+            create_base_venv(venv_dir, "2.17.0")
+
+        assert mock_run.call_count == 2
+        for call in mock_run.call_args_list:
+            assert call[1].get("timeout") == _PIP_INSTALL_TIMEOUT_S

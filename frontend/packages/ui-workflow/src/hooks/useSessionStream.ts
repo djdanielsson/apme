@@ -95,7 +95,7 @@ export interface SessionOptions {
 // ── Helpers ────────────────────────────────────────────────────────
 
 function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null;
+  return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
 function isPatchArray(v: unknown): v is Patch[] {
@@ -133,10 +133,12 @@ function isProposalArray(v: unknown): v is Proposal[] {
         typeof p.id === "string" &&
         typeof p.file === "string" &&
         typeof p.rule_id === "string" &&
-        typeof p.line_start === "number" &&
-        // line_end is additive: old servers and third-party producers may
-        // omit it. Accept undefined here and normalize to 0 at setProposals
-        // so mixed-version rollouts degrade instead of tearing down.
+        // line_start/line_end are additive: old servers and third-party
+        // producers may omit them. Accept undefined here and normalize to 0
+        // at setProposals so mixed-version rollouts degrade instead of
+        // tearing down.
+        (typeof p.line_start === "number" ||
+          typeof p.line_start === "undefined") &&
         (typeof p.line_end === "number" ||
           typeof p.line_end === "undefined"),
     )
@@ -288,10 +290,10 @@ export function useSessionStream() {
   /** Wire shared WS event handlers (used by both start and resume). */
   const wireHandlers = useCallback(
     (ws: WebSocket) => {
-      // A malformed payload means the server stream cannot be trusted:
-      // surface the error and close the socket instead of leaving the UI
-      // on a non-terminal spinner with no recovery path.
-      const failMalformed = (message: string) => {
+      // A malformed TERMINAL result means the server stream cannot be
+      // trusted: surface the error and close the socket instead of leaving
+      // the UI on a non-terminal spinner with no recovery path.
+      const failMalformedTerminal = (message: string) => {
         setError(message);
         setCanReconnect(false);
         clearPersistedSession();
@@ -305,6 +307,23 @@ export function useSessionStream() {
           wsRef.current = null;
         }
       };
+      // A malformed NON-terminal frame (tier1_complete, proposals,
+      // session_created) must not destroy resume: the server session is
+      // still alive and the phase may be reconnectable. Surface the error
+      // but preserve the persisted session and the reconnect affordance,
+      // and keep the socket open so the server can continue the stream.
+      const failMalformedNonTerminal = (message: string) => {
+        setError(message);
+        if (
+          RECONNECTABLE_PHASES.has(statusRef.current) &&
+          sessionIdRef.current
+        ) {
+          setCanReconnect(true);
+          updateStatus("disconnected");
+        } else {
+          updateStatus("error");
+        }
+      };
       ws.onmessage = (event) => {
         let msg: Record<string, unknown>;
         try {
@@ -314,19 +333,33 @@ export function useSessionStream() {
         }
 
         switch (msg.type) {
-          case "session_created":
-            setSessionId(msg.session_id as string);
-            sessionIdRef.current = msg.session_id as string;
-            setScanId(msg.scan_id as string);
+          case "session_created": {
+            const sid = msg.session_id;
+            const scid = msg.scan_id;
+            if (
+              typeof sid !== "string" ||
+              sid.length === 0 ||
+              typeof scid !== "string" ||
+              scid.length === 0
+            ) {
+              failMalformedNonTerminal(
+                "Received malformed session from server",
+              );
+              break;
+            }
+            setSessionId(sid);
+            sessionIdRef.current = sid;
+            setScanId(scid);
             persistSession(
-              msg.session_id as string,
-              msg.scan_id as string,
+              sid,
+              scid,
               typeof msg.ttl_seconds === "number"
                 ? msg.ttl_seconds
                 : undefined,
             );
             updateStatus("checking");
             break;
+          }
 
           case "progress":
             setProgress((prev) => [
@@ -345,7 +378,9 @@ export function useSessionStream() {
               setTier1(msg);
               updateStatus("tier1_done");
             } else {
-              failMalformed("Received malformed tier1 result from server");
+              failMalformedNonTerminal(
+                "Received malformed tier1 result from server",
+              );
             }
             break;
 
@@ -354,13 +389,17 @@ export function useSessionStream() {
               setProposals(
                 msg.proposals.map((p) => ({
                   ...p,
+                  line_start:
+                    typeof p.line_start === "number" ? p.line_start : 0,
                   line_end:
                     typeof p.line_end === "number" ? p.line_end : 0,
                 })),
               );
               updateStatus("awaiting_approval");
             } else {
-              failMalformed("Received malformed proposals from server");
+              failMalformedNonTerminal(
+                "Received malformed proposals from server",
+              );
             }
             break;
 
@@ -374,7 +413,7 @@ export function useSessionStream() {
 
           case "result":
             if (!isSessionResult(msg)) {
-              failMalformed("Received malformed result from server");
+              failMalformedTerminal("Received malformed result from server");
               break;
             }
             setResult(msg);

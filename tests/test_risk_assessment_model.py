@@ -417,7 +417,7 @@ def test_post_init_no_indices(tmp_path: Path) -> None:
     """Empty root leaves all indices empty.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     assert client.module_index == {}
@@ -430,7 +430,7 @@ def test_post_init_loads_all_indices(tmp_path: Path) -> None:
     """Present index files populate all four indices.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     indices = tmp_path / "indices"
     indices.mkdir()
@@ -449,7 +449,7 @@ def test_post_init_partial_indices(tmp_path: Path) -> None:
     """Only existing index files are loaded.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     indices = tmp_path / "indices"
     indices.mkdir()
@@ -465,7 +465,7 @@ def test_remove_old_item_under_limit(tmp_path: Path) -> None:
     """Cache under the limit is unchanged.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     data: YAMLDict = {"a": "1", "b": "2"}
@@ -477,7 +477,7 @@ def test_remove_old_item_at_limit(tmp_path: Path) -> None:
     """Cache exactly at the limit is unchanged.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     data: YAMLDict = {"a": "1", "b": "2"}
@@ -489,7 +489,7 @@ def test_remove_old_item_evicts_oldest(tmp_path: Path) -> None:
     """Overflow evicts the oldest inserted keys first.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     data: YAMLDict = {"a": "1", "b": "2", "c": "3", "d": "4"}
@@ -501,7 +501,7 @@ def test_clear_old_cache_evicts_all(tmp_path: Path) -> None:
     """All five caches shrink to max_cache_size.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     client.max_cache_size = 2
@@ -522,7 +522,7 @@ def test_clear_old_cache_under_limit_noop(tmp_path: Path) -> None:
     """Small caches are left untouched.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     client.findings_cache = {"a": "1"}
@@ -534,7 +534,7 @@ def test_register_saves_and_clears(tmp_path: Path) -> None:
     """Register writes findings to the derived directory.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     findings = _make_findings()
@@ -553,7 +553,7 @@ def test_register_empty_metadata_defaults(tmp_path: Path) -> None:
     """Missing metadata keys default to empty strings.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     findings = Findings(metadata={})
@@ -570,7 +570,7 @@ def test_register_indices_delegates(tmp_path: Path) -> None:
     """register_indices_to_ram fans out to all four registrars.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     findings = _make_findings()
@@ -592,7 +592,7 @@ def test_register_module_index_new_module(tmp_path: Path) -> None:
     """A new module is persisted to the module index.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     mod = _make_module()
@@ -608,7 +608,7 @@ def test_register_module_index_duplicate_skips_save(tmp_path: Path) -> None:
     """Re-registering the same module performs no second save.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     mod = _make_module()
@@ -625,7 +625,7 @@ def test_register_module_index_skips_non_module(tmp_path: Path) -> None:
     """Non-Module entries in the modules list are ignored.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     defs = cast(YAMLDict, {"modules": ["junk", 42]})
@@ -640,7 +640,7 @@ def test_register_module_index_skips_test_content(tmp_path: Path) -> None:
     """Test-path modules are skipped when the flag is set.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     mod = _make_module(defined_in="tests/integration/foo.py")
@@ -656,7 +656,7 @@ def test_register_module_index_includes_test_without_flag(tmp_path: Path) -> Non
     """Test-path modules are kept when the flag is unset.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     mod = _make_module(defined_in="tests/integration/foo.py")
@@ -671,7 +671,7 @@ def test_register_module_index_existing_dict_duplicate(tmp_path: Path) -> None:
     """Dict-encoded existing entries compare equal and skip saving.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     mod = _make_module()
@@ -688,7 +688,7 @@ def test_register_module_index_existing_object_duplicate(tmp_path: Path) -> None
     """ModuleMetadata object entries compare equal and skip saving.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     mod = _make_module()
@@ -707,7 +707,7 @@ def test_register_module_index_junk_existing_entry(tmp_path: Path) -> None:
     """Junk existing entries are skipped before appending the new module.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     mod = _make_module()
@@ -724,7 +724,7 @@ def test_register_module_index_routing_redirect(tmp_path: Path) -> None:
     """Plugin routing redirects create deprecated index entries.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     coll = _make_collection()
@@ -740,7 +740,7 @@ def test_register_module_index_routing_empty_redirect(tmp_path: Path) -> None:
     """Routing entries without a redirect are ignored.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     coll = _make_collection()
@@ -757,7 +757,7 @@ def test_register_module_index_routing_duplicate(tmp_path: Path) -> None:
     """Duplicate routing redirects are not saved twice.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     coll = _make_collection()
@@ -775,7 +775,7 @@ def test_register_module_index_routing_junk_existing(tmp_path: Path) -> None:
     """Junk routing entries are skipped before appending.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     coll = _make_collection()
@@ -793,7 +793,7 @@ def test_register_module_index_skips_non_collection(tmp_path: Path) -> None:
     """Non-Collection entries in collections are ignored.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     defs = cast(YAMLDict, {"modules": [], "collections": ["junk"]})
@@ -808,7 +808,7 @@ def test_register_module_index_collection_no_runtime(tmp_path: Path) -> None:
     """Collections without meta_runtime add no routing entries.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     coll = _make_collection()
@@ -825,7 +825,7 @@ def test_register_role_index_new_role(tmp_path: Path) -> None:
     """A new role is persisted to the role index.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     role = _make_role()
@@ -840,7 +840,7 @@ def test_register_role_index_duplicate(tmp_path: Path) -> None:
     """Re-registering the same role performs no second save.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     role = _make_role()
@@ -857,7 +857,7 @@ def test_register_role_index_skips_non_role(tmp_path: Path) -> None:
     """Non-Role entries are ignored.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     defs = cast(YAMLDict, {"roles": ["junk"]})
@@ -872,7 +872,7 @@ def test_register_role_index_skips_test_content(tmp_path: Path) -> None:
     """Test-path roles are skipped when the flag is set.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     role = _make_role(defined_in="molecule/default")
@@ -888,7 +888,7 @@ def test_register_role_index_object_duplicate(tmp_path: Path) -> None:
     """RoleMetadata object entries compare equal and skip saving.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     role = _make_role()
@@ -907,7 +907,7 @@ def test_register_role_index_junk_existing(tmp_path: Path) -> None:
     """Junk existing role entries are skipped before appending.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     role = _make_role()
@@ -924,7 +924,7 @@ def test_register_taskfile_index_new(tmp_path: Path) -> None:
     """A new taskfile is persisted to the taskfile index.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     taskfile = _make_taskfile()
@@ -939,7 +939,7 @@ def test_register_taskfile_index_duplicate(tmp_path: Path) -> None:
     """Re-registering the same taskfile performs no second save.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     taskfile = _make_taskfile()
@@ -956,7 +956,7 @@ def test_register_taskfile_index_skips_non_taskfile(tmp_path: Path) -> None:
     """Non-TaskFile entries are ignored.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     defs = cast(YAMLDict, {"taskfiles": ["junk"]})
@@ -971,7 +971,7 @@ def test_register_taskfile_index_skips_test_content(tmp_path: Path) -> None:
     """Test-path taskfiles are skipped when the flag is set.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     taskfile = _make_taskfile()
@@ -988,7 +988,7 @@ def test_register_taskfile_index_object_duplicate(tmp_path: Path) -> None:
     """TaskFileMetadata object entries compare equal and skip saving.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     taskfile = _make_taskfile()
@@ -1007,7 +1007,7 @@ def test_register_taskfile_index_junk_existing(tmp_path: Path) -> None:
     """Junk existing taskfile entries are skipped before appending.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     taskfile = _make_taskfile()
@@ -1024,7 +1024,7 @@ def test_register_action_group_new(tmp_path: Path) -> None:
     """Action groups register both short and fully qualified names.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     coll = _make_collection()
@@ -1042,7 +1042,7 @@ def test_register_action_group_duplicate(tmp_path: Path) -> None:
     """Re-registering the same action group performs no second save.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     coll = _make_collection()
@@ -1060,7 +1060,7 @@ def test_register_action_group_skips_non_collection(tmp_path: Path) -> None:
     """Non-Collection entries are ignored.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     defs = cast(YAMLDict, {"collections": ["junk"]})
@@ -1075,7 +1075,7 @@ def test_register_action_group_no_runtime(tmp_path: Path) -> None:
     """Collections without meta_runtime add no groups.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     coll = _make_collection()
@@ -1092,7 +1092,7 @@ def test_register_action_group_empty_modules(tmp_path: Path) -> None:
     """Empty group module lists yield no crash and no duplicate crash.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     coll = _make_collection()
@@ -1111,7 +1111,7 @@ def test_register_action_group_junk_existing(tmp_path: Path) -> None:
     """Junk existing action group entries are skipped before appending.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     coll = _make_collection()
@@ -1130,7 +1130,7 @@ def test_register_action_group_object_duplicate(tmp_path: Path) -> None:
     """ActionGroupMetadata object entries compare equal and skip saving.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     coll = _make_collection()
@@ -1154,7 +1154,7 @@ def test_make_findings_dir_path_collection(tmp_path: Path) -> None:
     """Collection paths use the plain name without escaping.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     out = client.make_findings_dir_path("collection", "ns.coll", "1.0", "abc")
@@ -1165,7 +1165,7 @@ def test_make_findings_dir_path_project_escapes(tmp_path: Path) -> None:
     """Project paths escape URL characters.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     out = client.make_findings_dir_path("project", "https://example.com/a/b", "1.0", "abc")
@@ -1177,7 +1177,7 @@ def test_make_findings_dir_path_playbook_escapes(tmp_path: Path) -> None:
     """Playbook paths escape URL characters.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     out = client.make_findings_dir_path("playbook", "https://example.com/p.yml", "2.0", "h")
@@ -1188,7 +1188,7 @@ def test_make_findings_dir_path_taskfile_escapes(tmp_path: Path) -> None:
     """Taskfile paths escape URL characters.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     out = client.make_findings_dir_path("taskfile", "https://example.com/t.yml", "2.0", "h")
@@ -1199,7 +1199,7 @@ def test_make_findings_dir_path_unknown_version_hash(tmp_path: Path) -> None:
     """Empty version and hash become unknown placeholders.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     out = client.make_findings_dir_path("role", "myrole", "", "")
@@ -1210,7 +1210,7 @@ def test_load_metadata_not_found(tmp_path: Path) -> None:
     """Missing findings return a not-loaded tuple.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     with patch("apme_engine.engine.risk_assessment_model.RAMClient._search_findings") as mock_search:
@@ -1225,7 +1225,7 @@ def test_load_metadata_non_findings(tmp_path: Path) -> None:
     """Non-Findings search results return a not-loaded tuple.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     with patch("apme_engine.engine.risk_assessment_model.RAMClient._search_findings") as mock_search:
@@ -1240,7 +1240,7 @@ def test_load_metadata_success(tmp_path: Path) -> None:
     """Matching findings return metadata and dependencies.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     findings = _make_findings()
@@ -1257,7 +1257,7 @@ def test_load_definitions_missing_file(tmp_path: Path) -> None:
     """Absent findings.json yields empty definitions and mappings.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     with patch("apme_engine.engine.risk_assessment_model.os.path.exists") as mock_exists:
@@ -1272,7 +1272,7 @@ def test_load_definitions_none_findings(tmp_path: Path) -> None:
     """Findings.load returning None yields empty results.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     with (
@@ -1291,7 +1291,7 @@ def test_load_definitions_unresolved_blocked(tmp_path: Path) -> None:
     """Extra requirements block loading unless allowed.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     findings = _make_findings()
@@ -1313,7 +1313,7 @@ def test_load_definitions_unresolved_allowed(tmp_path: Path) -> None:
     """Allow-unresolved loads definitions despite extra requirements.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     findings = _make_findings()
@@ -1337,7 +1337,7 @@ def test_load_definitions_empty_mappings(tmp_path: Path) -> None:
     """Empty mappings leave the loaded flag false.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     findings = _make_findings()
@@ -1356,7 +1356,7 @@ def test_search_builtin_module_cache_hit(tmp_path: Path) -> None:
     """Cached builtin modules avoid the loader call.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     mod = _make_module(name="ping", fqcn="ansible.builtin.ping", collection="ansible.builtin")
@@ -1373,7 +1373,7 @@ def test_search_builtin_module_loads_and_strips_fqcn(tmp_path: Path) -> None:
     """FQCN input strips to the short name before lookup.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     mod = _make_module(name="ping", fqcn="ansible.builtin.ping", collection="ansible.builtin")
@@ -1388,7 +1388,7 @@ def test_search_builtin_module_miss(tmp_path: Path) -> None:
     """Unknown builtin names return no matches.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     with patch("apme_engine.engine.risk_assessment_model.load_builtin_modules") as mock_loader:
@@ -1401,7 +1401,7 @@ def test_load_from_indice_collection(tmp_path: Path) -> None:
     """Collection-typed metadata builds a module wrapper.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     meta = cast(
@@ -1419,7 +1419,7 @@ def test_load_from_indice_role(tmp_path: Path) -> None:
     """Role-typed metadata records the role name.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     meta = cast(YAMLDict, {"type": "role", "name": "myrole", "fqcn": "ns.coll.mymod", "version": "1.0", "hash": "h"})
@@ -1432,7 +1432,7 @@ def test_load_from_indice_other_type(tmp_path: Path) -> None:
     """Unknown index types leave collection and role empty.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     meta = cast(YAMLDict, {"type": "", "name": "n", "fqcn": "f.q.m", "version": "", "hash": ""})
@@ -1445,7 +1445,7 @@ def test_search_module_max_match_zero(tmp_path: Path) -> None:
     """max_match zero short-circuits to an empty list.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     assert client.search_module("anything", max_match=0) == []
@@ -1455,7 +1455,7 @@ def test_search_module_cache_hit(tmp_path: Path) -> None:
     """Cached module searches return without index work.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     import json as _json
 
@@ -1470,7 +1470,7 @@ def test_search_module_builtin_hit(tmp_path: Path) -> None:
     """Builtin matches are cached and returned directly.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     sentinel = cast(YAMLDict, {"type": "module"})
@@ -1485,7 +1485,7 @@ def test_search_module_index_miss(tmp_path: Path) -> None:
     """Names absent from the index return no matches.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     with patch("apme_engine.engine.risk_assessment_model.RAMClient.search_builtin_module") as mock_b:
@@ -1498,7 +1498,7 @@ def test_search_module_index_empty_list(tmp_path: Path) -> None:
     """Empty index lists behave like a missing index.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     client.module_index = cast(YAMLDict, {"mymod": []})
@@ -1512,7 +1512,7 @@ def test_search_module_index_path_missing(tmp_path: Path) -> None:
     """Indexed entries without findings files return no matches.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     client.module_index = cast(
@@ -1533,7 +1533,7 @@ def test_search_module_fuzzy_match_via_findings(tmp_path: Path) -> None:
     """Fuzzy short-name matches resolve through the findings cache.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     mod = _make_module()
@@ -1561,7 +1561,7 @@ def test_search_module_findings_cache_hit(tmp_path: Path) -> None:
     """Populated findings caches avoid Findings.load calls.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     mod = _make_module()
@@ -1587,7 +1587,7 @@ def test_search_module_load_not_findings(tmp_path: Path) -> None:
     """Non-Findings loads are skipped gracefully.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     client.module_index = cast(
@@ -1610,7 +1610,7 @@ def test_search_module_skips_non_module(tmp_path: Path) -> None:
     """Non-Module definitions never match.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     client.module_index = cast(
@@ -1635,7 +1635,7 @@ def test_search_module_exact_match(tmp_path: Path) -> None:
     """Exact matching requires full FQCN equality.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     mod = _make_module()
@@ -1673,7 +1673,7 @@ def test_search_module_fqcn_suffix_match(tmp_path: Path) -> None:
     """Short names match the trailing FQCN component.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     mod = _make_module(fqcn="other.coll.mymod")
@@ -1703,7 +1703,7 @@ def test_search_module_fqcn_name_match(tmp_path: Path) -> None:
     """FQCN queries match findings entries by full name.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     mod = _make_module()
@@ -1729,7 +1729,7 @@ def test_search_module_max_match_limits(tmp_path: Path) -> None:
     """max_match stops the scan after enough matches.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     mod_one = _make_module(name="mymod", fqcn="ns.coll.mymod")
@@ -1757,7 +1757,7 @@ def test_search_module_deprecated_preference(tmp_path: Path) -> None:
     """FQCN lookups prefer non-deprecated index entries.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     mod = _make_module()
@@ -1790,7 +1790,7 @@ def test_search_module_all_deprecated_fallback(tmp_path: Path) -> None:
     """All-deprecated lists fall back to the first index entry.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     mod = _make_module()
@@ -1820,7 +1820,7 @@ def test_search_module_nondict_first_index(tmp_path: Path) -> None:
     """Non-dict first entries resolve to no index and miss.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     client.module_index = cast(YAMLDict, {"mymod": ["junk"]})
@@ -1834,7 +1834,7 @@ def test_search_role_max_match_zero(tmp_path: Path) -> None:
     """max_match zero short-circuits role search.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     assert client.search_role("r", max_match=0) == []
@@ -1844,7 +1844,7 @@ def test_search_role_cache_hit(tmp_path: Path) -> None:
     """Cached role searches return directly.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     import json as _json
 
@@ -1859,7 +1859,7 @@ def test_search_role_index_miss(tmp_path: Path) -> None:
     """Roles absent from the index return no matches.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     assert client.search_role("nosuchrole") == []
@@ -1869,7 +1869,7 @@ def test_search_role_index_empty_list(tmp_path: Path) -> None:
     """Empty role index lists behave like a miss.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     client.role_index = cast(YAMLDict, {"myrole": []})
@@ -1880,7 +1880,7 @@ def test_search_role_nondict_index(tmp_path: Path) -> None:
     """Non-dict role index entries resolve to no findings.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     client.role_index = cast(YAMLDict, {"myrole": ["junk"]})
@@ -1891,7 +1891,7 @@ def test_search_role_path_missing(tmp_path: Path) -> None:
     """Indexed roles without findings files return no matches.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     client.role_index = cast(
@@ -1906,7 +1906,7 @@ def test_search_role_match_with_offspring(tmp_path: Path) -> None:
     """Role matches collect taskfile offspring recursively.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     role = _make_role()
@@ -1936,7 +1936,7 @@ def test_search_role_string_taskfile_key(tmp_path: Path) -> None:
     """String taskfile references are resolved via search_taskfile.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     role = _make_role()
@@ -1963,7 +1963,7 @@ def test_search_role_exact_and_fuzzy(tmp_path: Path) -> None:
     """Exact matching rejects suffixes that fuzzy matching accepts.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     role = _make_role(fqcn="ns.coll.myrole")
@@ -2000,7 +2000,7 @@ def test_search_role_findings_cache_and_non_findings(tmp_path: Path) -> None:
     """Findings cache hits avoid loads; non-Findings loads are skipped.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     role = _make_role(fqcn="ns.coll.myrole")
@@ -2034,7 +2034,7 @@ def test_search_role_skips_non_role_and_max_match(tmp_path: Path) -> None:
     """Non-Role definitions are skipped and max_match limits output.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     role = _make_role(fqcn="ns.coll.myrole")
@@ -2059,7 +2059,7 @@ def test_search_role_falsy_child_offspring(tmp_path: Path) -> None:
     """Falsy taskfile children skip the direct append but still collect.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     role = _make_role(fqcn="ns.coll.myrole")
@@ -2085,7 +2085,7 @@ def test_make_taskfile_key_candidates_empty(tmp_path: Path) -> None:
     """Empty from_path yields no candidates.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     assert client.make_taskfile_key_candidates("tasks/a.yml", "", "k") == []
@@ -2095,7 +2095,7 @@ def test_make_taskfile_key_candidates_simple(tmp_path: Path) -> None:
     """Sibling references yield a single candidate key.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     cands = client.make_taskfile_key_candidates("other.yml", "/repo/tasks/main.yml", "taskfile k")
@@ -2107,7 +2107,7 @@ def test_make_taskfile_key_candidates_roles(tmp_path: Path) -> None:
     """Role-relative references yield two candidate keys.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     cands = client.make_taskfile_key_candidates(
@@ -2120,7 +2120,7 @@ def test_search_taskfile_max_match_zero(tmp_path: Path) -> None:
     """max_match zero short-circuits taskfile search.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     assert client.search_taskfile("x", is_key=True, max_match=0) == []
@@ -2130,7 +2130,7 @@ def test_search_taskfile_requires_from_path(tmp_path: Path) -> None:
     """Non-key lookups without from_path return nothing.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     assert client.search_taskfile("tasks/a.yml") == []
@@ -2140,7 +2140,7 @@ def test_search_taskfile_cache_hit(tmp_path: Path) -> None:
     """Cached taskfile searches return directly.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     import json as _json
 
@@ -2155,7 +2155,7 @@ def test_search_taskfile_index_miss(tmp_path: Path) -> None:
     """Unknown taskfile keys return no matches.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     assert client.search_taskfile("unknown-key", is_key=True) == []
@@ -2165,7 +2165,7 @@ def test_search_taskfile_nondict_index(tmp_path: Path) -> None:
     """Non-dict taskfile index entries resolve to no findings.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     client.taskfile_index = cast(YAMLDict, {"mykey": ["junk"]})
@@ -2176,7 +2176,7 @@ def test_search_taskfile_path_missing(tmp_path: Path) -> None:
     """Indexed taskfiles without findings files return nothing.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     tkey = "taskfile collection:ns.coll#taskfile:tasks/main.yml"
@@ -2192,7 +2192,7 @@ def test_search_taskfile_match_with_offspring(tmp_path: Path) -> None:
     """Taskfile matches collect task offspring recursively.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     tkey = "taskfile collection:ns.coll#taskfile:tasks/main.yml"
@@ -2222,7 +2222,7 @@ def test_search_taskfile_string_task_key(tmp_path: Path) -> None:
     """String task references resolve through search_task.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     tkey = "taskfile collection:ns.coll#taskfile:tasks/main.yml"
@@ -2249,7 +2249,7 @@ def test_search_taskfile_findings_cache_and_non_findings(tmp_path: Path) -> None
     """Findings cache hits avoid loads; bad loads are skipped.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     tkey = "taskfile collection:ns.coll#taskfile:tasks/main.yml"
@@ -2285,7 +2285,7 @@ def test_search_taskfile_skips_non_taskfile_and_max_match(tmp_path: Path) -> Non
     """Non-TaskFile entries are skipped and max_match limits output.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     tkey = "taskfile collection:ns.coll#taskfile:tasks/main.yml"
@@ -2314,7 +2314,7 @@ def test_search_taskfile_via_reference_path(tmp_path: Path) -> None:
     """Non-key references build candidate keys from the call site.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     from apme_engine.engine.keyutil import make_imported_taskfile_key
@@ -2343,7 +2343,7 @@ def test_search_taskfile_falsy_child(tmp_path: Path) -> None:
     """Falsy task children skip the direct append but still collect.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     tkey = "taskfile collection:ns.coll#taskfile:tasks/main.yml"
@@ -2370,7 +2370,7 @@ def test_search_task_max_match_zero(tmp_path: Path) -> None:
     """max_match zero short-circuits task search.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     assert client.search_task("x", content_info=cast(YAMLDict, {"type": "c"}), max_match=0) == []
@@ -2380,7 +2380,7 @@ def test_search_task_no_content_info(tmp_path: Path) -> None:
     """Missing content info returns no matches.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     assert client.search_task("x") == []
@@ -2391,7 +2391,7 @@ def test_search_task_non_dict_content_info(tmp_path: Path) -> None:
     """Non-dict content info returns no matches.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     assert client.search_task("x", content_info=cast(YAMLDict, cast(object, "junk"))) == []
@@ -2401,7 +2401,7 @@ def test_search_task_empty_content_info(tmp_path: Path) -> None:
     """Empty content info returns no matches.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     assert client.search_task("x", content_info={}) == []
@@ -2411,7 +2411,7 @@ def test_search_task_cache_hit(tmp_path: Path) -> None:
     """Cached task searches return directly.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     import json as _json
 
@@ -2427,7 +2427,7 @@ def test_search_task_path_missing(tmp_path: Path) -> None:
     """Missing findings files return no matches.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     info = cast(YAMLDict, {"type": "collection", "name": "ns.coll", "version": "1", "hash": "h"})
@@ -2440,7 +2440,7 @@ def test_search_task_empty_type_content(tmp_path: Path) -> None:
     """Content info without a type still builds a findings path.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     info = cast(YAMLDict, {"type": "", "name": "n", "version": "1", "hash": "h"})
@@ -2461,7 +2461,7 @@ def test_search_task_by_key_module_offspring(tmp_path: Path) -> None:
     """Key matches with module executables collect module offspring.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     info = cast(YAMLDict, {"type": "collection", "name": "ns.coll", "version": "1", "hash": "h"})
@@ -2486,7 +2486,7 @@ def test_search_task_role_offspring(tmp_path: Path) -> None:
     """Role executables resolve through role search.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     info = cast(YAMLDict, {"type": "collection", "name": "ns.coll", "version": "1", "hash": "h"})
@@ -2510,7 +2510,7 @@ def test_search_task_taskfile_offspring(tmp_path: Path) -> None:
     """Taskfile executables resolve through taskfile search.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     info = cast(YAMLDict, {"type": "collection", "name": "ns.coll", "version": "1", "hash": "h"})
@@ -2535,7 +2535,7 @@ def test_unknown_executable_type_yields_no_offspring(tmp_path: Path) -> None:
     """Matched unknown-type tasks return one result with empty offspring.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     info = cast(YAMLDict, {"type": "collection", "name": "ns.coll", "version": "1", "hash": "h"})
@@ -2557,7 +2557,7 @@ def test_search_task_empty_executable_type_no_offspring(tmp_path: Path) -> None:
     """Empty executable types also yield empty offspring.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     info = cast(YAMLDict, {"type": "collection", "name": "ns.coll", "version": "1", "hash": "h"})
@@ -2579,7 +2579,7 @@ def test_search_task_name_exact_and_fuzzy(tmp_path: Path) -> None:
     """Exact name search rejects partial names that fuzzy accepts.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     info = cast(YAMLDict, {"type": "collection", "name": "ns.coll", "version": "1", "hash": "h"})
@@ -2618,7 +2618,7 @@ def test_search_task_empty_name_never_fuzzy_matches(tmp_path: Path) -> None:
     """Tasks with empty names never match fuzzy queries.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     info = cast(YAMLDict, {"type": "collection", "name": "ns.coll", "version": "1", "hash": "h"})
@@ -2640,7 +2640,7 @@ def test_search_task_findings_cache_and_skips(tmp_path: Path) -> None:
     """Findings cache hits avoid loads; bad entries are skipped.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     info = cast(YAMLDict, {"type": "collection", "name": "ns.coll", "version": "1", "hash": "h"})
@@ -2668,7 +2668,7 @@ def test_search_task_max_match_and_falsy_child(tmp_path: Path) -> None:
     """max_match limits tasks and falsy children skip direct appends.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     info = cast(YAMLDict, {"type": "collection", "name": "ns.coll", "version": "1", "hash": "h"})
@@ -2705,7 +2705,7 @@ def test_search_action_group_max_zero(tmp_path: Path) -> None:
     """max_match zero short-circuits action group search.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     assert client.search_action_group("group/aws", max_match=0) == []
@@ -2715,7 +2715,7 @@ def test_search_action_group_miss(tmp_path: Path) -> None:
     """Unknown groups return no matches.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     assert client.search_action_group("group/missing") == []
@@ -2725,7 +2725,7 @@ def test_search_action_group_hit(tmp_path: Path) -> None:
     """Known groups return their indexed entries.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     entry = cast(YAMLDict, {"group_name": "group/aws"})
@@ -2737,7 +2737,7 @@ def test_search_action_group_max_match_slice(tmp_path: Path) -> None:
     """max_match truncates long group lists.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     one = cast(YAMLDict, {"group_name": "a"})
@@ -2752,7 +2752,7 @@ def test_get_object_by_key_hit(tmp_path: Path) -> None:
     """Matching keys return the object plus defined-in metadata.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     mod = _make_module()
@@ -2775,7 +2775,7 @@ def test_get_object_by_key_miss(tmp_path: Path) -> None:
     """Unknown keys return None.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     mod = _make_module()
@@ -2792,7 +2792,7 @@ def test_get_object_by_key_role_path(tmp_path: Path) -> None:
     """Role-side findings files are also searched.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     mod = _make_module()
@@ -2813,7 +2813,7 @@ def test_get_object_by_key_find_miss_in_file(tmp_path: Path) -> None:
     """Files without the key yield None.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     mod = _make_module()
@@ -2834,7 +2834,7 @@ def test_init_findings_json_list_cache(tmp_path: Path) -> None:
     """Cache combines collection and role findings paths.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     coll = os.path.join(str(tmp_path), "collections", "findings", "a", "1", "h", "findings.json")
@@ -2849,7 +2849,7 @@ def test_search_findings_empty_name_raises(tmp_path: Path) -> None:
     """Empty target names raise ValueError.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     client._findings_json_list_cache = ["x"]
@@ -2861,7 +2861,7 @@ def test_search_findings_cache_hit(tmp_path: Path) -> None:
     """Cached findings searches return without scanning.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     import json as _json
@@ -2877,7 +2877,7 @@ def test_search_findings_single_match(tmp_path: Path) -> None:
     """A single matching path loads and caches its findings.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     path = os.path.join(str(tmp_path), "collections", "findings", "ns.coll", "1.0", "h", "findings.json")
@@ -2898,7 +2898,7 @@ def test_search_findings_version_filter_skips(tmp_path: Path) -> None:
     """Version-filtered searches skip non-matching versions.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     path = os.path.join(str(tmp_path), "collections", "findings", "ns.coll", "9.9", "h", "findings.json")
@@ -2917,7 +2917,7 @@ def test_search_findings_type_filter(tmp_path: Path) -> None:
     """Type filters skip non-matching entries.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     path = os.path.join(str(tmp_path), "collections", "findings", "ns.coll", "1.0", "h", "findings.json")
@@ -2936,7 +2936,7 @@ def test_search_findings_empty_version_defaults_star(tmp_path: Path) -> None:
     """Empty versions behave like wildcard searches.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     path = os.path.join(str(tmp_path), "collections", "findings", "ns.coll", "1.0", "h", "findings.json")
@@ -2955,7 +2955,7 @@ def test_search_findings_multiple_picks_newest(tmp_path: Path) -> None:
     """Multiple matches select the newest mtime path.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     old = os.path.join(str(tmp_path), "collections", "findings", "ns.coll", "1.0", "h", "findings.json")
@@ -2979,7 +2979,7 @@ def test_search_findings_multiple_first_newest(tmp_path: Path) -> None:
     """The first path wins when it already has the newest mtime.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     first = os.path.join(str(tmp_path), "collections", "findings", "ns.coll", "1.0", "h", "findings.json")
@@ -3003,7 +3003,7 @@ def test_search_findings_inits_cache_when_empty(tmp_path: Path) -> None:
     """Empty list caches trigger a glob-backed initialization.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     assert client._findings_json_list_cache == []
@@ -3025,7 +3025,7 @@ def test_load_findings_from_file(tmp_path: Path) -> None:
     """File paths load findings.json from their directory.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     findings = _make_findings()
@@ -3040,7 +3040,7 @@ def test_load_findings_from_dir(tmp_path: Path) -> None:
     """Directory paths append findings.json before loading.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     findings = _make_findings()
@@ -3055,7 +3055,7 @@ def test_save_findings_empty_dir_raises(tmp_path: Path) -> None:
     """Empty output directories raise ValueError.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     with pytest.raises(ValueError):
@@ -3066,7 +3066,7 @@ def test_save_findings_creates_dir(tmp_path: Path) -> None:
     """Missing directories are created and findings.json is written.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     out_dir = str(tmp_path / "newdir" / "nested")
@@ -3080,7 +3080,7 @@ def test_save_findings_existing_dir(tmp_path: Path) -> None:
     """Existing directories are reused without recreation errors.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     out_dir = str(tmp_path / "exists")
@@ -3093,7 +3093,7 @@ def test_save_index_roundtrip(tmp_path: Path) -> None:
     """Saved indices load back the same content.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     client.save_index(cast(YAMLDict, {"k": "v"}), module_index_name)
@@ -3106,7 +3106,7 @@ def test_load_index_missing_returns_empty(tmp_path: Path) -> None:
     """Missing index files load as empty dicts.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     assert client.load_index("does-not-exist.json") == {}
@@ -3116,7 +3116,7 @@ def test_index_wrapper_delegation(tmp_path: Path) -> None:
     """Typed wrappers delegate to save_index and load_index.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     payload = cast(YAMLDict, {"x": "y"})
@@ -3142,7 +3142,7 @@ def test_save_error_empty_dir_raises(tmp_path: Path) -> None:
     """Empty output directories raise ValueError for errors.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     with pytest.raises(ValueError):
@@ -3153,7 +3153,7 @@ def test_save_error_writes_file(tmp_path: Path) -> None:
     """Error text lands in error.log inside new directories.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     out_dir = str(tmp_path / "errdir")
@@ -3165,7 +3165,7 @@ def test_save_error_existing_dir(tmp_path: Path) -> None:
     """Existing directories accept additional error writes.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     out_dir = str(tmp_path / "errexists")
@@ -3244,7 +3244,7 @@ def test_register_module_index_mismatch_appends(tmp_path: Path) -> None:
     """Differing existing module entries append the new metadata.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     mod = _make_module()
@@ -3265,7 +3265,7 @@ def test_register_module_index_routing_mismatch_appends(tmp_path: Path) -> None:
     """Differing routing entries append the new redirect metadata.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     coll = _make_collection()
@@ -3285,7 +3285,7 @@ def test_register_module_index_routing_object_duplicate(tmp_path: Path) -> None:
     """Routing ModuleMetadata objects compare equal and skip saving.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     coll = _make_collection()
@@ -3305,7 +3305,7 @@ def test_register_role_index_mismatch_appends(tmp_path: Path) -> None:
     """Differing existing role entries append the new metadata.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     role = _make_role()
@@ -3326,7 +3326,7 @@ def test_register_taskfile_index_mismatch_appends(tmp_path: Path) -> None:
     """Differing existing taskfile entries append the new metadata.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     taskfile = _make_taskfile()
@@ -3346,7 +3346,7 @@ def test_register_action_group_mismatch_appends(tmp_path: Path) -> None:
     """Differing action group entries append new metadata for both names.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     coll = _make_collection()
@@ -3377,7 +3377,7 @@ def test_search_module_exact_miss_with_findings(tmp_path: Path) -> None:
     """Exact searches miss when findings hold a different FQCN.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     mod = _make_module(name="different", fqcn="ns.coll.different")
@@ -3402,7 +3402,7 @@ def test_search_module_fuzzy_miss_with_findings(tmp_path: Path) -> None:
     """Fuzzy searches miss when no FQCN component matches.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     mod = _make_module(name="different", fqcn="ns.coll.different")
@@ -3427,7 +3427,7 @@ def test_search_role_exact_hit(tmp_path: Path) -> None:
     """Exact role searches hit on full FQCN equality.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     role = _make_role(fqcn="ns.coll.myrole")
@@ -3452,7 +3452,7 @@ def test_search_role_fuzzy_miss_with_findings(tmp_path: Path) -> None:
     """Fuzzy role searches miss when findings hold another role.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     role = _make_role(name="other", fqcn="ns.coll.other")
@@ -3476,7 +3476,7 @@ def test_search_taskfile_key_mismatch(tmp_path: Path) -> None:
     """Taskfile searches miss when findings hold another key.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     wanted = "taskfile collection:ns.coll#taskfile:tasks/main.yml"
@@ -3502,7 +3502,7 @@ def test_search_task_load_not_findings(tmp_path: Path) -> None:
     """Task searches skip non-Findings loads gracefully.
 
     Args:
-        tmp_path: Pytest-provided temporary directory.
+        tmp_path: Pytest temporary directory fixture.
     """
     client = _make_client(tmp_path)
     info = cast(YAMLDict, {"type": "collection", "name": "ns.coll", "version": "1", "hash": "h"})

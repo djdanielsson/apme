@@ -475,7 +475,15 @@ class CreateProjectRequest(BaseModel):  # type: ignore[misc]
 
     name: str
     repo_url: str
-    branch: str = "main"
+    branch: str = Field(
+        default="main",
+        max_length=100,
+        description=(
+            "Branch to clone (default main). 1-100 chars; "
+            "letters, digits, '.', '_', '/', '-'; must satisfy git "
+            "check-ref-format component rules. Invalid names fail with 422."
+        ),
+    )
     scm_token: str | None = None
     scm_provider: str | None = None
 
@@ -510,7 +518,15 @@ class UpdateProjectRequest(BaseModel):  # type: ignore[misc]
 
     name: str | None = None
     repo_url: str | None = None
-    branch: str | None = None
+    branch: str | None = Field(
+        default=None,
+        max_length=100,
+        description=(
+            "New branch to clone. 1-100 chars; "
+            "letters, digits, '.', '_', '/', '-'; must satisfy git "
+            "check-ref-format component rules. Invalid names fail with 422."
+        ),
+    )
     scm_token: str | None = None
     scm_provider: str | None = None
 

@@ -26,6 +26,7 @@ from apme_gateway.operation_types import (
     ProgressEntry,
     Proposal,
     SSEEventType,
+    is_terminal,
 )
 
 logger = logging.getLogger(__name__)
@@ -510,9 +511,7 @@ class OperationRegistry:
             data: Event payload.
         """
         msg = {"event": event_type.value, "data": data}
-        terminal = event_type in (SSEEventType.RESULT, SSEEventType.PR_CREATED) or (
-            data.get("status") in {s.value for s in TERMINAL_STATUSES}
-        )
+        terminal = is_terminal(msg)
         dead: list[asyncio.Queue[dict[str, Any]]] = []
         for q in op.sse_subscribers:
             try:

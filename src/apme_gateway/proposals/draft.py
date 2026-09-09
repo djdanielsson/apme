@@ -12,6 +12,7 @@ from typing import Any
 from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apme_gateway.db import get_in_clause_chunk_size
 from apme_gateway.db.models import Proposal, Scan
 from apme_gateway.proposals.flush import fetch_violations_by_ids, upsert_analytics_increment
 from apme_gateway.proposals.grouping import (
@@ -31,6 +32,72 @@ from apme_gateway.proposals.grouping import (
 logger = logging.getLogger(__name__)
 
 _ALLOWED_DRAFT_STATUSES = frozenset({"pending", "approved", "declined", "proposed", "rejected"})
+
+
+def _safe_int(value: object, default: int = 0) -> int:
+    """Coerce truthy non-numeric input to a default instead of raising.
+
+    Args:
+        value: Raw value (int, float, numeric string, bool, None, …).
+        default: Fallback when coercion fails.
+
+    Returns:
+        Coerced integer or ``default``.
+    """
+    if isinstance(value, bool):
+        return default
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        if value.is_integer():
+            return int(value)
+        return default
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return default
+        try:
+            return int(text)
+        except ValueError:
+            try:
+                parsed = float(text)
+            except ValueError:
+                return default
+            if parsed.is_integer():
+                return int(parsed)
+            return default
+    if value is None:
+        return default
+    return default
+
+
+def _safe_float(value: object, default: float = 0.0) -> float:
+    """Coerce truthy non-numeric input to a default instead of raising.
+
+    Args:
+        value: Raw value (int, float, numeric string, bool, None, …).
+        default: Fallback when coercion fails.
+
+    Returns:
+        Coerced float or ``default``.
+    """
+    if isinstance(value, bool):
+        return default
+    if isinstance(value, int):
+        return float(value)
+    if isinstance(value, float):
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return default
+        try:
+            return float(text)
+        except ValueError:
+            return default
+    if value is None:
+        return default
+    return default
 
 
 def _gate_for_source(source: str, tier: int) -> str:
@@ -298,7 +365,7 @@ def _prepare_stub_payload(raw: Mapping[str, Any]) -> StubPayload | None:
     file_ = str(raw.get("file") or "")
     rule_id = str(raw.get("rule_id") or "")
     path = str(raw.get("path") or "")
-    tier = int(raw.get("tier") or 0)
+    tier = _safe_int(raw.get("tier"), 0)
     source = str(raw.get("source") or (SOURCE_AI if tier >= 2 else SOURCE_DETERMINISTIC))
     gate = str(raw.get("gate") or "") or _gate_for_source(source, tier)
     rule_parts = tuple(p.strip() for p in rule_id.split(",") if p.strip()) or ((rule_id,) if rule_id else ())
@@ -323,8 +390,8 @@ def _prepare_stub_payload(raw: Mapping[str, Any]) -> StubPayload | None:
             rule_id=primary_rule or rule_id,
             engine_id=engine_id,
         ),
-        line_start=int(raw.get("line_start") or 0),
-        line_end=int(raw.get("line_end") or 0),
+        line_start=_safe_int(raw.get("line_start"), 0),
+        line_end=_safe_int(raw.get("line_end"), 0),
     )
 
 
@@ -352,32 +419,36 @@ async def upsert_live_proposal_stubs(
     await ensure_scan_row(db, scan_id=scan_id, project_id=project_id, scan_type="remediate")
     prepared = [item for item in (_prepare_stub_payload(raw) for raw in proposals) if item is not None]
 
-    # One preloaded query instead of a SELECT per proposal: match the same
+    # Preloaded queries instead of a SELECT per proposal: match the same
     # (engine_proposal_id, proposal_id) pairs the loop used to fetch singly.
+    # Chunked so 2N binds stay within the dialect IN-clause budget.
     by_engine: dict[str, Proposal] = {}
     by_archival: dict[str, Proposal] = {}
-    engine_ids = [item.engine_id for item in prepared]
-    archival_ids = [item.archival_id for item in prepared]
-    if engine_ids or archival_ids:
-        rows = (
-            (
-                await db.execute(
-                    select(Proposal).where(
-                        Proposal.scan_id == scan_id,
-                        or_(
-                            Proposal.engine_proposal_id.in_(engine_ids),
-                            Proposal.proposal_id.in_(archival_ids),
-                        ),
+    if prepared:
+        per_query = max(1, get_in_clause_chunk_size() // 2)
+        for start in range(0, len(prepared), per_query):
+            batch = prepared[start : start + per_query]
+            engine_ids = [item.engine_id for item in batch]
+            archival_ids = [item.archival_id for item in batch]
+            rows = (
+                (
+                    await db.execute(
+                        select(Proposal).where(
+                            Proposal.scan_id == scan_id,
+                            or_(
+                                Proposal.engine_proposal_id.in_(engine_ids),
+                                Proposal.proposal_id.in_(archival_ids),
+                            ),
+                        )
                     )
                 )
+                .scalars()
+                .all()
             )
-            .scalars()
-            .all()
-        )
-        for row in rows:
-            if row.engine_proposal_id:
-                by_engine.setdefault(str(row.engine_proposal_id), row)
-            by_archival.setdefault(str(row.proposal_id), row)
+            for row in rows:
+                if row.engine_proposal_id:
+                    by_engine.setdefault(str(row.engine_proposal_id), row)
+                by_archival.setdefault(str(row.proposal_id), row)
 
     out: list[Proposal] = []
     for item in prepared:
@@ -410,7 +481,7 @@ async def upsert_live_proposal_stubs(
                 rule_id=primary_rule,
                 file=file_,
                 tier=tier,
-                confidence=float(raw.get("confidence") or 0.0),
+                confidence=_safe_float(raw.get("confidence"), 0.0),
                 status=status,
                 path=path,
                 node_type=str(raw.get("node_type") or ""),
@@ -450,9 +521,11 @@ async def upsert_live_proposal_stubs(
             existing.suggestion = str(raw.get("suggestion") or existing.suggestion)
             existing.line_start = item.line_start or existing.line_start
             existing.line_end = item.line_end or existing.line_end
-            existing.confidence = float(raw.get("confidence") or existing.confidence)
+            raw_confidence = raw.get("confidence")
+            if raw_confidence:
+                existing.confidence = _safe_float(raw_confidence, existing.confidence)
             if "tier" in raw and raw.get("tier") is not None:
-                existing.tier = int(raw["tier"])
+                existing.tier = _safe_int(raw.get("tier"), existing.tier)
             if rule_parts:
                 existing.rule_ids_json = serialize_rule_ids(rule_parts)
                 existing.stamp_rule_ids_json = serialize_rule_ids(rule_parts)

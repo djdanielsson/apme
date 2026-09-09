@@ -18,6 +18,8 @@ import random
 from importlib.resources import files as pkg_files
 from pathlib import Path
 
+import grpc.aio
+import httpx
 import yaml
 
 from apme_engine.fingerprint import canonicalize_rule_id
@@ -779,7 +781,12 @@ class AbbenayProvider:
         Raises:
             TimeoutError: If a chat attempt exceeds the client-side bound
                 (a slow stream, not a disconnect — never retried).
-            ConnectionError: If the reconnect retry also fails to connect.
+            OSError: If the reconnect retry also fails with a transport
+                error (covers builtin ``ConnectionError``).
+            httpx.ConnectError: If the retry attempt fails to connect.
+            httpx.TimeoutException: If the retry attempt transport times out
+                (distinct from the attempt bound above).
+            grpc.aio.AioRpcError: If the retry attempt RPC fails.
             AssertionError: If the retry loop exhausts without returning
                 (unreachable defense-in-depth).
             Exception: If the chat call fails for permanent
@@ -798,9 +805,10 @@ class AbbenayProvider:
             except TimeoutError:
                 # A slow-but-healthy stream tripping the attempt bound is not
                 # a disconnect — retrying would burn the single attempt on
-                # the same slow call.
+                # the same slow call. This must stay before the transient
+                # handler: builtin TimeoutError subclasses OSError.
                 raise
-            except ConnectionError:
+            except (OSError, httpx.ConnectError, httpx.TimeoutException, grpc.aio.AioRpcError):
                 if attempt > 0:
                     raise
                 logger.debug("Chat connection failed, reconnecting to Abbenay and retrying")

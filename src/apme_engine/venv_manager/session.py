@@ -441,12 +441,44 @@ def _retry_without_native(
         shutil.rmtree(excludes_dir, ignore_errors=True)
 
 
+def _run_base_venv_cmd(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+    """Run one base-venv setup command with the shared wall-clock bound.
+
+    Mirrors :func:`_run_pip_install`: a stalled ``uv venv`` / ``venv`` /
+    ``ansible-core`` install must fail fast with :class:`PipInstallTimeout`
+    instead of pinning the ``run_in_executor`` worker forever.  Callers
+    (``VenvSessionManager.acquire``) already record timeout metrics and
+    release the session lock on ``PipInstallTimeout``.
+
+    Args:
+        cmd: Command argv to run.
+
+    Returns:
+        CompletedProcess with stdout/stderr captured.
+
+    Raises:
+        PipInstallTimeout: If the command exceeds its wall-clock bound.
+    """
+    try:
+        return subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=_PIP_INSTALL_TIMEOUT_S)
+    except subprocess.TimeoutExpired as exc:
+        logger.warning(
+            "base venv setup timed out after %ds, failing fast",
+            _PIP_INSTALL_TIMEOUT_S,
+        )
+        raise PipInstallTimeout(f"base venv setup timed out after {_PIP_INSTALL_TIMEOUT_S}s") from exc
+
+
 def create_base_venv(
     venv_dir: Path,
     ansible_core_version: str,
     python_exe: str | None = None,
 ) -> None:
     """Create a virtual environment and install ansible-core into it.
+
+    Each setup command shares the pip/uv wall-clock bound and fails fast
+    with ``PipInstallTimeout`` on stalls, so ``VenvSessionManager.acquire``
+    can record timeout metrics and release the session lock.
 
     Args:
         venv_dir: Exact directory for the virtualenv (created if absent).
@@ -458,27 +490,21 @@ def create_base_venv(
         cmd = ["uv", "venv", str(venv_dir)]
         if python_exe:
             cmd.extend(["--python", python_exe])
-        subprocess.run(cmd, check=True, capture_output=True, text=True)
+        _run_base_venv_cmd(cmd)
     else:
         cmd = [sys.executable, "-m", "venv", str(venv_dir)]
         if python_exe:
             cmd = [python_exe, "-m", "venv", str(venv_dir)]
-        subprocess.run(cmd, check=True, capture_output=True, text=True)
+        _run_base_venv_cmd(cmd)
 
     pip_python = get_venv_python(venv_dir)
     if use_uv:
-        subprocess.run(
+        _run_base_venv_cmd(
             ["uv", "pip", "install", "--python", str(pip_python), f"ansible-core=={ansible_core_version}"],
-            check=True,
-            capture_output=True,
-            text=True,
         )
     else:
-        subprocess.run(
+        _run_base_venv_cmd(
             [str(pip_python), "-m", "pip", "install", f"ansible-core=={ansible_core_version}"],
-            check=True,
-            capture_output=True,
-            text=True,
         )
 
 

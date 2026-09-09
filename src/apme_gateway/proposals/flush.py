@@ -425,6 +425,7 @@ def proposal_to_detail_dict(prop: Proposal | object) -> dict[str, object]:
             "rule_ids": [str(r) for r in rule_ids],
             "violation_ids": [int(v) for v in violation_ids if str(v).isdigit() or isinstance(v, int)],
             "line_start": prop.line_start,
+            "line_end": prop.line_end,
             "diff_hunk": prop.diff_hunk,
             "explanation": prop.explanation,
             "suggestion": prop.suggestion,

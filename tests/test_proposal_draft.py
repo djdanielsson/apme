@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from typing import cast
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -760,3 +761,165 @@ async def test_bridge_uses_file_rule_line_start() -> None:
         assert by_line[1].analytics_flushed == 1
         assert by_line[2].engine_proposal_id == "eng-b"
         assert by_line[2].status == "declined"
+
+
+@pytest.mark.asyncio  # type: ignore[untyped-decorator]
+async def test_upsert_live_stubs_tolerates_non_numeric_batch() -> None:
+    """One bad row defaults instead of failing the whole batch."""
+    async with get_session() as db:
+        rows = await upsert_live_proposal_stubs(
+            db,
+            scan_id="scan-bad-batch",
+            project_id=None,
+            proposals=[
+                {
+                    "id": "eng-good",
+                    "rule_id": "L007",
+                    "file": "a.yml",
+                    "tier": 1,
+                    "status": "pending",
+                    "source": "deterministic",
+                    "line_start": 10,
+                    "line_end": 14,
+                    "confidence": 0.8,
+                },
+                {
+                    "id": "eng-bad",
+                    "rule_id": "L008",
+                    "file": "b.yml",
+                    "tier": "high",
+                    "status": "pending",
+                    "source": "deterministic",
+                    "line_start": "high",
+                    "line_end": "high",
+                    "confidence": "high",
+                },
+            ],
+        )
+        await db.commit()
+        assert len(rows) == 2
+        by_eng = {r.engine_proposal_id: r for r in rows}
+        assert by_eng["eng-good"].line_start == 10
+        assert by_eng["eng-good"].line_end == 14
+        assert by_eng["eng-bad"].tier == 0
+        assert by_eng["eng-bad"].line_start == 0
+        assert by_eng["eng-bad"].line_end == 0
+        assert by_eng["eng-bad"].confidence == 0.0
+
+
+@pytest.mark.asyncio  # type: ignore[untyped-decorator]
+async def test_upsert_live_stubs_tolerates_bad_update() -> None:
+    """Re-emit with non-numeric confidence/tier keeps stored values."""
+
+    async def _row_by_engine(scan_id: str, engine_id: str) -> Proposal:
+        """Load one stub row by scan and engine id.
+
+        Args:
+            scan_id: Operation scan UUID.
+            engine_id: Engine proposal id.
+
+        Returns:
+            Matching Proposal row.
+        """
+        async with get_session() as db:
+            row = (
+                await db.execute(
+                    select(Proposal).where(
+                        Proposal.scan_id == scan_id,
+                        Proposal.engine_proposal_id == engine_id,
+                    )
+                )
+            ).scalar_one()
+            return cast(Proposal, row)
+
+    async with get_session() as db:
+        rows = await upsert_live_proposal_stubs(
+            db,
+            scan_id="scan-bad-update",
+            project_id=None,
+            proposals=[
+                {
+                    "id": "eng-u",
+                    "rule_id": "L007",
+                    "file": "a.yml",
+                    "tier": 1,
+                    "status": "pending",
+                    "source": "deterministic",
+                    "confidence": 0.7,
+                }
+            ],
+        )
+        await db.commit()
+        assert rows[0].confidence == 0.7
+
+    async with get_session() as db:
+        rows = await upsert_live_proposal_stubs(
+            db,
+            scan_id="scan-bad-update",
+            project_id=None,
+            proposals=[
+                {
+                    "id": "eng-u",
+                    "rule_id": "L007",
+                    "file": "a.yml",
+                    "tier": "high",
+                    "status": "pending",
+                    "source": "deterministic",
+                    "confidence": "high",
+                }
+            ],
+        )
+        await db.commit()
+        assert rows[0].confidence == 0.7
+        assert rows[0].tier == 1
+
+    row = await _row_by_engine("scan-bad-update", "eng-u")
+    assert row.confidence == 0.7
+    assert row.tier == 1
+
+
+@pytest.mark.asyncio  # type: ignore[untyped-decorator]
+async def test_upsert_live_stubs_chunks_large_preload() -> None:
+    """Batched preload stays within the IN-clause bind budget."""
+    from unittest.mock import patch
+
+    from apme_gateway.proposals import draft as draft_module
+
+    count = 30
+    proposals = [
+        {
+            "id": f"eng-chunk-{i}",
+            "rule_id": "L007",
+            "file": "a.yml",
+            "tier": 1,
+            "status": "pending",
+            "source": "deterministic",
+            "line_start": i + 1,
+        }
+        for i in range(count)
+    ]
+    async with get_session() as db:
+        with patch.object(draft_module, "get_in_clause_chunk_size", return_value=6):
+            rows = await upsert_live_proposal_stubs(
+                db,
+                scan_id="scan-chunk",
+                project_id=None,
+                proposals=proposals,
+            )
+        await db.commit()
+        assert len(rows) == count
+        stored = list((await db.execute(select(Proposal).where(Proposal.scan_id == "scan-chunk"))).scalars().all())
+        assert len(stored) == count
+
+    async with get_session() as db:
+        with patch.object(draft_module, "get_in_clause_chunk_size", return_value=6):
+            rows = await upsert_live_proposal_stubs(
+                db,
+                scan_id="scan-chunk",
+                project_id=None,
+                proposals=proposals,
+            )
+        await db.commit()
+        assert len(rows) == count
+        stored = list((await db.execute(select(Proposal).where(Proposal.scan_id == "scan-chunk"))).scalars().all())
+        assert len(stored) == count

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from dataclasses import dataclass, field
 from typing import cast
@@ -36,6 +37,8 @@ from .utils import (
     remove_lock_file,
     unlock_file,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _safe_str(v: YAMLValue, default: str = "") -> str:
@@ -1102,6 +1105,9 @@ class RAMClient:
                             matched = True
                 if matched:
                     parts = findings_json.split("/")
+                    if len(parts) < 5:
+                        logger.debug("Skipping task with short findings path: %r", findings_json)
+                        continue
                     offspring_objects = []
                     # Unknown executable types yield no offspring (a Task with
                     # a missing/unrecognized type must not crash the search).
@@ -1113,6 +1119,12 @@ class RAMClient:
                     elif t.executable_type == ExecutableType.TASKFILE_TYPE:
                         _tmp_offspring_objects = self.search_taskfile(
                             t.executable, from_path=t.defined_in, from_key=t.key, used_in=t.defined_in
+                        )
+                    else:
+                        logger.debug(
+                            "Task %r has unrecognized executable_type %r; no offspring collected",
+                            t.key,
+                            t.executable_type,
                         )
                     if len(_tmp_offspring_objects) > 0:
                         child = _tmp_offspring_objects[0]

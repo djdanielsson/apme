@@ -30,6 +30,9 @@ logger = logging.getLogger("apme.gitleaks")
 
 _MAX_CONCURRENT_RPCS = int(os.environ.get("APME_GITLEAKS_MAX_RPCS", "16"))
 
+#: Bound for the gitleaks ``version`` probe and for reaping it after a timeout.
+_HEALTH_TIMEOUT_S = 5.0
+
 
 def _extract_nodes_from_graph_data(raw: bytes) -> tuple[list[tuple[str, str]], set[str]]:
     """Parse serialized ContentGraph JSON and extract ``(node_id, yaml_lines)`` tuples.
@@ -206,11 +209,12 @@ class GitleaksValidatorServicer(validate_pb2_grpc.ValidatorServicer):
                 stderr=asyncio.subprocess.PIPE,
             )
             try:
-                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
+                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=_HEALTH_TIMEOUT_S)
             except TimeoutError:
-                with contextlib.suppress(ProcessLookupError):
+                with contextlib.suppress(OSError):
                     proc.kill()
-                await proc.wait()
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(proc.wait(), timeout=_HEALTH_TIMEOUT_S)
                 return HealthResponse(status="gitleaks health timeout")
             if proc.returncode == 0:
                 version = stdout.decode().strip()

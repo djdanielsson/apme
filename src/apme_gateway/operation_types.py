@@ -8,6 +8,7 @@ REST/SSE endpoints for project operations.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
@@ -317,3 +318,34 @@ class SSEEventType(str, Enum):
     APPROVAL_ACK = "approval_ack"
     PR_CREATED = "pr_created"
     ERROR = "error_event"
+
+
+_TERMINAL_EVENT_VALUES: frozenset[str] = frozenset({SSEEventType.RESULT.value, SSEEventType.PR_CREATED.value})
+_TERMINAL_STATUS_VALUES: frozenset[str] = frozenset({s.value for s in TERMINAL_STATUSES})
+
+
+def is_terminal(msg: Mapping[str, object]) -> bool:
+    """Return whether an SSE message closes the stream.
+
+    A message is terminal when its event type is ``result`` or
+    ``pr_created``, or when its payload carries a terminal ``status``.
+    Shared by the registry broadcast predicate and the router's
+    snapshot-drain and live loops so ``result``/``pr_created`` payloads
+    without a ``status`` field are not misclassified.
+
+    Args:
+        msg: SSE message with ``event`` and ``data`` keys.
+
+    Returns:
+        True when the message is terminal.
+    """
+    event = msg.get("event")
+    if isinstance(event, str) and event in _TERMINAL_EVENT_VALUES:
+        return True
+    data = msg.get("data") or {}
+    if not isinstance(data, dict):
+        return False
+    status = data.get("status")
+    if not isinstance(status, str):
+        return False
+    return status in _TERMINAL_STATUS_VALUES

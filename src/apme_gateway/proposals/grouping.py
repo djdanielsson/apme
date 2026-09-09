@@ -100,6 +100,40 @@ class _Bucket:
     key: str = ""
 
 
+def _to_int(value: object) -> int:
+    """Coerce JSON-ish line values to int, mapping unknowns to 0.
+
+    Args:
+        value: Raw line value (int, float, numeric string, bool, None, …).
+
+    Returns:
+        Coerced integer, or 0 when not an int-like value.
+    """
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        if value.is_integer():
+            return int(value)
+        return 0
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return 0
+        try:
+            return int(text)
+        except ValueError:
+            try:
+                parsed = float(text)
+            except ValueError:
+                return 0
+            if parsed.is_integer():
+                return int(parsed)
+            return 0
+    return 0
+
+
 def _as_mapping(v: object) -> Mapping[str, Any]:
     """Normalize ORM / dict / object with attributes into a mapping view.
 
@@ -110,16 +144,20 @@ def _as_mapping(v: object) -> Mapping[str, Any]:
         Mapping of grouping fields.
     """
     if isinstance(v, Mapping):
-        return v
+        coerced = dict(v)
+        for field in ("line", "node_line_start", "line_end", "node_line_end"):
+            if field in coerced:
+                coerced[field] = _to_int(coerced[field])
+        return coerced
     return {
         "id": getattr(v, "id", None),
         "rule_id": getattr(v, "rule_id", "") or "",
         "file": getattr(v, "file", "") or "",
         "path": getattr(v, "path", "") or "",
-        "line": getattr(v, "line", None),
-        "node_line_start": getattr(v, "node_line_start", 0) or 0,
-        "line_end": getattr(v, "line_end", 0) or 0,
-        "node_line_end": getattr(v, "node_line_end", 0) or 0,
+        "line": _to_int(getattr(v, "line", None)),
+        "node_line_start": _to_int(getattr(v, "node_line_start", 0)),
+        "line_end": _to_int(getattr(v, "line_end", 0)),
+        "node_line_end": _to_int(getattr(v, "node_line_end", 0)),
         "remediation_class": getattr(v, "remediation_class", 0) or 0,
         "original_yaml": getattr(v, "original_yaml", "") or "",
         "fixed_yaml": getattr(v, "fixed_yaml", "") or "",
@@ -301,29 +339,27 @@ def group_violations(
             rest = key[len("path:") :]
             path = rest.rsplit(":lane:", 1)[0] if ":lane:" in rest else rest
         file_path = str(items[0].get("file") or "")
-        line_start = 0
-        for i in items:
-            nls = i.get("node_line_start")
-            if isinstance(nls, int) and nls:
-                line_start = nls
-                break
-            line = i.get("line")
-            if isinstance(line, int):
-                line_start = line
-                break
+        # Select span from the SAME item so start/end cannot mismatch across
+        # grouped rows. Prefer the first nonzero node span, else the first
+        # int-like line with its same-item end. Keep line_end=0 unknown.
         # Violations predate line_end storage, so grouped historical rows
         # keep 0 until violation storage also carries it; live items that
         # already carry line_end preserve it here.
+        line_start = 0
         line_end = 0
         for i in items:
-            nle = i.get("line_end")
-            if isinstance(nle, int) and nle:
-                line_end = nle
+            node_start = _to_int(i.get("node_line_start"))
+            if node_start:
+                line_start = node_start
+                line_end = _to_int(i.get("line_end")) or _to_int(i.get("node_line_end"))
                 break
-            nle = i.get("node_line_end")
-            if isinstance(nle, int) and nle:
-                line_end = nle
-                break
+        else:
+            for i in items:
+                coerced_line = _to_int(i.get("line"))
+                if coerced_line:
+                    line_start = coerced_line
+                    line_end = _to_int(i.get("line_end")) or _to_int(i.get("node_line_end"))
+                    break
 
         original = next((str(i.get("original_yaml") or "") for i in items if i.get("original_yaml")), "")
         fixed = next((str(i.get("fixed_yaml") or "") for i in items if i.get("fixed_yaml")), "")
