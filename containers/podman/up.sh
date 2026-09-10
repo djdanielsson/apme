@@ -334,12 +334,17 @@ _ensure_abbenay_config_access() {
 
 # Recursive chown only when the mountpoint needs migration or lacks a marker.
 # Large session/gateway volumes must not be walked on every tox -e up.
+# PostgreSQL PGDATA must stay marker-free — any file in the data directory
+# makes the official postgres entrypoint skip initdb.
 _ensure_volume_owned_by_container_uid() {
   local uid_gid="$1"
   local uid="${uid_gid%%:*}"
   local path="$2"
-  if _owned_by_container_uid "$uid" "$path" && _chown_marker_exists "$path"; then
-    return 0
+  local write_marker="${3:-1}"
+  if _owned_by_container_uid "$uid" "$path"; then
+    if [[ "$write_marker" == "0" ]] || _chown_marker_exists "$path"; then
+      return 0
+    fi
   fi
   if ! _chown_for_container_uid "$uid_gid" "$path"; then
     return 1
@@ -347,8 +352,10 @@ _ensure_volume_owned_by_container_uid() {
   if ! _owned_by_container_uid "$uid" "$path"; then
     return 1
   fi
-  if ! _write_chown_marker "$path"; then
-    return 1
+  if [[ "$write_marker" != "0" ]]; then
+    if ! _write_chown_marker "$path"; then
+      return 1
+    fi
   fi
 }
 
@@ -361,8 +368,8 @@ _ensure_volume_owned_by_container_uid() {
 # apme-sessions trees). Set APME_SELINUX_FULL_RELABEL=1 for a one-time recursive
 # SELinux repair of an existing volume.
 _relabel_podman_volumes() {
-  local vol mountpoint
-  for vol in apme-sessions apme-gateway-data apme-proxy-cache; do
+  local vol mountpoint uid_gid
+  for vol in apme-sessions apme-postgres-data apme-proxy-cache; do
     if ! podman volume exists "$vol" 2>/dev/null; then
       continue
     fi
@@ -370,8 +377,16 @@ _relabel_podman_volumes() {
     if [[ -z "$mountpoint" || ! -d "$mountpoint" ]]; then
       continue
     fi
-    if ! _ensure_volume_owned_by_container_uid 1001:0 "$mountpoint"; then
-      echo "ERROR: could not chown volume $vol ($mountpoint) to 1001:0" >&2
+    local write_marker=1
+    local write_selinux_marker=1
+    case "$vol" in
+      apme-sessions) uid_gid="1001:0" ;;
+      apme-postgres-data) uid_gid="999:999"; write_marker=0; write_selinux_marker=0 ;;
+      apme-proxy-cache) uid_gid="1001:0" ;;
+      *) continue ;;
+    esac
+    if ! _ensure_volume_owned_by_container_uid "$uid_gid" "$mountpoint" "$write_marker"; then
+      echo "ERROR: could not chown volume $vol ($mountpoint) to $uid_gid" >&2
       return 1
     fi
     local mode
@@ -391,13 +406,15 @@ _relabel_podman_volumes() {
         echo "ERROR: could not recursively relabel volume $vol ($mountpoint) for SELinux" >&2
         return 1
       fi
-      if ! _write_selinux_marker "$mountpoint"; then
-        echo "ERROR: could not write SELinux repair marker for volume $vol ($mountpoint)" >&2
-        return 1
+      if [[ "$write_selinux_marker" != "0" ]]; then
+        if ! _write_selinux_marker "$mountpoint"; then
+          echo "ERROR: could not write SELinux repair marker for volume $vol ($mountpoint)" >&2
+          return 1
+        fi
       fi
       continue
     fi
-    if _selinux_mountpoint_ok "$mountpoint" && _selinux_marker_exists "$mountpoint"; then
+    if [[ "$write_selinux_marker" != "0" ]] && _selinux_mountpoint_ok "$mountpoint" && _selinux_marker_exists "$mountpoint"; then
       continue
     fi
     if ! _selinux_mountpoint_ok "$mountpoint"; then
@@ -410,9 +427,11 @@ _relabel_podman_volumes() {
       echo "ERROR: could not recursively relabel volume $vol ($mountpoint) for SELinux" >&2
       return 1
     fi
-    if ! _write_selinux_marker "$mountpoint"; then
-      echo "ERROR: could not write SELinux repair marker for volume $vol ($mountpoint)" >&2
-      return 1
+    if [[ "$write_selinux_marker" != "0" ]]; then
+      if ! _write_selinux_marker "$mountpoint"; then
+        echo "ERROR: could not write SELinux repair marker for volume $vol ($mountpoint)" >&2
+        return 1
+      fi
     fi
   done
 }
@@ -510,7 +529,7 @@ abbenay_vol_marker = (
     '    - name: galaxy-proxy'
 )
 gateway_env_marker = '        - name: APME_FEEDBACK_GITHUB_TOKEN'
-gateway_vol_marker = '      volumeMounts:\n        - name: gateway-data'
+gateway_vol_marker = '      volumeMounts:\n        - name: abbenay-run'
 galaxy_marker = '    - name: galaxy-proxy\n      image: apme-galaxy-proxy:latest'
 galaxy_vol_marker = '      volumeMounts:\n        - name: proxy-cache'
 if (
@@ -556,7 +575,7 @@ yaml = yaml.replace(
     '        - name: gateway-ca-bundle\n'
     '          mountPath: ' + mount_yaml + '\n'
     '          readOnly: true\n'
-    '        - name: gateway-data')
+    '        - name: abbenay-run')
 # Galaxy Proxy: add env section + CA env vars
 yaml = yaml.replace(
     galaxy_marker,
@@ -747,7 +766,7 @@ podman kube play containers/podman/pvc.yaml
 _relabel_podman_volumes
 echo "$POD_YAML" | podman play kube -
 
-echo "Pod apme-pod started (volumes: apme-sessions, apme-gateway-data, apme-proxy-cache). Run a scan: containers/podman/run-cli.sh"
+echo "Pod apme-pod started (volumes: apme-sessions, apme-postgres-data, apme-proxy-cache). Run a scan: containers/podman/run-cli.sh"
 echo "Abbenay UI: http://127.0.0.1:8787 (localhost only; HTTP auth disabled for dev)"
 echo "OTel Prometheus metrics: http://localhost:8889/metrics (companion stack: containers/observability/up.sh)"
 
