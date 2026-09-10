@@ -334,12 +334,17 @@ _ensure_abbenay_config_access() {
 
 # Recursive chown only when the mountpoint needs migration or lacks a marker.
 # Large session/gateway volumes must not be walked on every tox -e up.
+# PostgreSQL PGDATA must stay marker-free — any file in the data directory
+# makes the official postgres entrypoint skip initdb.
 _ensure_volume_owned_by_container_uid() {
   local uid_gid="$1"
   local uid="${uid_gid%%:*}"
   local path="$2"
-  if _owned_by_container_uid "$uid" "$path" && _chown_marker_exists "$path"; then
-    return 0
+  local write_marker="${3:-1}"
+  if _owned_by_container_uid "$uid" "$path"; then
+    if [[ "$write_marker" == "0" ]] || _chown_marker_exists "$path"; then
+      return 0
+    fi
   fi
   if ! _chown_for_container_uid "$uid_gid" "$path"; then
     return 1
@@ -347,8 +352,10 @@ _ensure_volume_owned_by_container_uid() {
   if ! _owned_by_container_uid "$uid" "$path"; then
     return 1
   fi
-  if ! _write_chown_marker "$path"; then
-    return 1
+  if [[ "$write_marker" != "0" ]]; then
+    if ! _write_chown_marker "$path"; then
+      return 1
+    fi
   fi
 }
 
@@ -370,13 +377,14 @@ _relabel_podman_volumes() {
     if [[ -z "$mountpoint" || ! -d "$mountpoint" ]]; then
       continue
     fi
+    local write_marker=1
     case "$vol" in
       apme-sessions) uid_gid="1001:0" ;;
-      apme-postgres-data) uid_gid="999:999" ;;
+      apme-postgres-data) uid_gid="999:999"; write_marker=0 ;;
       apme-proxy-cache) uid_gid="1001:0" ;;
       *) continue ;;
     esac
-    if ! _ensure_volume_owned_by_container_uid "$uid_gid" "$mountpoint"; then
+    if ! _ensure_volume_owned_by_container_uid "$uid_gid" "$mountpoint" "$write_marker"; then
       echo "ERROR: could not chown volume $vol ($mountpoint) to $uid_gid" >&2
       return 1
     fi

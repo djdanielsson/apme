@@ -509,12 +509,13 @@ protected file so it is not exposed in shell history or process arguments:
 
 ```bash
 kubectl create namespace apme --dry-run=client -o yaml | kubectl apply -f -
-printf '%s\n' 'postgresql+asyncpg://apme:CHANGE_ME@postgres.example:5432/apme?sslmode=verify-full' > /tmp/apme-database-url
-chmod 600 /tmp/apme-database-url
+umask 077
+tmpfile=$(mktemp)
+printf '%s\n' 'postgresql+asyncpg://apme:CHANGE_ME@postgres.example:5432/apme?sslmode=verify-full' > "$tmpfile"
 kubectl create secret generic apme-database \
   --namespace apme \
-  --from-file=database-url=/tmp/apme-database-url
-rm -f /tmp/apme-database-url
+  --from-file=database-url="$tmpfile"
+rm -f "$tmpfile"
 ```
 
 #### Standalone UI (default)

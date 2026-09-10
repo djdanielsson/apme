@@ -29,12 +29,13 @@ a protected file so it is not exposed in shell history or process arguments):
 
 ```bash
 kubectl create namespace apme --dry-run=client -o yaml | kubectl apply -f -
-printf '%s\n' 'postgresql+asyncpg://apme:CHANGE_ME@postgres.example:5432/apme?sslmode=verify-full' > /tmp/apme-database-url
-chmod 600 /tmp/apme-database-url
+umask 077
+tmpfile=$(mktemp)
+printf '%s\n' 'postgresql+asyncpg://apme:CHANGE_ME@postgres.example:5432/apme?sslmode=verify-full' > "$tmpfile"
 kubectl create secret generic apme-database \
   --namespace apme \
-  --from-file=database-url=/tmp/apme-database-url
-rm -f /tmp/apme-database-url
+  --from-file=database-url="$tmpfile"
+rm -f "$tmpfile"
 ```
 
 ```bash
@@ -164,16 +165,16 @@ authentication.
 ```bash
 # Standalone (chart default) — PostgreSQL must be reachable from the pod
 helm install apme ./deploy/helm/apme/ \
-  --set 'gateway.database.url=postgresql+asyncpg://postgres.apme.svc:5432/apme'
+  --set 'gateway.database.url=postgresql+asyncpg://postgres.apme.svc:5432/apme?sslmode=verify-full'
 
 # Portal / backend-only
 helm install apme ./deploy/helm/apme/ \
   -f ./deploy/helm/apme/values-portal.yaml \
-  --set 'gateway.database.url=postgresql+asyncpg://postgres.apme.svc:5432/apme'
+  --set 'gateway.database.url=postgresql+asyncpg://postgres.apme.svc:5432/apme?sslmode=verify-full'
 
 # With AI enabled (OpenRouter provider)
 helm install apme ./deploy/helm/apme/ \
-  --set 'gateway.database.url=postgresql+asyncpg://postgres.apme.svc:5432/apme' \
+  --set 'gateway.database.url=postgresql+asyncpg://postgres.apme.svc:5432/apme?sslmode=verify-full' \
   --set abbenay.enabled=true \
   --set abbenay.token=$APME_ABBENAY_TOKEN \
   --set-json 'abbenay.providers={"openrouter":{"engine":"openrouter","apiKey":"'$OPENROUTER_API_KEY'","models":{"anthropic/claude-sonnet-4-6":{}}}}'

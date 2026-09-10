@@ -89,7 +89,9 @@ apme check . --json > results/$(date +%Y%m%d).json
 
 **Cons**:
 - Requires a PostgreSQL server (sidecar or external)
-- Schema migrations needed (Alembic)
+- Schema evolution via Gateway startup DDL (`Base.metadata.create_all` plus
+  `_migrate_*` column helpers in `src/apme_gateway/db/__init__.py`); Alembic is
+  not used by the Gateway image today
 
 **Effort**: Medium
 
