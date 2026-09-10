@@ -52,7 +52,7 @@ Replace `route.host` with a hostname under your cluster's OpenShift
 ingress domain (for example `apme.apps.<cluster-domain>`) before installing —
 `example.com` will not resolve.
 
-Defaults pull from `quay.io/ansible` with image tag `2026.8.6` (`Chart.appVersion`).
+Defaults pull from `quay.io/ansible` with image tag `2026.9.2` (`Chart.appVersion`).
 For unreleased SHA builds, set `--set image.tag=sha-<commit>`.
 
 > **Observability:** The reference Podman pod includes an OpenTelemetry Collector
@@ -97,7 +97,7 @@ spec:
 - Helm 3.x
 - Access to `quay.io/ansible` (default pull registry) or a mirror. CI always
   publishes to `ghcr.io/ansible` and publishes to Quay when credentials are set
-- Default image tag is pinned to `2026.8.6` (GitHub release `v2026.8.6`; must
+- Default image tag is pinned to `2026.9.2` (GitHub release `v2026.9.2`; must
   match Chart.appVersion). Override with `--set image.tag=…` for another
   release or a SHA build (e.g. `sha-b7d1683`)
 - Cluster nodes on `linux/amd64` or `linux/arm64`. Tags published by CI after
@@ -226,7 +226,7 @@ Gateway DB and Abbenay down together.
 | Value | Default | Description |
 |-------|---------|-------------|
 | `image.registry` | `quay.io/ansible` | Container registry |
-| `image.tag` | `2026.8.6` | APME image tag (GitHub release `v2026.8.6`; stays here until the next APME release) |
+| `image.tag` | `2026.9.2` | APME image tag (GitHub release `v2026.9.2`; stays here until the next APME release) |
 | `engine.replicas` | `1` | Must be `1` (ADR-069) |
 | `gitleaks.enabled` | `true` | Enable Gitleaks validator |
 | `collectionHealth.enabled` | `true` | Enable Collection Health validator |

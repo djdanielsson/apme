@@ -110,7 +110,7 @@ def _normalize_database_url(url: str) -> str:
     normalized_query = _normalize_asyncpg_ssl_query(query)
     if normalized_query == query:
         return url
-    return str(parsed.set(query=normalized_query))
+    return str(parsed.set(query=normalized_query).render_as_string(hide_password=False))
 
 
 def _reject_host_query_override(parsed: URL) -> None:

@@ -378,9 +378,10 @@ _relabel_podman_volumes() {
       continue
     fi
     local write_marker=1
+    local write_selinux_marker=1
     case "$vol" in
       apme-sessions) uid_gid="1001:0" ;;
-      apme-postgres-data) uid_gid="999:999"; write_marker=0 ;;
+      apme-postgres-data) uid_gid="999:999"; write_marker=0; write_selinux_marker=0 ;;
       apme-proxy-cache) uid_gid="1001:0" ;;
       *) continue ;;
     esac
@@ -405,13 +406,15 @@ _relabel_podman_volumes() {
         echo "ERROR: could not recursively relabel volume $vol ($mountpoint) for SELinux" >&2
         return 1
       fi
-      if ! _write_selinux_marker "$mountpoint"; then
-        echo "ERROR: could not write SELinux repair marker for volume $vol ($mountpoint)" >&2
-        return 1
+      if [[ "$write_selinux_marker" != "0" ]]; then
+        if ! _write_selinux_marker "$mountpoint"; then
+          echo "ERROR: could not write SELinux repair marker for volume $vol ($mountpoint)" >&2
+          return 1
+        fi
       fi
       continue
     fi
-    if _selinux_mountpoint_ok "$mountpoint" && _selinux_marker_exists "$mountpoint"; then
+    if [[ "$write_selinux_marker" != "0" ]] && _selinux_mountpoint_ok "$mountpoint" && _selinux_marker_exists "$mountpoint"; then
       continue
     fi
     if ! _selinux_mountpoint_ok "$mountpoint"; then
@@ -424,9 +427,11 @@ _relabel_podman_volumes() {
       echo "ERROR: could not recursively relabel volume $vol ($mountpoint) for SELinux" >&2
       return 1
     fi
-    if ! _write_selinux_marker "$mountpoint"; then
-      echo "ERROR: could not write SELinux repair marker for volume $vol ($mountpoint)" >&2
-      return 1
+    if [[ "$write_selinux_marker" != "0" ]]; then
+      if ! _write_selinux_marker "$mountpoint"; then
+        echo "ERROR: could not write SELinux repair marker for volume $vol ($mountpoint)" >&2
+        return 1
+      fi
     fi
   done
 }

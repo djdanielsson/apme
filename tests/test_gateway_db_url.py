@@ -127,6 +127,17 @@ def test_resolve_database_url_maps_sslmode_verify_full() -> None:
     )
     assert "ssl=verify-full" in url
     assert "sslmode=" not in url
+    assert "pass" in url
+    assert "***" not in url
+
+
+def test_resolve_database_url_preserves_password_during_normalization() -> None:
+    """URL normalization must not mask passwords for create_async_engine."""
+    url = resolve_database_url(
+        database_url="postgresql+asyncpg://apme:secret@127.0.0.1:5432/apme?sslmode=prefer",
+    )
+    assert "apme:secret@" in url
+    assert "***" not in url
 
 
 def test_resolve_database_url_asyncpg_connect_args_accept_sslmode_verify_full() -> None:
