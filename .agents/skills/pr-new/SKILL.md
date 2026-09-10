@@ -214,6 +214,12 @@ artifact type, translate it:
    consumer has moved on? What happens when `asyncio.gather()`
    returns a mix of results and exceptions — does every caller
    handle `return_exceptions=True` correctly?
+   When the change schedules fire-and-forget tasks (notifications,
+   broadcasts, cleanup), construct the fixture/lifecycle race: does
+   teardown dispose shared resources (DB engine, clients) while a
+   pending task still needs them? Drain or cancel outstanding work
+   before closing those resources — mid-test awaits alone do not
+   cover paths that never assert on the side effect.
    For persistence and aggregation helpers, also construct:
    - **Concurrent writers** — two sessions calling the same
      select-then-insert / claim path before either commits (lost
