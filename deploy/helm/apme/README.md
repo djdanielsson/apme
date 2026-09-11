@@ -24,11 +24,26 @@ GitHub Pages:
 
 ### CLI
 
+Create a Secret with the Gateway database URL before installing (write the URL to
+a protected file so it is not exposed in shell history or process arguments):
+
+```bash
+kubectl create namespace apme --dry-run=client -o yaml | kubectl apply -f -
+umask 077
+tmpfile=$(mktemp)
+printf '%s\n' 'postgresql+asyncpg://apme:CHANGE_ME@postgres.example:5432/apme?sslmode=verify-full' > "$tmpfile"
+kubectl create secret generic apme-database \
+  --namespace apme \
+  --from-file=database-url="$tmpfile"
+rm -f "$tmpfile"
+```
+
 ```bash
 helm repo add apme https://ansible.github.io/apme
 helm repo update
 helm install apme apme/apme \
   --namespace apme --create-namespace \
+  --set gateway.database.existingSecret.name=apme-database \
   --set route.enabled=true \
   --set route.host=apme.apps.ocp.example.com
 ```
@@ -37,7 +52,7 @@ Replace `route.host` with a hostname under your cluster's OpenShift
 ingress domain (for example `apme.apps.<cluster-domain>`) before installing —
 `example.com` will not resolve.
 
-Defaults pull from `quay.io/ansible` with image tag `2026.8.6` (`Chart.appVersion`).
+Defaults pull from `quay.io/ansible` with image tag `2026.9.2` (`Chart.appVersion`).
 For unreleased SHA builds, set `--set image.tag=sha-<commit>`.
 
 > **Observability:** The reference Podman pod includes an OpenTelemetry Collector
@@ -82,7 +97,7 @@ spec:
 - Helm 3.x
 - Access to `quay.io/ansible` (default pull registry) or a mirror. CI always
   publishes to `ghcr.io/ansible` and publishes to Quay when credentials are set
-- Default image tag is pinned to `2026.8.6` (GitHub release `v2026.8.6`; must
+- Default image tag is pinned to `2026.9.2` (GitHub release `v2026.9.2`; must
   match Chart.appVersion). Override with `--set image.tag=…` for another
   release or a SHA build (e.g. `sha-b7d1683`)
 - Cluster nodes on `linux/amd64` or `linux/arm64`. Tags published by CI after
@@ -100,6 +115,12 @@ default so a bare `helm install` is not a footgun for SPA evaluators.
 | Standalone SPA | [`values-standalone.yaml`](values-standalone.yaml) | on | Bundled PatternFly UI (default) |
 | Portal / backend | [`values-portal.yaml`](values-portal.yaml) | off | Automation portal / Backstage / Gateway API only |
 
+Gateway persistence requires external PostgreSQL. Create a Secret with the full
+`postgresql+asyncpg://...` URL (see CLI example above), then pass
+`--set gateway.database.existingSecret.name=apme-database` on every install.
+For non-production eval only, you may set a credential-free `gateway.database.url`
+instead (no `user:pass@` in the authority).
+
 ### Standalone UI (default)
 
 ```bash
@@ -108,6 +129,7 @@ helm repo update
 helm install apme apme/apme \
   --namespace apme --create-namespace \
   -f https://ansible.github.io/apme/values-standalone.yaml \
+  --set gateway.database.existingSecret.name=apme-database \
   --set route.enabled=true \
   --set route.host=apme.apps.ocp.example.com
 ```
@@ -128,21 +150,31 @@ helm repo update
 helm install apme apme/apme \
   --namespace apme --create-namespace \
   -f https://ansible.github.io/apme/values-portal.yaml \
+  --set gateway.database.existingSecret.name=apme-database \
   --set route.enabled=true   # OpenShift
 ```
 
 ### From a local clone (contributors)
 
+The chart does not deploy PostgreSQL. Point `gateway.database.url` at a service
+reachable from the Gateway pod (for example an in-cluster Service DNS name).
+`127.0.0.1` resolves to the Gateway container itself and causes a crash loop.
+Credential-free URLs are valid only when PostgreSQL permits trust or peer
+authentication.
+
 ```bash
-# Standalone (chart default)
-helm install apme ./deploy/helm/apme/
+# Standalone (chart default) — PostgreSQL must be reachable from the pod
+helm install apme ./deploy/helm/apme/ \
+  --set 'gateway.database.url=postgresql+asyncpg://postgres.apme.svc:5432/apme?sslmode=verify-full'
 
 # Portal / backend-only
 helm install apme ./deploy/helm/apme/ \
-  -f ./deploy/helm/apme/values-portal.yaml
+  -f ./deploy/helm/apme/values-portal.yaml \
+  --set 'gateway.database.url=postgresql+asyncpg://postgres.apme.svc:5432/apme?sslmode=verify-full'
 
 # With AI enabled (OpenRouter provider)
 helm install apme ./deploy/helm/apme/ \
+  --set 'gateway.database.url=postgresql+asyncpg://postgres.apme.svc:5432/apme?sslmode=verify-full' \
   --set abbenay.enabled=true \
   --set abbenay.token=$APME_ABBENAY_TOKEN \
   --set-json 'abbenay.providers={"openrouter":{"engine":"openrouter","apiKey":"'$OPENROUTER_API_KEY'","models":{"anthropic/claude-sonnet-4-6":{}}}}'
@@ -194,7 +226,7 @@ Gateway DB and Abbenay down together.
 | Value | Default | Description |
 |-------|---------|-------------|
 | `image.registry` | `quay.io/ansible` | Container registry |
-| `image.tag` | `2026.8.6` | APME image tag (GitHub release `v2026.8.6`; stays here until the next APME release) |
+| `image.tag` | `2026.9.2` | APME image tag (GitHub release `v2026.9.2`; stays here until the next APME release) |
 | `engine.replicas` | `1` | Must be `1` (ADR-069) |
 | `gitleaks.enabled` | `true` | Enable Gitleaks validator |
 | `collectionHealth.enabled` | `true` | Enable Collection Health validator |
@@ -214,7 +246,7 @@ Gateway DB and Abbenay down together.
 | `networkPolicy.enabled` | `false` | Enable NetworkPolicy |
 | `podDisruptionBudget.enabled` | `false` | Enable PDB |
 | `persistence.sessions.size` | `10Gi` | Session venv PVC size |
-| `persistence.gateway.size` | `5Gi` | Gateway DB PVC size |
+| `persistence.gateway.size` | `5Gi` | Legacy `*-gateway-data` PVC (pre-PostgreSQL rollback only; Gateway uses external PostgreSQL) |
 | `persistence.abbenay.enabled` | `false` | When `true` (and `abbenay.enabled`), PVC for Abbenay runtime config and file-store secrets (`secrets.json`); otherwise `emptyDir` |
 | `persistence.abbenay.size` | `100Mi` | Abbenay config PVC size (seed-once from ConfigMap; runtime SoT after configure; also holds `secrets.json` for `secretStore: file`) |
 
@@ -269,6 +301,7 @@ and expose only the Gateway:
 ```bash
 helm install apme apme/apme \
   -f https://ansible.github.io/apme/values-portal.yaml \
+  --set gateway.database.existingSecret.name=apme-database \
   --set route.enabled=true \
   --set route.host=apme-api.apps.ocp.example.com
 ```
@@ -309,7 +342,7 @@ Gateway API at `/api`.
 
 The chart is **Simple / single-replica** (ADR-069). Setting
 `engine.replicas > 1` or `autoscaling.enabled: true` fails Helm render.
-Multi-replica engine farms need a future topology ADR (Gateway SQLite and
+Multi-replica engine farms need a future topology ADR (external PostgreSQL and
 Abbenay cannot share a scaled pod without redesign).
 
 ## OpenShift compatibility
