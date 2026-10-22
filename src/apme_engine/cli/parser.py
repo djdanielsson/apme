@@ -62,8 +62,8 @@ def build_parser() -> argparse.ArgumentParser:
     check_p.add_argument(
         "--timeout",
         type=int,
-        default=300,
-        help="gRPC timeout in seconds (default: 300)",
+        default=600,
+        help="gRPC timeout in seconds (default: 600)",
     )
     check_p.add_argument(
         "--session",

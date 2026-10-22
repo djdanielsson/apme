@@ -468,14 +468,14 @@ def _attach_snippets(violations: list[ViolationDict], files: list[File]) -> None
 async def _call_validator(
     address: str,
     request: ValidateRequest,
-    timeout: int = 300,
+    timeout: int = 600,
 ) -> _ValidatorResult:
     """Call a validator over async gRPC; return violations + diagnostics.
 
     Args:
         address: gRPC address of the validator (e.g. localhost:50055).
         request: ValidateRequest to send.
-        timeout: Request timeout in seconds (default 300 to accommodate
+        timeout: Request timeout in seconds (default 600 to accommodate
             collection health scanning of many large collections).
 
     Returns:

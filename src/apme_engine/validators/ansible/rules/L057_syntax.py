@@ -111,7 +111,7 @@ def run(
                 capture_output=True,
                 text=True,
                 cwd=str(root_dir),
-                timeout=60,
+                timeout=120,
                 env=env,
             )
         except subprocess.TimeoutExpired:

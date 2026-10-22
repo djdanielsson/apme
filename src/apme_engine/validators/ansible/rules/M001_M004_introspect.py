@@ -132,7 +132,7 @@ def _run_introspection(
             input=json.dumps(payload),
             capture_output=True,
             text=True,
-            timeout=30,
+            timeout=60,
             env=env,
         )
     except subprocess.TimeoutExpired:

@@ -146,7 +146,7 @@ _FAILED_BUILD_RE = re.compile(r"Failed to build `([^`]+)`")
 #: Wall-clock bound for a single pip/uv install invocation.  Without it a
 #: stalled index fetch hangs ``subprocess.run`` forever, pinning the
 #: ``run_in_executor`` worker until the session lifetime cap fires.
-_PIP_INSTALL_TIMEOUT_S = 600
+_PIP_INSTALL_TIMEOUT_S = 1200
 
 
 class PipInstallTimeout(TimeoutError):
@@ -375,7 +375,7 @@ def _prepare_collections_via_proxy(proxy_url: str, collection_specs: list[str]) 
             proxy_url.rstrip("/") + "/admin/prepare-collections",
             headers=headers,
             json={"specs": collection_specs},
-            timeout=360.0,
+            timeout=720.0,
         )
         response.raise_for_status()
     except httpx.HTTPError as exc:
@@ -713,7 +713,7 @@ def list_installed_packages(venv_dir: Path) -> list[tuple[str, str, str, str]]:
     cmd = [str(pip_python), "-c", script]
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
     except (subprocess.TimeoutExpired, OSError) as exc:
         logger.warning("Failed to list packages in %s: %s", venv_dir, exc)
         return []
@@ -757,7 +757,7 @@ def get_dependency_tree(venv_dir: Path) -> str:
 
     cmd = ["uv", "pip", "tree", "--python", str(pip_python)]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
     except (subprocess.TimeoutExpired, OSError) as exc:
         logger.warning("Failed to get dependency tree in %s: %s", venv_dir, exc)
         return ""
@@ -843,7 +843,7 @@ def list_installed_collections(venv_dir: Path) -> list[tuple[str, str, str, str]
         "/dev/null",
     ]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
     except (subprocess.TimeoutExpired, OSError) as exc:
         logger.warning("Failed to list collections in %s: %s", venv_dir, exc)
         return []

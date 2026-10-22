@@ -45,6 +45,24 @@ spec:
           value: "apme-dev-token"
         - name: APME_AI_MODEL
           value: "${APME_AI_MODEL}"
+        - name: APME_SESSION_TTL
+          value: "${APME_SESSION_TTL}"
+        - name: APME_SESSION_MAX_LIFETIME
+          value: "${APME_SESSION_MAX_LIFETIME}"
+        - name: APME_SESSION_VENV_BUILD_WAIT_S
+          value: "${APME_SESSION_VENV_BUILD_WAIT_S}"
+        - name: APME_OPERATION_SCAN_BASE
+          value: "${APME_OPERATION_SCAN_BASE}"
+        - name: APME_OPERATION_MIN_BUDGET
+          value: "${APME_OPERATION_MIN_BUDGET}"
+        - name: APME_OPERATION_PER_CALL_TIMEOUT
+          value: "${APME_OPERATION_PER_CALL_TIMEOUT}"
+        - name: APME_OPERATION_STALL_SECONDS
+          value: "${APME_OPERATION_STALL_SECONDS}"
+        - name: APME_OPERATION_TIER1_PER_VIOLATION
+          value: "${APME_OPERATION_TIER1_PER_VIOLATION}"
+        - name: APME_OPERATION_TIER1_MARGIN_CAP
+          value: "${APME_OPERATION_TIER1_MARGIN_CAP}"
         - name: OTEL_EXPORTER_OTLP_ENDPOINT
           value: "http://127.0.0.1:4318"
         - name: OTEL_SERVICE_NAME

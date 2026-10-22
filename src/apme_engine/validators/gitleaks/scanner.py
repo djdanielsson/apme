@@ -64,7 +64,7 @@ def _build_rule_id(gitleaks_rule_id: str) -> str:
     return f"{RULE_PREFIX}:{gitleaks_rule_id}"
 
 
-def run_gitleaks(scan_dir: str | Path, *, timeout: int = 120) -> list[dict[str, str | int | list[int] | None]]:
+def run_gitleaks(scan_dir: str | Path, *, timeout: int = 240) -> list[dict[str, str | int | list[int] | None]]:
     """Run gitleaks detect on *scan_dir* (no git required) and return violation dicts.
 
     Args:
@@ -244,7 +244,7 @@ def _resolve_node_id(
 def run_gitleaks_nodes(
     nodes: list[tuple[str, str]],
     *,
-    timeout: int = 120,
+    timeout: int = 240,
 ) -> list[ViolationDict]:
     """Scan node content for secrets via ``gitleaks detect --pipe`` stdin.
 

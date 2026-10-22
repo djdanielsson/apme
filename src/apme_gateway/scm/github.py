@@ -30,11 +30,11 @@ _BLOB_MIN_INTERVAL_S = 0.85
 _BLOB_MAX_RETRIES = 6
 _DEFAULT_RETRY_AFTER_S = 60.0
 _MAX_RETRY_AFTER_S = 180.0
-_PUSH_PER_REQUEST_TIMEOUT_S = 60.0
+_PUSH_PER_REQUEST_TIMEOUT_S = 120.0
 _PUSH_NON_BLOB_REQUEST_COUNT = 5
 # Baseline operation budget for small pushes. Large submissions scale above
 # this via the pacing floor (not a hard ceiling — see _blob_operation_timeout_s).
-_PUSH_BASE_OPERATION_TIMEOUT_S = 1800.0
+_PUSH_BASE_OPERATION_TIMEOUT_S = 3600.0
 # Back-compat alias for tests and callers that still import the old name.
 _PUSH_MAX_OPERATION_TIMEOUT_S = _PUSH_BASE_OPERATION_TIMEOUT_S
 
@@ -150,7 +150,7 @@ class GitHubProvider:
         """
         owner, repo = _parse_owner_repo(repo_url)
         gh_repo = GitHubRepo(api=self._api, owner=owner, repo=repo)
-        async with self._client(timeout=30) as client:
+        async with self._client(timeout=60) as client:
             resp = await client.get(
                 gh_repo.branch_ref_url(branch),
                 headers=self._headers(token),
@@ -185,7 +185,7 @@ class GitHubProvider:
             logger.info("Branch %s already exists on %s/%s", new_branch, owner, repo)
             return existing
 
-        async with self._client(timeout=30) as client:
+        async with self._client(timeout=60) as client:
             ref_resp = await client.get(
                 gh_repo.branch_ref_url(base_branch),
                 headers=self._headers(token),
@@ -350,7 +350,7 @@ class GitHubProvider:
             PullRequestResult with the URL.
         """
         owner, repo = _parse_owner_repo(repo_url)
-        async with self._client(timeout=30) as client:
+        async with self._client(timeout=60) as client:
             headers = self._headers(token)
             resp = await client.post(
                 f"{self._api}/repos/{owner}/{repo}/pulls",
@@ -453,7 +453,7 @@ def _blob_operation_timeout_s(file_count: int) -> float:
     non_blob_request_budget = _PUSH_NON_BLOB_REQUEST_COUNT * _PUSH_PER_REQUEST_TIMEOUT_S
     computed = file_count * per_file_pacing_and_retries + blob_request_budget + non_blob_request_budget
     floor = file_count * (_BLOB_MIN_INTERVAL_S + _PUSH_PER_REQUEST_TIMEOUT_S) + non_blob_request_budget
-    return max(120.0, min(max(_PUSH_BASE_OPERATION_TIMEOUT_S, floor), computed))
+    return max(240.0, min(max(_PUSH_BASE_OPERATION_TIMEOUT_S, floor), computed))
 
 
 def _remaining_operation_time_s(operation_deadline: float) -> float:

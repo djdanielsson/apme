@@ -375,7 +375,7 @@ def run_remediate(args: argparse.Namespace) -> None:
             # Tear down this attempt before any retry rebuilds it.
             stop_event.set()
             cmd_queue.put(None)
-            upload_thread.join(timeout=30)
+            upload_thread.join(timeout=60)
             if upload_thread.is_alive():
                 sys.stderr.write("Error: upload worker did not stop in time\n")
                 sys.exit(EXIT_ERROR)

@@ -25,8 +25,8 @@ from apme_engine.daemon.chunked_reporting import (
 
 logger = logging.getLogger("apme.events.grpc")
 
-_TIMEOUT_S = 10.0
-_STREAM_TIMEOUT_S = 120.0  # large streamed events + Gateway persist
+_TIMEOUT_S = 20.0
+_STREAM_TIMEOUT_S = 240.0  # large streamed events + Gateway persist
 _FAST_FAIL_TIMEOUT_S = 1.0
 _HEALTH_INTERVAL_S = 10.0
 _STARTUP_PROBE_RETRIES = 5

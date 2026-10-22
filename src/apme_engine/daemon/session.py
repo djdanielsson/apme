@@ -34,8 +34,8 @@ from apme_engine.engine.models import ViolationDict
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_TTL = int(os.environ.get("APME_SESSION_TTL", "1800"))  # 30 min
-_MAX_LIFETIME = get_env_int("APME_SESSION_MAX_LIFETIME", 7200)  # 2 hr
+_DEFAULT_TTL = int(os.environ.get("APME_SESSION_TTL", "3600"))  # 1 hr
+_MAX_LIFETIME = get_env_int("APME_SESSION_MAX_LIFETIME", 14400)  # 4 hr
 _MAX_SESSIONS = int(os.environ.get("APME_SESSION_MAX", "10"))
 _REAP_INTERVAL = 60  # seconds
 
@@ -62,7 +62,7 @@ _MAX_CONCURRENT_VENV_BUILDS = get_env_int("APME_SESSION_MAX_CONCURRENT_VENV_BUIL
 # holding streams/sessions). The engine takes a semaphore-free warm-hit peek
 # first (VenvSessionManager.peek_warm) and only cold/incremental builds wait
 # for a slot, so the bound only applies to scans that actually build.
-_VENV_BUILD_WAIT_S = get_env_float("APME_SESSION_VENV_BUILD_WAIT_S", 600.0, positive_only=True)
+_VENV_BUILD_WAIT_S = get_env_float("APME_SESSION_VENV_BUILD_WAIT_S", 1200.0, positive_only=True)
 
 _venv_build_semaphore: asyncio.Semaphore | None = None
 
@@ -88,7 +88,7 @@ def get_venv_build_semaphore() -> asyncio.Semaphore:
 async def limit_venv_builds() -> AsyncIterator[Callable[[asyncio.Future[object]], None]]:
     """Cap concurrent venv (pip/galaxy) builds across sessions (PE-20).
 
-    The wait is bounded by ``APME_SESSION_VENV_BUILD_WAIT_S`` (default 600s)
+    The wait is bounded by ``APME_SESSION_VENV_BUILD_WAIT_S`` (default 1200s)
     so hung builds fail fast instead of starving warm-hit scans forever.
 
     Yields:

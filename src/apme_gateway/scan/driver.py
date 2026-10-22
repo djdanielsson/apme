@@ -568,7 +568,7 @@ async def fetch_remote_head(
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=30,
+                timeout=60,
                 env=env,
             ),
         )
@@ -606,7 +606,7 @@ def get_clone_head(clone_dir: str) -> str | None:
             capture_output=True,
             text=True,
             cwd=clone_dir,
-            timeout=10,
+            timeout=20,
         )
         if result.returncode == 0:
             return result.stdout.strip()
@@ -691,12 +691,12 @@ async def clone_repo(
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=120,
+                timeout=240,
                 env=env,
             ),
         )
     except subprocess.TimeoutExpired as exc:
-        raise RuntimeError(f"git clone timed out after 120s for branch {branch[:60]}") from exc
+        raise RuntimeError(f"git clone timed out after 240s for branch {branch[:60]}") from exc
     if result.returncode != 0:
         safe_stderr = _redact_credentials(result.stderr)[:500]
         raise RuntimeError(f"git clone failed (exit {result.returncode}): {safe_stderr}")

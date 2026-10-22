@@ -150,7 +150,7 @@ class GitLabProvider:
             Commit SHA when the branch exists, else ``None``.
         """
         project = _parse_project_path(repo_url)
-        async with self._client(timeout=30) as client:
+        async with self._client(timeout=60) as client:
             resp = await client.get(
                 self._project_url(project, "repository/branches", quote(branch, safe="")),
                 headers=self._headers(token),
@@ -186,7 +186,7 @@ class GitLabProvider:
             logger.info("Branch %s already exists on GitLab project %s", new_branch, project)
             return existing
 
-        async with self._client(timeout=30) as client:
+        async with self._client(timeout=60) as client:
             resp = await client.post(
                 self._project_url(project, "repository/branches"),
                 headers=self._headers(token),
@@ -264,7 +264,7 @@ class GitLabProvider:
                 }
             )
 
-        async with self._client(timeout=60) as client:
+        async with self._client(timeout=120) as client:
             resp = await client.post(
                 self._project_url(project, "repository/commits"),
                 headers=headers,
@@ -325,7 +325,7 @@ class GitLabProvider:
             PullRequestResult with the MR web URL.
         """
         project = _parse_project_path(repo_url)
-        async with self._client(timeout=30) as client:
+        async with self._client(timeout=60) as client:
             headers = self._headers(token)
             resp = await client.post(
                 self._project_url(project, "merge_requests"),

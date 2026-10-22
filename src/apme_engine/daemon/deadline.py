@@ -21,13 +21,13 @@ logger = logging.getLogger("apme.deadline")
 _parse_int_env = get_env_int
 
 
-_DEFAULT_SCAN_BASE = _parse_int_env("APME_OPERATION_SCAN_BASE", 300)
-_DEFAULT_MIN_BUDGET = _parse_int_env("APME_OPERATION_MIN_BUDGET", 600)
-_DEFAULT_MAX_BUDGET = _parse_int_env("APME_SESSION_MAX_LIFETIME", 7200)
-_DEFAULT_PER_CALL_TIMEOUT = _parse_int_env("APME_OPERATION_PER_CALL_TIMEOUT", 60)
-_DEFAULT_STALL_SECONDS = _parse_int_env("APME_OPERATION_STALL_SECONDS", 600)
+_DEFAULT_SCAN_BASE = _parse_int_env("APME_OPERATION_SCAN_BASE", 600)
+_DEFAULT_MIN_BUDGET = _parse_int_env("APME_OPERATION_MIN_BUDGET", 1200)
+_DEFAULT_MAX_BUDGET = _parse_int_env("APME_SESSION_MAX_LIFETIME", 14400)
+_DEFAULT_PER_CALL_TIMEOUT = _parse_int_env("APME_OPERATION_PER_CALL_TIMEOUT", 120)
+_DEFAULT_STALL_SECONDS = _parse_int_env("APME_OPERATION_STALL_SECONDS", 1200)
 # Safe floor when operator budget bounds are invalid (ADR-068).
-FALLBACK_NON_AI_OPERATION_BUDGET = 600
+FALLBACK_NON_AI_OPERATION_BUDGET = 1200
 
 
 def parse_ai_concurrency(raw: str | None = None) -> int:
@@ -53,8 +53,8 @@ def parse_ai_concurrency(raw: str | None = None) -> int:
 
 _DEFAULT_AI_CONCURRENCY = parse_ai_concurrency()
 # Lightweight Tier 1 estimate: seconds per violation (ADR-068).
-_DEFAULT_TIER1_SECONDS_PER_VIOLATION = _parse_int_env("APME_OPERATION_TIER1_PER_VIOLATION", 2)
-_DEFAULT_TIER1_MARGIN_CAP = _parse_int_env("APME_OPERATION_TIER1_MARGIN_CAP", 600)
+_DEFAULT_TIER1_SECONDS_PER_VIOLATION = _parse_int_env("APME_OPERATION_TIER1_PER_VIOLATION", 4)
+_DEFAULT_TIER1_MARGIN_CAP = _parse_int_env("APME_OPERATION_TIER1_MARGIN_CAP", 1200)
 
 
 class BudgetConfigError(ValueError):

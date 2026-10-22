@@ -410,7 +410,7 @@ def run_opa(
         if not is_trial:
             raise OpaInfrastructureError("OPA evaluation is disabled by the circuit breaker")
 
-    timeout = 60
+    timeout = 120
     max_timeouts = _max_consecutive_timeouts()
     use_podman = os.environ.get("OPA_USE_PODMAN", "1").lower() not in ("0", "false", "no")
 

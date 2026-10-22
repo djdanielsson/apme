@@ -273,7 +273,7 @@ def _fetch_specs(
             input=json.dumps({"modules": module_names}),
             capture_output=True,
             text=True,
-            timeout=60,
+            timeout=120,
             env=env,
         )
     except subprocess.TimeoutExpired:

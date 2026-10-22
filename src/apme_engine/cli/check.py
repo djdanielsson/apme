@@ -217,7 +217,7 @@ def run_check(args: argparse.Namespace) -> None:
     got_result = False
 
     try:
-        check_timeout = float(getattr(args, "timeout", None) or 300)
+        check_timeout = float(getattr(args, "timeout", None) or 600)
         responses = stub.FixSession(command_iter(), timeout=check_timeout)
 
         for event in responses:
@@ -275,7 +275,7 @@ def run_check(args: argparse.Namespace) -> None:
     finally:
         stop_event.set()
         cmd_queue.put(None)
-        upload_thread.join(timeout=30)
+        upload_thread.join(timeout=60)
         if upload_thread.is_alive():
             sys.stderr.write("Error: upload worker did not stop in time\n")
             sys.exit(EXIT_ERROR)

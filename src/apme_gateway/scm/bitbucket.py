@@ -157,7 +157,7 @@ class BitbucketCloudProvider:
             Commit SHA when the branch exists, else ``None``.
         """
         workspace, repo = _parse_workspace_repo(repo_url)
-        async with self._client(timeout=30) as client:
+        async with self._client(timeout=60) as client:
             resp = await client.get(
                 self._repo_url(workspace, repo, "refs/branches", quote(branch, safe="")),
                 headers=_auth_headers(token),
@@ -201,7 +201,7 @@ class BitbucketCloudProvider:
             msg = f"Base branch '{base_branch}' not found on {workspace}/{repo}"
             raise ValueError(msg)
 
-        async with self._client(timeout=30) as client:
+        async with self._client(timeout=60) as client:
             resp = await client.post(
                 self._repo_url(workspace, repo, "refs/branches"),
                 headers={**_auth_headers(token), "Content-Type": "application/json"},
@@ -258,7 +258,7 @@ class BitbucketCloudProvider:
         for path, content in files.items():
             multipart.append((path, (path.split("/")[-1], content)))
 
-        async with self._client(timeout=60) as client:
+        async with self._client(timeout=120) as client:
             resp = await client.post(
                 self._repo_url(workspace, repo, "src"),
                 headers=_auth_headers(token),
@@ -302,7 +302,7 @@ class BitbucketCloudProvider:
             PullRequestResult with the PR web URL.
         """
         workspace, repo = _parse_workspace_repo(repo_url)
-        async with self._client(timeout=30) as client:
+        async with self._client(timeout=60) as client:
             headers = {**_auth_headers(token), "Content-Type": "application/json"}
             resp = await client.post(
                 self._repo_url(workspace, repo, "pullrequests"),
@@ -399,7 +399,7 @@ class BitbucketServerProvider:
             Commit SHA when the branch exists, else ``None``.
         """
         project, repo = parse_server_project_repo(repo_url)
-        async with self._client(timeout=30) as client:
+        async with self._client(timeout=60) as client:
             resp = await client.get(
                 self._repo_url(project, repo, "commits"),
                 headers=_auth_headers(token),
@@ -437,7 +437,7 @@ class BitbucketServerProvider:
             logger.info("Branch %s already exists on %s/%s", new_branch, project, repo)
             return existing
 
-        async with self._client(timeout=30) as client:
+        async with self._client(timeout=60) as client:
             resp = await client.post(
                 self._repo_url(project, repo, "branches"),
                 headers={**_auth_headers(token), "Content-Type": "application/json"},
@@ -498,7 +498,7 @@ class BitbucketServerProvider:
             msg = f"Cannot resolve tip of branch '{branch}' on {project}/{repo}"
             raise ValueError(msg)
 
-        async with self._client(timeout=60) as client:
+        async with self._client(timeout=120) as client:
             headers = _auth_headers(token)
             pushed_paths: list[str] = []
             for path, content in files.items():
@@ -568,7 +568,7 @@ class BitbucketServerProvider:
             PullRequestResult with the PR web URL.
         """
         project, repo = parse_server_project_repo(repo_url)
-        async with self._client(timeout=30) as client:
+        async with self._client(timeout=60) as client:
             headers = {**_auth_headers(token), "Content-Type": "application/json"}
             resp = await client.post(
                 self._repo_url(project, repo, "pull-requests"),

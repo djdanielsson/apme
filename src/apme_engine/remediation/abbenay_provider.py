@@ -40,12 +40,12 @@ _CHAT_RETRY_BASE_S = 2.0
 #: Added jitter upper bound so concurrent AI nodes do not retry in lockstep.
 _CHAT_RETRY_JITTER_S = 1.0
 #: Client-side bound for one streaming chat attempt.
-_CHAT_ATTEMPT_TIMEOUT_S = 300.0
+_CHAT_ATTEMPT_TIMEOUT_S = 600.0
 
 #: gRPC codes that may heal on reconnect and are safe to retry once.
 #: INTERNAL covers the most common blip (an HTTP/2 RST_STREAM surfacing
 #: as INTERNAL). DEADLINE_EXCEEDED stays retryable because each chat
-#: attempt carries its own client-side 300s bound
+#: attempt carries its own client-side 600s bound
 #: (``_CHAT_ATTEMPT_TIMEOUT_S``): one slow call deserves one retry, unlike
 #: whole-scan retries where DEADLINE_EXCEEDED means the server budget
 #: expired and retrying would double load. RESOURCE_EXHAUSTED (quota)

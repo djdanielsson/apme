@@ -31,7 +31,7 @@ _HTTP_URL_DEFAULT: Final = "http://127.0.0.1:8787"
 _HTTP_TOKEN_ENV: Final = "APME_ABBENAY_HTTP_TOKEN"
 _GRPC_TOKEN_ENV: Final = "APME_ABBENAY_TOKEN"
 _ABBENAY_API_TOKEN_ENV: Final = "ABBENAY_API_TOKEN"
-_PROXY_TIMEOUT_S: Final = 60.0
+_PROXY_TIMEOUT_S: Final = 120.0
 # Cleartext HTTP is only for the Simple loopback topology (ADR-070).
 _LOOPBACK_HOSTS: Final = frozenset({"127.0.0.1", "localhost", "::1"})
 

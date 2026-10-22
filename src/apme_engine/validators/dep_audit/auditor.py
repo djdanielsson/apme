@@ -65,7 +65,7 @@ def _find_site_packages(venv_dir: Path) -> Path | None:
 def run_pip_audit(
     venv_dir: Path,
     *,
-    timeout: int = 120,
+    timeout: int = 240,
 ) -> list[ViolationDict]:
     """Run pip-audit against a session venv and return violation dicts.
 

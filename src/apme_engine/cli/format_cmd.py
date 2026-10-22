@@ -59,7 +59,7 @@ def run_format(args: argparse.Namespace) -> None:
     channel, _ = resolve_engine(args)
     stub = engine_pb2_grpc.EngineStub(channel)  # type: ignore[no-untyped-call]
     try:
-        resp = stub.FormatStream(chunks, timeout=120)
+        resp = stub.FormatStream(chunks, timeout=240)
     except FileNotFoundError as e:
         # Chunks stream lazily from disk; a deletion race between target
         # pre-validation and the upload walk surfaces here, not at

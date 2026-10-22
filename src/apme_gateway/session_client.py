@@ -576,7 +576,7 @@ async def handle_session(
     it left off.
 
     No client-side gRPC deadline is applied.  Session lifetime is managed
-    by the Engine's session store (``APME_SESSION_TTL``, default 1800s).
+    by the Engine's session store (``APME_SESSION_TTL``, default 3600s).
 
     Args:
         ws: Accepted FastAPI WebSocket.
